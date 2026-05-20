@@ -21,7 +21,7 @@ export function App() {
           </header>
           <main className="home-main">
             <p className="home-welcome">Welcome. Ready to collect.</p>
-            <button className="test-btn">Test</button>
+            <button className="eva-button" type="button">eva</button>
           </main>
         </div>
       )}
