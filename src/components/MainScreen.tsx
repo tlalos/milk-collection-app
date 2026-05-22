@@ -57,7 +57,14 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
           setSyncError(`Server error (${err.status}): ${err.message}`)
         }
       } else {
-        setSyncError('Network error — could not reach the server. Check the URL in Settings.')
+        // Show the message thrown by syncOfflineUsers (e.g. missing credentials),
+        // or fall back to a generic network message for raw fetch failures.
+        const msg = (err as Error).message
+        setSyncError(
+          msg && !msg.toLowerCase().startsWith('failed to fetch')
+            ? msg
+            : 'Network error — could not reach the server. Check the URL in Settings.'
+        )
       }
     }
   }

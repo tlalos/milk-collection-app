@@ -102,6 +102,35 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           </div>
 
           <div className="settings-field">
+            <label htmlFor="apiUsername">API username</label>
+            <input
+              id="apiUsername"
+              type="text"
+              autoCapitalize="none"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="admin"
+              value={settings.apiUsername}
+              onChange={e => handleChange('apiUsername', e.target.value)}
+            />
+            <p className="settings-hint">
+              Used only to authenticate the <em>Sync users</em> call — not stored in the session.
+            </p>
+          </div>
+
+          <div className="settings-field">
+            <label htmlFor="apiPassword">API password</label>
+            <input
+              id="apiPassword"
+              type="password"
+              autoComplete="new-password"
+              placeholder="••••••••"
+              value={settings.apiPassword}
+              onChange={e => handleChange('apiPassword', e.target.value)}
+            />
+          </div>
+
+          <div className="settings-field">
             <label htmlFor="timeout">Request timeout (ms)</label>
             <input
               id="timeout"

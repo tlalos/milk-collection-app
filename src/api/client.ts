@@ -21,6 +21,8 @@ function getBaseUrl(): string {
 interface RequestOptions {
   authorized?: boolean
   signal?: AbortSignal
+  /** Explicit Bearer token — takes precedence over the token stored in localStorage. */
+  token?: string
 }
 
 export async function apiPost<TBody, TResponse>(
@@ -61,10 +63,8 @@ export async function apiGet<TResponse>(
 ): Promise<TResponse> {
   const headers: Record<string, string> = {}
 
-  if (options.authorized !== false) {
-    const token = getToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-  }
+  const resolvedToken = options.token ?? (options.authorized !== false ? getToken() : null)
+  if (resolvedToken) headers['Authorization'] = `Bearer ${resolvedToken}`
 
   const qs = new URLSearchParams(params).toString()
   const url = `${getBaseUrl()}/${path}${qs ? `?${qs}` : ''}`
