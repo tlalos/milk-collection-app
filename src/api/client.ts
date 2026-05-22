@@ -1,0 +1,51 @@
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+function getToken(): string | null {
+  return localStorage.getItem('auth_token')
+}
+
+interface RequestOptions {
+  authorized?: boolean
+  signal?: AbortSignal
+}
+
+export async function apiPost<TBody, TResponse>(
+  path: string,
+  body: TBody,
+  options: RequestOptions = {},
+): Promise<TResponse> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+
+  if (options.authorized) {
+    const token = getToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const res = await fetch(`${BASE_URL}/${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: options.signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new ApiError(res.status, text || res.statusText)
+  }
+
+  // 201 / 204 responses may have no body
+  const text = await res.text()
+  return text ? (JSON.parse(text) as TResponse) : (undefined as TResponse)
+}

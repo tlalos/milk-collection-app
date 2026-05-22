@@ -10,7 +10,7 @@ dist-ssr/
 node_modules/.tmp/
 node_modules/.vite/
 
-# Environment files
+# Environment files — keep .env.example, ignore everything with real values
 .env
 .env.local
 .env.*.local
