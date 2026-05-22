@@ -28,6 +28,12 @@ export async function syncOfflineUsers(signal?: AbortSignal): Promise<number> {
   // Step 2: fetch users using that token (bypasses any stored session token)
   const users = await getOfflineUsers(signal, loginResponse.access_token)
 
+  // Log the first record so we can verify the actual field names from the server
+  if (users.length > 0) {
+    console.log('[syncOfflineUsers] sample record keys:', Object.keys(users[0]))
+    console.log('[syncOfflineUsers] sample record:', users[0])
+  }
+
   // Step 3: replace local copy
   await db.offlineUsers.clear()
   await db.offlineUsers.bulkPut(users)

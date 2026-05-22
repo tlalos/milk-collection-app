@@ -1,5 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie'
-import type { UserSettings } from '../types/auth'
+import Dexie, { type EntityTable, type Table } from 'dexie'
 
 export interface Collection {
   id: number
@@ -30,20 +29,19 @@ export interface SyncLog {
   status: 'pending' | 'synced' | 'failed'
 }
 
-export interface OfflineUser {
-  user_id: number
-  user_name: string
-  user_password: string
-  user_fullname: string
-  user_isadmin: number
-  user_settings: UserSettings | null
-}
+/**
+ * Raw object as returned by ERP_GetOfflineUsers.
+ * Field names depend on the server's ERP_OfflineUsers C# class — we treat them
+ * as unknown until confirmed, so we store the whole object and query by value.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type OfflineUser = Record<string, any>
 
 class MilkDb extends Dexie {
   collections!: EntityTable<Collection, 'id'>
   farmers!: EntityTable<Farmer, 'id'>
   syncLogs!: EntityTable<SyncLog, 'id'>
-  offlineUsers!: EntityTable<OfflineUser, 'user_id'>
+  offlineUsers!: Table<OfflineUser>
 
   constructor() {
     super('MilkCollectionDB')
@@ -55,9 +53,14 @@ class MilkDb extends Dexie {
       syncLogs: '++id, table, status, timestamp',
     })
 
-    // v2 — offline user store for local authentication
+    // v2 — offline user store (initial, wrong key path — replaced in v3)
     this.version(2).stores({
       offlineUsers: 'user_id, user_name',
+    })
+
+    // v3 — use auto-increment key so any server shape is accepted
+    this.version(3).stores({
+      offlineUsers: '++_localId',
     })
   }
 }
