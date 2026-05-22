@@ -79,6 +79,27 @@ body {
   padding: 3px 10px;
 }
 
+.home-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  border-radius: 50%;
+  color: rgba(255,255,255,0.9);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.home-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.home-icon-btn:active { background: rgba(255,255,255,0.28); }
+
 .logout-btn {
   font-size: 0.75rem;
   font-weight: 600;

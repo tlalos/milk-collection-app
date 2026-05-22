@@ -1,4 +1,4 @@
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
+import { settingsStore } from '../store/settingsStore'
 
 export class ApiError extends Error {
   constructor(
@@ -12,6 +12,10 @@ export class ApiError extends Error {
 
 function getToken(): string | null {
   return localStorage.getItem('auth_token')
+}
+
+function getBaseUrl(): string {
+  return settingsStore.getServerUrl().replace(/\/+$/, '')
 }
 
 interface RequestOptions {
@@ -33,7 +37,7 @@ export async function apiPost<TBody, TResponse>(
     if (token) headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${BASE_URL}/${path}`, {
+  const res = await fetch(`${getBaseUrl()}/${path}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -48,4 +52,18 @@ export async function apiPost<TBody, TResponse>(
   // 201 / 204 responses may have no body
   const text = await res.text()
   return text ? (JSON.parse(text) as TResponse) : (undefined as TResponse)
+}
+
+/** Probe the server — resolves true if any HTTP response is received. */
+export async function testConnection(serverUrl: string): Promise<boolean> {
+  const url = serverUrl.replace(/\/+$/, '')
+  try {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), 8000)
+    const res = await fetch(url, { method: 'HEAD', signal: ac.signal })
+    clearTimeout(timer)
+    return res.status < 600
+  } catch {
+    return false
+  }
 }
