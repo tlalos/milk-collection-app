@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { ApiError } from '../api/client'
 import { db } from '../db/database'
+import { settingsStore } from '../store/settingsStore'
 import { syncOfflineUsers } from '../sync/syncOfflineUsers'
 import './MainScreen.css'
 
@@ -25,6 +27,14 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
 
   async function handleSync() {
     if (syncStatus === 'syncing') return
+
+    const serverUrl = settingsStore.getServerUrl()
+    if (!serverUrl) {
+      setSyncStatus('error')
+      setSyncError('No server URL configured. Go to Settings and enter the server address first.')
+      return
+    }
+
     setSyncStatus('syncing')
     setSyncError('')
     abortRef.current = new AbortController()
@@ -33,9 +43,21 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
       await syncOfflineUsers(abortRef.current.signal)
       setSyncStatus('done')
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setSyncStatus('error')
-        setSyncError('Sync failed. Check server connection and try again.')
+      if ((err as Error).name === 'AbortError') return
+      setSyncStatus('error')
+      if (err instanceof ApiError) {
+        if (err.status === 401 || err.status === 403) {
+          setSyncError(
+            'Server requires authentication to sync users (HTTP ' + err.status + '). ' +
+            'Ask your administrator to mark ERP_GetOfflineUsers as [AllowAnonymous].'
+          )
+        } else if (err.status === 404) {
+          setSyncError('Endpoint not found (404). Check the server URL in Settings.')
+        } else {
+          setSyncError(`Server error (${err.status}): ${err.message}`)
+        }
+      } else {
+        setSyncError('Network error — could not reach the server. Check the URL in Settings.')
       }
     }
   }
