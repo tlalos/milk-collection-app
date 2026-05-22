@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { login } from '../api/authApi'
 import { authStore } from '../store/authStore'
+import { settingsStore } from '../store/settingsStore'
 import { ApiError } from '../api/client'
 import type { AuthUser } from '../types/auth'
 import './LoginScreen.css'
@@ -28,8 +29,9 @@ export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPass
     abortRef.current = new AbortController()
 
     try {
+      const { defaultFiscalYear } = settingsStore.get()
       const response = await login(
-        { Username: username, Password: password },
+        { Username: username, Password: password, fiscalyear: defaultFiscalYear },
         abortRef.current.signal,
       )
       authStore.save(response)
