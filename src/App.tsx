@@ -3,11 +3,12 @@ import { StartupScreen } from './components/StartupScreen'
 import { MainScreen } from './components/MainScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { SettingsScreen } from './components/SettingsScreen'
+import { CustomersScreen } from './components/CustomersScreen'
 import { authStore } from './store/authStore'
 import type { AuthUser } from './types/auth'
 import './App.css'
 
-type Screen = 'startup' | 'main' | 'login' | 'settings' | 'home'
+type Screen = 'startup' | 'main' | 'login' | 'settings' | 'home' | 'customers'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('startup')
@@ -65,6 +66,10 @@ export function App() {
         <SettingsScreen onBack={() => setScreen(prevScreen)} />
       )}
 
+      {screen === 'customers' && (
+        <CustomersScreen onBack={() => setScreen('home')} />
+      )}
+
       {screen === 'home' && (
         <div className="home-screen">
           <header className="home-header">
@@ -91,9 +96,26 @@ export function App() {
               </button>
             </div>
           </header>
+
           <main className="home-main">
-            <p className="home-welcome">Welcome. Ready to collect.</p>
-            <button className="eva-button" type="button">eva</button>
+            <p className="home-welcome">What would you like to do?</p>
+            <div className="home-grid">
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => setScreen('customers')}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Customers</span>
+              </button>
+            </div>
           </main>
         </div>
       )}

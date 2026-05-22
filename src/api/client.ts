@@ -54,6 +54,34 @@ export async function apiPost<TBody, TResponse>(
   return text ? (JSON.parse(text) as TResponse) : (undefined as TResponse)
 }
 
+export async function apiGet<TResponse>(
+  path: string,
+  params: Record<string, string> = {},
+  options: RequestOptions = {},
+): Promise<TResponse> {
+  const headers: Record<string, string> = {}
+
+  if (options.authorized !== false) {
+    const token = getToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const qs = new URLSearchParams(params).toString()
+  const url = `${getBaseUrl()}/${path}${qs ? `?${qs}` : ''}`
+
+  const res = await fetch(url, { method: 'GET', headers, signal: options.signal })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText)
+    throw new ApiError(res.status, text || res.statusText)
+  }
+
+  const text = await res.text()
+  // Server may double-encode: Ok(JsonConvert.SerializeObject(...)) → JSON string
+  const parsed = text ? (JSON.parse(text) as TResponse | string) : undefined
+  return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
+}
+
 /** Probe the server — resolves true if any HTTP response is received. */
 export async function testConnection(serverUrl: string): Promise<boolean> {
   const url = serverUrl.replace(/\/+$/, '')
