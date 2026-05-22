@@ -3,11 +3,14 @@ import type { AuthUser, LoginResponse } from '../types/auth'
 const TOKEN_KEY = 'auth_token'
 const USER_KEY = 'auth_user'
 const EXPIRY_KEY = 'auth_expiry'
+// Intentionally never cleared — survives logout and token expiry
+const LAST_USERNAME_KEY = 'auth_last_username'
 
 export const authStore = {
   save(response: LoginResponse): void {
     localStorage.setItem(TOKEN_KEY, response.access_token)
     localStorage.setItem(EXPIRY_KEY, response.expiration_Time)
+    localStorage.setItem(LAST_USERNAME_KEY, response.user_name)
     const user: AuthUser = {
       id: response.user_id,
       username: response.user_name,
@@ -30,6 +33,10 @@ export const authStore = {
     } catch {
       return null
     }
+  },
+
+  getLastUsername(): string {
+    return localStorage.getItem(LAST_USERNAME_KEY) ?? ''
   },
 
   isLoggedIn(): boolean {

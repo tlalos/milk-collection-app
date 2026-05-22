@@ -8,10 +8,11 @@ import './LoginScreen.css'
 interface LoginScreenProps {
   onLogin: (user: AuthUser) => void
   onSettings: () => void
+  initialUsername?: string
 }
 
-export function LoginScreen({ onLogin, onSettings }: LoginScreenProps) {
-  const [username, setUsername] = useState('')
+export function LoginScreen({ onLogin, onSettings, initialUsername = '' }: LoginScreenProps) {
+  const [username, setUsername] = useState(initialUsername)
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

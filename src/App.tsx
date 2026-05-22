@@ -48,6 +48,7 @@ export function App() {
         <LoginScreen
           onLogin={handleLogin}
           onSettings={() => openSettings('login')}
+          initialUsername={authStore.getLastUsername()}
         />
       )}
 
