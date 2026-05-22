@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getCustomers } from '../api/customersApi'
 import { ApiError } from '../api/client'
-import type { FS_Customer } from '../types/customers'
+import type { ERP_Customer } from '../types/customers'
 import './CustomersScreen.css'
 
 interface CustomersScreenProps {
@@ -10,7 +10,7 @@ interface CustomersScreenProps {
 
 export function CustomersScreen({ onBack }: CustomersScreenProps) {
   const [search, setSearch] = useState('')
-  const [customers, setCustomers] = useState<FS_Customer[]>([])
+  const [customers, setCustomers] = useState<ERP_Customer[]>([])
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -114,23 +114,23 @@ export function CustomersScreen({ onBack }: CustomersScreenProps) {
         {customers.length > 0 && (
           <ul className="customers-list">
             {customers.map(c => (
-              <li key={c.TRDR} className="customer-card">
+              <li key={c.cus_id} className="customer-card">
                 <div className="customer-avatar">
-                  {(c.NAME || '?').charAt(0).toUpperCase()}
+                  {(c.cus_name || '?').charAt(0).toUpperCase()}
                 </div>
                 <div className="customer-info">
-                  <span className="customer-name">{c.NAME}</span>
+                  <span className="customer-name">{c.cus_name}</span>
                   <span className="customer-meta">
-                    {[c.CODE, c.AFM].filter(Boolean).join(' · ')}
+                    {[c.cus_code, c.cus_afm].filter(Boolean).join(' · ')}
                   </span>
-                  {(c.CITY || c.ADDRESS) && (
+                  {(c.cus_city || c.cus_address) && (
                     <span className="customer-address">
-                      {[c.ADDRESS, c.CITY].filter(Boolean).join(', ')}
+                      {[c.cus_address, c.cus_city].filter(Boolean).join(', ')}
                     </span>
                   )}
-                  {(c.PHONE01 || c.EMAIL) && (
+                  {(c.cus_phone || c.cus_email) && (
                     <span className="customer-contact">
-                      {[c.PHONE01, c.EMAIL].filter(Boolean).join(' · ')}
+                      {[c.cus_phone, c.cus_email].filter(Boolean).join(' · ')}
                     </span>
                   )}
                 </div>
