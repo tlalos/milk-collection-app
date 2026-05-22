@@ -5,12 +5,14 @@ const USER_KEY = 'auth_user'
 const EXPIRY_KEY = 'auth_expiry'
 // Intentionally never cleared — survives logout and token expiry
 const LAST_USERNAME_KEY = 'auth_last_username'
+const LAST_PASSWORD_KEY = 'auth_last_password'
 
 export const authStore = {
   save(response: LoginResponse): void {
     localStorage.setItem(TOKEN_KEY, response.access_token)
     localStorage.setItem(EXPIRY_KEY, response.expiration_Time)
     localStorage.setItem(LAST_USERNAME_KEY, response.user_name)
+    localStorage.setItem(LAST_PASSWORD_KEY, response.user_password)
     const user: AuthUser = {
       id: response.user_id,
       username: response.user_name,
@@ -37,6 +39,10 @@ export const authStore = {
 
   getLastUsername(): string {
     return localStorage.getItem(LAST_USERNAME_KEY) ?? ''
+  },
+
+  getLastPassword(): string {
+    return localStorage.getItem(LAST_PASSWORD_KEY) ?? ''
   },
 
   isLoggedIn(): boolean {

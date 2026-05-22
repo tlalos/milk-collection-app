@@ -9,11 +9,12 @@ interface LoginScreenProps {
   onLogin: (user: AuthUser) => void
   onBack: () => void
   initialUsername?: string
+  initialPassword?: string
 }
 
-export function LoginScreen({ onLogin, onBack, initialUsername = '' }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPassword = '' }: LoginScreenProps) {
   const [username, setUsername] = useState(initialUsername)
-  const [password, setPassword] = useState('')
+  const [password, setPassword] = useState(initialPassword)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)

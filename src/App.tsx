@@ -57,6 +57,7 @@ export function App() {
           onLogin={handleLogin}
           onBack={() => setScreen('main')}
           initialUsername={authStore.getLastUsername()}
+          initialPassword={authStore.getLastPassword()}
         />
       )}
 
