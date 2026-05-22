@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react'
 import { login } from '../api/authApi'
 import { authStore } from '../store/authStore'
-import { settingsStore } from '../store/settingsStore'
 import { ApiError } from '../api/client'
 import type { AuthUser } from '../types/auth'
 import './LoginScreen.css'

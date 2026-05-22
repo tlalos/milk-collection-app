@@ -1,19 +1,34 @@
 import { useState } from 'react'
-import { StartupScreen } from './components/StartupScreen'
-import { MainScreen } from './components/MainScreen'
-import { LoginScreen } from './components/LoginScreen'
-import { SettingsScreen } from './components/SettingsScreen'
 import { CustomersScreen } from './components/CustomersScreen'
+import { LoginScreen } from './components/LoginScreen'
+import { MainScreen } from './components/MainScreen'
+import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
+import { SettingsScreen } from './components/SettingsScreen'
+import { StartupScreen } from './components/StartupScreen'
+import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
+import { mockSuppliers } from './data/mockSuppliers'
 import { authStore } from './store/authStore'
 import type { AuthUser } from './types/auth'
+import type { SubmittedCollection, Supplier } from './types'
 import './App.css'
 
-type Screen = 'startup' | 'main' | 'login' | 'settings' | 'home' | 'customers'
+type Screen =
+  | 'startup'
+  | 'main'
+  | 'login'
+  | 'settings'
+  | 'home'
+  | 'customers'
+  | 'suppliers'
+  | 'entry'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('startup')
   const [prevScreen, setPrevScreen] = useState<Screen>('main')
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
+  const [submittedCollections, setSubmittedCollections] = useState<SubmittedCollection[]>([])
+  const [successMessage, setSuccessMessage] = useState('')
 
   function handleStartupComplete() {
     if (authStore.isLoggedIn()) {
@@ -37,7 +52,32 @@ export function App() {
   function handleLogout() {
     authStore.clear()
     setUser(null)
+    setSelectedSupplier(null)
+    setSuccessMessage('')
     setScreen('main')
+  }
+
+  function openSupplierSelection() {
+    setSelectedSupplier(null)
+    setScreen('suppliers')
+  }
+
+  function openSupplierEntry(supplier: Supplier) {
+    setSelectedSupplier(supplier)
+    setSuccessMessage('')
+    setScreen('entry')
+  }
+
+  function returnToSuppliers() {
+    setSelectedSupplier(null)
+    setScreen('suppliers')
+  }
+
+  function submitCollection(collection: SubmittedCollection) {
+    setSubmittedCollections((current) => [collection, ...current])
+    setSuccessMessage(`Collection submitted for ${collection.supplier.name}.`)
+    setSelectedSupplier(null)
+    setScreen('suppliers')
   }
 
   return (
@@ -70,6 +110,24 @@ export function App() {
         <CustomersScreen onBack={() => setScreen('home')} />
       )}
 
+      {screen === 'suppliers' && (
+        <SupplierSelectionScreen
+          suppliers={mockSuppliers}
+          successMessage={successMessage}
+          submittedCount={submittedCollections.length}
+          onBack={() => setScreen('home')}
+          onSelectSupplier={openSupplierEntry}
+        />
+      )}
+
+      {screen === 'entry' && selectedSupplier && (
+        <MilkCollectionEntryScreen
+          supplier={selectedSupplier}
+          onBack={returnToSuppliers}
+          onSubmit={submitCollection}
+        />
+      )}
+
       {screen === 'home' && (
         <div className="home-screen">
           <header className="home-header">
@@ -100,6 +158,22 @@ export function App() {
           <main className="home-main">
             <p className="home-welcome">What would you like to do?</p>
             <div className="home-grid">
+              <button
+                className="home-tile"
+                type="button"
+                onClick={openSupplierSelection}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 3h8" />
+                    <path d="M10 3v4l-3 5v6a3 3 0 003 3h4a3 3 0 003-3v-6l-3-5V3" />
+                    <path d="M7 14h10" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Milk collection</span>
+              </button>
+
               <button
                 className="home-tile"
                 type="button"
