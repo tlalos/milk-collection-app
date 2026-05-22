@@ -18,11 +18,18 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
   const [userCount, setUserCount] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Load existing offline user count on mount and after each sync
+  // Refresh user count whenever a sync completes
   useEffect(() => {
     db.offlineUsers.count()
       .then(n => setUserCount(n))
       .catch(() => setUserCount(null))
+  }, [syncStatus])
+
+  // Auto-reset 'done' checkmark after 2 s
+  useEffect(() => {
+    if (syncStatus !== 'done') return
+    const t = setTimeout(() => setSyncStatus('idle'), 2000)
+    return () => clearTimeout(t)
   }, [syncStatus])
 
   async function handleSync() {
@@ -31,7 +38,7 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
     const serverUrl = settingsStore.getServerUrl()
     if (!serverUrl) {
       setSyncStatus('error')
-      setSyncError('No server URL configured. Go to Settings and enter the server address first.')
+      setSyncError('No server URL configured. Open Settings first.')
       return
     }
 
@@ -47,23 +54,18 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
       setSyncStatus('error')
       if (err instanceof ApiError) {
         if (err.status === 401 || err.status === 403) {
-          setSyncError(
-            'Server requires authentication to sync users (HTTP ' + err.status + '). ' +
-            'Ask your administrator to mark ERP_GetOfflineUsers as [AllowAnonymous].'
-          )
+          setSyncError(`Authentication failed (${err.status}). Check API credentials in Settings.`)
         } else if (err.status === 404) {
           setSyncError('Endpoint not found (404). Check the server URL in Settings.')
         } else {
           setSyncError(`Server error (${err.status}): ${err.message}`)
         }
       } else {
-        // Show the message thrown by syncOfflineUsers (e.g. missing credentials),
-        // or fall back to a generic network message for raw fetch failures.
         const msg = (err as Error).message
         setSyncError(
           msg && !msg.toLowerCase().startsWith('failed to fetch')
             ? msg
-            : 'Network error — could not reach the server. Check the URL in Settings.'
+            : 'Network error — could not reach the server. Check Settings.'
         )
       }
     }
@@ -73,14 +75,40 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
 
   return (
     <div className="main-screen">
-      {/* Settings gear — top-right */}
-      <button className="main-settings-btn" type="button" onClick={onSettings} aria-label="Settings">
-        <svg viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-        </svg>
-      </button>
 
-      {/* Hero */}
+      {/* ── Top-right action buttons ── */}
+      <div className="main-top-actions">
+
+        {/* Sync icon button */}
+        <button
+          className={`main-icon-btn${syncStatus === 'done' ? ' icon-btn-success' : ''}${syncStatus === 'error' ? ' icon-btn-error' : ''}`}
+          type="button"
+          onClick={handleSync}
+          disabled={syncStatus === 'syncing'}
+          aria-label="Sync users"
+        >
+          {syncStatus === 'done' ? (
+            /* Checkmark */
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            /* Sync arrows — spins while syncing */
+            <svg viewBox="0 0 20 20" fill="currentColor" className={syncStatus === 'syncing' ? 'spin' : ''}>
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+          )}
+        </button>
+
+        {/* Settings icon button */}
+        <button className="main-icon-btn" type="button" onClick={onSettings} aria-label="Settings">
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
+
+      {/* ── Hero ── */}
       <div className="main-hero">
         <div className="main-logo">
           <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -122,57 +150,26 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
         </div>
       </div>
 
-      {/* Bottom card */}
+      {/* ── Bottom card ── */}
       <div className="main-bottom">
-        {/* Sync section */}
-        <div className="main-sync-section">
-          <div className="main-sync-info">
-            {hasSyncedUsers ? (
-              <span className="main-sync-ready">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.78 5.78a.75.75 0 00-1.06-1.06L7 9.44 5.28 7.72a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l4.25-4.25z"/>
-                </svg>
-                {userCount} {userCount === 1 ? 'user' : 'users'} ready for offline login
-              </span>
-            ) : (
-              <span className="main-sync-hint">Sync users to enable offline login</span>
-            )}
-          </div>
 
-          <button
-            className={`main-sync-btn${syncStatus === 'syncing' ? ' syncing' : ''}${syncStatus === 'done' ? ' done' : ''}`}
-            type="button"
-            onClick={handleSync}
-            disabled={syncStatus === 'syncing'}
-          >
-            {syncStatus === 'syncing' ? (
-              <>
-                <span className="main-sync-spinner" />
-                Syncing…
-              </>
-            ) : syncStatus === 'done' ? (
-              <>
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.78 5.78a.75.75 0 00-1.06-1.06L7 9.44 5.28 7.72a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l4.25-4.25z"/>
-                </svg>
-                Sync complete
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M13.5 2.5a.5.5 0 01.5.5v3a.5.5 0 01-.5.5h-3a.5.5 0 010-1h1.89A5 5 0 003.1 8.26a.5.5 0 01-.99-.13A6 6 0 0113.5 5.62V3a.5.5 0 01.5-.5zM2.5 9.5a.5.5 0 01.5-.5h3a.5.5 0 010 1H4.11A5 5 0 0012.9 7.74a.5.5 0 01.99.13A6 6 0 012.5 10.38V13a.5.5 0 01-1 0v-3a.5.5 0 01.5-.5z"/>
-                </svg>
-                Sync users
-              </>
-            )}
-          </button>
-
-          {syncStatus === 'error' && (
-            <p className="main-sync-error">{syncError}</p>
+        {/* User sync status */}
+        <div className="main-sync-status">
+          {hasSyncedUsers ? (
+            <span className="main-sync-ready">
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.78 5.78a.75.75 0 00-1.06-1.06L7 9.44 5.28 7.72a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.06 0l4.25-4.25z"/>
+              </svg>
+              {userCount} {userCount === 1 ? 'user' : 'users'} ready for offline login
+            </span>
+          ) : (
+            <span className="main-sync-hint">Tap the sync button above to enable offline login</span>
           )}
         </div>
 
-        <div className="main-divider" />
+        {syncStatus === 'error' && (
+          <p className="main-sync-error">{syncError}</p>
+        )}
 
         <button
           className="main-signin-btn"
