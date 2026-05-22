@@ -137,49 +137,6 @@
   transform: scale(0.98);
 }
 
-/* Fiscal year select */
-.login-select-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.login-select-wrap select {
-  width: 100%;
-  height: 48px;
-  padding: 0 40px 0 14px;
-  border: 1.5px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 1rem;
-  color: #111827;
-  background: #f9fafb;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.login-select-wrap select:focus {
-  border-color: #1a6b3c;
-  box-shadow: 0 0 0 3px rgba(26, 107, 60, 0.12);
-  background: #fff;
-}
-
-.login-select-wrap select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.login-select-arrow {
-  position: absolute;
-  right: 12px;
-  width: 18px;
-  height: 18px;
-  color: #6b7280;
-  pointer-events: none;
-}
-
 /* Spinner */
 .login-spinner {
   width: 22px;

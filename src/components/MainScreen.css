@@ -136,13 +136,120 @@
   transition: background 0.15s, transform 0.1s;
 }
 
-.main-signin-btn:active {
+.main-signin-btn:active:not(:disabled) {
   background: #2d8a56;
   transform: scale(0.98);
+}
+
+.main-signin-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .main-version {
   font-size: 0.75rem;
   color: #9ca3af;
   margin: 0;
+}
+
+/* ── Sync section ── */
+.main-sync-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.main-sync-info {
+  text-align: center;
+  min-height: 20px;
+}
+
+.main-sync-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1a6b3c;
+}
+
+.main-sync-ready svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.main-sync-hint {
+  font-size: 0.82rem;
+  color: #9ca3af;
+}
+
+.main-sync-btn {
+  width: 100%;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  color: #1a6b3c;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: 2px solid #1a6b3c;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+  letter-spacing: 0.1px;
+}
+
+.main-sync-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.main-sync-btn:not(:disabled):active {
+  background: rgba(26, 107, 60, 0.08);
+  transform: scale(0.98);
+}
+
+.main-sync-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.main-sync-btn.done {
+  color: #1a6b3c;
+  border-color: #1a6b3c;
+  background: rgba(26, 107, 60, 0.06);
+}
+
+.main-sync-error {
+  font-size: 0.8rem;
+  color: #b91c1c;
+  text-align: center;
+  margin: 0;
+}
+
+/* Sync spinner */
+.main-sync-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(26, 107, 60, 0.25);
+  border-top-color: #1a6b3c;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Divider between sync and sign-in */
+.main-divider {
+  width: 100%;
+  height: 1px;
+  background: #e5e7eb;
 }

@@ -1,7 +1,6 @@
-import { useState, useRef } from 'react'
-import { login } from '../api/authApi'
+import { useState } from 'react'
+import { db } from '../db/database'
 import { authStore } from '../store/authStore'
-import { ApiError } from '../api/client'
 import type { AuthUser } from '../types/auth'
 import './LoginScreen.css'
 
@@ -12,18 +11,11 @@ interface LoginScreenProps {
   initialPassword?: string
 }
 
-const currentYear = new Date().getFullYear()
-const fiscalYearOptions = [currentYear, currentYear - 1]
-
 export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPassword = '' }: LoginScreenProps) {
   const [username, setUsername] = useState(initialUsername)
   const [password, setPassword] = useState(initialPassword)
-  const [fiscalYear, setFiscalYear] = useState<number>(
-    () => Number(authStore.getLastFiscalYear()) || currentYear
-  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -31,31 +23,36 @@ export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPass
 
     setError(null)
     setLoading(true)
-    abortRef.current = new AbortController()
 
     try {
-      const response = await login(
-        { Username: username, Password: password, fiscalyear: String(fiscalYear) },
-        abortRef.current.signal,
+      // Find user in the locally-synced offline user store
+      const allUsers = await db.offlineUsers.toArray()
+      const localUser = allUsers.find(
+        u => u.user_name.toLowerCase() === username.trim().toLowerCase()
       )
-      authStore.save(response, String(fiscalYear))
-      onLogin({
-        id: response.user_id,
-        username: response.user_name,
-        fullName: response.user_fullname,
-        isAdmin: response.user_isadmin === 1,
-        settings: response.user_settings,
-      })
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 404 || err.status === 401) {
-          setError('Invalid username or password.')
-        } else {
-          setError(`Server error (${err.status}). Please try again.`)
-        }
-      } else if ((err as Error).name !== 'AbortError') {
-        setError('Network error. Check your connection and try again.')
+
+      if (!localUser) {
+        setError('User not found. Please sync users from the main screen first.')
+        return
       }
+
+      if (localUser.user_password !== password) {
+        setError('Invalid username or password.')
+        return
+      }
+
+      const user: AuthUser = {
+        id: localUser.user_id,
+        username: localUser.user_name,
+        fullName: localUser.user_fullname,
+        isAdmin: localUser.user_isadmin === 1,
+        settings: localUser.user_settings,
+      }
+
+      authStore.saveOfflineSession(user, password)
+      onLogin(user)
+    } catch {
+      setError('Error accessing local data. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -101,25 +98,6 @@ export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPass
               disabled={loading}
               required
             />
-          </div>
-
-          <div className="login-field">
-            <label htmlFor="fiscalYear">Fiscal year</label>
-            <div className="login-select-wrap">
-              <select
-                id="fiscalYear"
-                value={fiscalYear}
-                onChange={e => setFiscalYear(Number(e.target.value))}
-                disabled={loading}
-              >
-                {fiscalYearOptions.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-              <svg className="login-select-arrow" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </div>
           </div>
 
           {error && (
