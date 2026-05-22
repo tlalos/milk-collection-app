@@ -29,13 +29,13 @@ export interface SyncLog {
   status: 'pending' | 'synced' | 'failed'
 }
 
-/**
- * Raw object as returned by ERP_GetOfflineUsers.
- * Field names depend on the server's ERP_OfflineUsers C# class — we treat them
- * as unknown until confirmed, so we store the whole object and query by value.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type OfflineUser = Record<string, any>
+export interface OfflineUser {
+  _localId?: number     // Dexie auto-increment primary key
+  username: string
+  name: string
+  offlinepassword: string
+  offlinemode: string
+}
 
 class MilkDb extends Dexie {
   collections!: EntityTable<Collection, 'id'>
@@ -53,14 +53,24 @@ class MilkDb extends Dexie {
       syncLogs: '++id, table, status, timestamp',
     })
 
-    // v2 — offline user store (initial, wrong key path — replaced in v3)
+    // v2 — offline user store (wrong primary key — dropped in v3)
     this.version(2).stores({
       offlineUsers: 'user_id, user_name',
     })
 
-    // v3 — use auto-increment key so any server shape is accepted
+    // v3 — drop so primary key can be changed in v4
     this.version(3).stores({
+      offlineUsers: null,
+    })
+
+    // v4 — auto-increment key, no field-name assumption
+    this.version(4).stores({
       offlineUsers: '++_localId',
+    })
+
+    // v5 — add username index for fast login lookup
+    this.version(5).stores({
+      offlineUsers: '++_localId, username',
     })
   }
 }

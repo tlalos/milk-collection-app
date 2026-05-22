@@ -32,44 +32,26 @@ export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPass
         return
       }
 
-      // Field names depend on the server's C# class — try common patterns.
-      // Once confirmed, these helpers will resolve to the correct field.
-      const getField = (u: Record<string, unknown>, ...keys: string[]): unknown =>
-        keys.reduce<unknown>((acc, k) => (acc !== undefined && acc !== null ? acc : u[k]), undefined)
-
-      const localUser = allUsers.find(u => {
-        const uname = getField(u,
-          'user_name', 'usr_name', 'UserName', 'username', 'Username', 'LOGIN', 'login',
-        ) as string | undefined
-        return uname?.trim().toLowerCase() === username.trim().toLowerCase()
-      })
+      const localUser = allUsers.find(
+        u => u.username.trim().toLowerCase() === username.trim().toLowerCase()
+      )
 
       if (!localUser) {
         setError('User not found. Please sync users from the main screen first.')
         return
       }
 
-      const storedPass = getField(localUser,
-        'user_password', 'usr_password', 'Password', 'password', 'PASS', 'pass',
-      ) as string | undefined
-
-      if (storedPass !== password) {
+      if (localUser.offlinepassword !== password) {
         setError('Invalid username or password.')
         return
       }
 
-      const id       = getField(localUser, 'user_id', 'usr_id', 'Id', 'id', 'ID') as number ?? 0
-      const uname    = getField(localUser, 'user_name', 'usr_name', 'UserName', 'username', 'Login', 'LOGIN') as string ?? username
-      const fullName = getField(localUser, 'user_fullname', 'usr_fullname', 'FullName', 'fullname', 'NAME') as string ?? uname
-      const isAdmin  = getField(localUser, 'user_isadmin', 'usr_isadmin', 'IsAdmin', 'isadmin', 'ISADMIN')
-      const settings = getField(localUser, 'user_settings', 'usr_settings', 'Settings') ?? null
-
       const user: AuthUser = {
-        id: Number(id),
-        username: String(uname),
-        fullName: String(fullName),
-        isAdmin: isAdmin === 1 || isAdmin === true || isAdmin === '1',
-        settings: settings as AuthUser['settings'],
+        id: localUser._localId ?? 0,
+        username: localUser.username,
+        fullName: localUser.name,
+        isAdmin: false,
+        settings: null,
       }
 
       authStore.saveOfflineSession(user, password)
