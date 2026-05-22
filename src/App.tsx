@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { StartupScreen } from './components/StartupScreen'
+import { MainScreen } from './components/MainScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { SettingsScreen } from './components/SettingsScreen'
 import { authStore } from './store/authStore'
 import type { AuthUser } from './types/auth'
 import './App.css'
 
-type Screen = 'startup' | 'login' | 'settings' | 'home'
+type Screen = 'startup' | 'main' | 'login' | 'settings' | 'home'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('startup')
-  const [prevScreen, setPrevScreen] = useState<Screen>('login')
+  const [prevScreen, setPrevScreen] = useState<Screen>('main')
   const [user, setUser] = useState<AuthUser | null>(null)
 
   function handleStartupComplete() {
@@ -18,7 +19,7 @@ export function App() {
       setUser(authStore.getUser())
       setScreen('home')
     } else {
-      setScreen('login')
+      setScreen('main')
     }
   }
 
@@ -35,7 +36,7 @@ export function App() {
   function handleLogout() {
     authStore.clear()
     setUser(null)
-    setScreen('login')
+    setScreen('main')
   }
 
   return (
@@ -44,10 +45,17 @@ export function App() {
         <StartupScreen onComplete={handleStartupComplete} />
       )}
 
+      {screen === 'main' && (
+        <MainScreen
+          onSignIn={() => setScreen('login')}
+          onSettings={() => openSettings('main')}
+        />
+      )}
+
       {screen === 'login' && (
         <LoginScreen
           onLogin={handleLogin}
-          onSettings={() => openSettings('login')}
+          onBack={() => setScreen('main')}
           initialUsername={authStore.getLastUsername()}
         />
       )}

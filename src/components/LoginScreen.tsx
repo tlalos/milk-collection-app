@@ -7,11 +7,11 @@ import './LoginScreen.css'
 
 interface LoginScreenProps {
   onLogin: (user: AuthUser) => void
-  onSettings: () => void
+  onBack: () => void
   initialUsername?: string
 }
 
-export function LoginScreen({ onLogin, onSettings, initialUsername = '' }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onBack, initialUsername = '' }: LoginScreenProps) {
   const [username, setUsername] = useState(initialUsername)
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -24,7 +24,6 @@ export function LoginScreen({ onLogin, onSettings, initialUsername = '' }: Login
 
     setError(null)
     setLoading(true)
-
     abortRef.current = new AbortController()
 
     try {
@@ -58,30 +57,15 @@ export function LoginScreen({ onLogin, onSettings, initialUsername = '' }: Login
   return (
     <div className="login-screen">
       <div className="login-card">
-        {/* Logo */}
-        <div className="login-logo">
-          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M16 8h16v4l4 7v21a4 4 0 01-4 4H16a4 4 0 01-4-4V19l4-7V8z"
-              fill="#1a6b3c" fillOpacity="0.12" stroke="#1a6b3c" strokeWidth="2" strokeLinejoin="round"
-            />
-            <path
-              d="M19 8h10v4H19V8z"
-              fill="#1a6b3c" fillOpacity="0.2" stroke="#1a6b3c" strokeWidth="1.5" strokeLinejoin="round"
-            />
-            <path
-              d="M12 26h24v14a4 4 0 01-4 4H16a4 4 0 01-4-4V26z"
-              fill="#1a6b3c" fillOpacity="0.85"
-            />
-            <path
-              d="M12 26 Q16 22 20 26 Q24 30 28 26 Q32 22 36 26"
-              fill="none" stroke="#1a6b3c" strokeWidth="1.5"
-            />
+        {/* Back button */}
+        <button className="login-back" type="button" onClick={onBack} aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
           </svg>
-        </div>
+        </button>
 
-        <h1 className="login-title">MilkCollect</h1>
-        <p className="login-subtitle">Sign in to continue</p>
+        <h1 className="login-title">Sign in</h1>
+        <p className="login-subtitle">Enter your credentials to continue</p>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>
           <div className="login-field">
@@ -126,13 +110,6 @@ export function LoginScreen({ onLogin, onSettings, initialUsername = '' }: Login
             {loading ? <span className="login-spinner" /> : 'Sign in'}
           </button>
         </form>
-
-        <button className="login-settings-link" type="button" onClick={onSettings}>
-          <svg viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-          </svg>
-          Settings
-        </button>
       </div>
     </div>
   )

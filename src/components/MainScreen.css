@@ -1,0 +1,148 @@
+.main-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(160deg, #1a6b3c 0%, #0d4a29 55%, #083318 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle radial glow */
+.main-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 35%, rgba(255,255,255,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ── Settings button ── */
+.main-settings-btn {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 50%;
+  color: rgba(255,255,255,0.9);
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.main-settings-btn:active { background: rgba(255,255,255,0.28); }
+.main-settings-btn svg { width: 20px; height: 20px; }
+
+/* ── Hero area ── */
+.main-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 32px 40px;
+  gap: 16px;
+  z-index: 1;
+}
+
+.main-logo {
+  width: 110px;
+  height: 110px;
+  filter: drop-shadow(0 12px 28px rgba(0,0,0,0.3));
+}
+
+.main-logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.main-title {
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.5px;
+  margin: 0;
+  line-height: 1;
+}
+
+.main-tagline {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.72);
+  margin: 0;
+  letter-spacing: 0.1px;
+  text-align: center;
+}
+
+/* ── Feature chips ── */
+.main-features {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.main-feature-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  letter-spacing: 0.2px;
+}
+
+.main-feature-chip svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* ── Bottom card ── */
+.main-bottom {
+  background: #ffffff;
+  border-radius: 28px 28px 0 0;
+  padding: 32px 24px calc(env(safe-area-inset-bottom, 0px) + 36px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  z-index: 1;
+  box-shadow: 0 -4px 32px rgba(0,0,0,0.15);
+}
+
+.main-signin-btn {
+  width: 100%;
+  height: 56px;
+  background: #1a6b3c;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 16px rgba(26,107,60,0.35);
+  transition: background 0.15s, transform 0.1s;
+}
+
+.main-signin-btn:active {
+  background: #2d8a56;
+  transform: scale(0.98);
+}
+
+.main-version {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin: 0;
+}
