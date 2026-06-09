@@ -501,9 +501,13 @@ button {
 .milk-entry-card {
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
   background: var(--color-surface);
   box-shadow: 0 4px 12px rgba(23, 35, 29, 0.05);
+}
+
+.milk-entry-card.expanded {
+  border-color: #b7dcc9;
 }
 
 .milk-entry-header {
@@ -511,12 +515,61 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
-.milk-entry-header h3 {
+.milk-entry-toggle {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.milk-entry-toggle:focus-visible {
+  outline: 3px solid rgba(35, 122, 80, 0.18);
+}
+
+.milk-entry-title {
+  overflow: hidden;
   font-size: 1.05rem;
+  font-weight: 850;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.milk-entry-kg {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--color-green-soft);
+  color: var(--color-green-dark);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.milk-entry-chevron {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #eef4f1;
+  color: var(--color-green-dark);
+  font-size: 1.1rem;
+  font-weight: 900;
 }
 
 .remove-button {
@@ -534,6 +587,7 @@ button {
 .entry-form-grid {
   display: grid;
   gap: 12px;
+  margin-top: 14px;
 }
 
 .scan-field {
@@ -568,6 +622,7 @@ button {
   color: var(--color-text);
   font-size: 1rem;
   letter-spacing: 0;
+  word-break: break-word;
 }
 
 .add-entry-button {
@@ -653,7 +708,7 @@ button {
   }
 
   .entry-form-grid {
-    grid-template-columns: 1.25fr 0.7fr 0.9fr 1.1fr;
+    grid-template-columns: 1.25fr 0.7fr 0.8fr 0.85fr;
     align-items: end;
   }
 }

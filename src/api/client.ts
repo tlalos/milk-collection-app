@@ -18,6 +18,10 @@ function getBaseUrl(): string {
   return settingsStore.getServerUrl().replace(/\/+$/, '')
 }
 
+function buildApiUrl(serverUrl: string, path: string): string {
+  return `${serverUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
 interface RequestOptions {
   authorized?: boolean
   signal?: AbortSignal
@@ -82,15 +86,15 @@ export async function apiGet<TResponse>(
   return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
 }
 
-/** Probe the server — resolves true if any HTTP response is received. */
+/** Probe a real API endpoint instead of the bare base URL, which may return 404. */
 export async function testConnection(serverUrl: string): Promise<boolean> {
-  const url = serverUrl.replace(/\/+$/, '')
+  const url = buildApiUrl(serverUrl, 'Accounts/Login')
   try {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 8000)
-    const res = await fetch(url, { method: 'HEAD', signal: ac.signal })
+    const res = await fetch(url, { method: 'OPTIONS', signal: ac.signal })
     clearTimeout(timer)
-    return res.status < 600
+    return res.status >= 200 && res.status < 500
   } catch {
     return false
   }

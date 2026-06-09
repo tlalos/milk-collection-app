@@ -1,6 +1,6 @@
 import type { MilkType, Supplier } from '../types'
 
-export const milkTypes: MilkType[] = ['Goat milk', 'Sheep milk', 'Cow milk']
+export const milkTypes: MilkType[] = ['Cow milk', 'Sheep milk', 'Buffalo milk', 'Goat milk']
 
 export const mockSuppliers: Supplier[] = [
   {

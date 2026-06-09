@@ -8,11 +8,21 @@ interface MilkCollectionEntryScreenProps {
   onSubmit: (collection: SubmittedCollection) => void
 }
 
-function createMilkEntry(): MilkEntry {
+const defaultMilkTypes: MilkType[] = ['Cow milk', 'Sheep milk', 'Buffalo milk']
+
+function createEntryId(milkType: MilkType | '') {
+  if (milkType) return `default-${milkType.toLowerCase().replace(/\s+/g, '-')}`
+  return globalThis.crypto?.randomUUID?.() ?? `entry-${Date.now()}-${Math.random()}`
+}
+
+function createMilkEntry(milkType: MilkType | '' = ''): MilkEntry {
   return {
-    id: globalThis.crypto?.randomUUID?.() ?? `entry-${Date.now()}-${Math.random()}`,
-    milkType: '',
+    id: createEntryId(milkType),
+    milkType,
     kg: '',
+    waterPercentage: '',
+    temperature: '',
+    mobility: '',
     barcode: '',
   }
 }
@@ -27,7 +37,16 @@ function barcodePrefix(milkType: MilkType | '') {
   if (milkType === 'Goat milk') return 'GOAT'
   if (milkType === 'Sheep milk') return 'SHEEP'
   if (milkType === 'Cow milk') return 'COW'
+  if (milkType === 'Buffalo milk') return 'BUFFALO'
   return 'MILK'
+}
+
+function createDefaultMilkEntries() {
+  return defaultMilkTypes.map((milkType) => createMilkEntry(milkType))
+}
+
+function formatKg(kg: string) {
+  return `${kg || '0.0'} kg`
 }
 
 export function MilkCollectionEntryScreen({
@@ -35,7 +54,8 @@ export function MilkCollectionEntryScreen({
   onBack,
   onSubmit,
 }: MilkCollectionEntryScreenProps) {
-  const [entries, setEntries] = useState<MilkEntry[]>(() => [createMilkEntry()])
+  const [entries, setEntries] = useState<MilkEntry[]>(createDefaultMilkEntries)
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>('default-cow-milk')
 
   function updateEntry(entryId: string, updates: Partial<MilkEntry>) {
     setEntries((current) =>
@@ -46,13 +66,21 @@ export function MilkCollectionEntryScreen({
   }
 
   function addEntry() {
-    setEntries((current) => [...current, createMilkEntry()])
+    const entry = createMilkEntry()
+    setEntries((current) => [...current, entry])
+    setExpandedEntryId(entry.id)
   }
 
   function removeEntry(entryId: string) {
-    setEntries((current) =>
-      current.length === 1 ? current : current.filter((entry) => entry.id !== entryId),
-    )
+    setEntries((current) => {
+      if (current.length === 1) return current
+
+      const nextEntries = current.filter((entry) => entry.id !== entryId)
+      setExpandedEntryId((currentExpandedId) =>
+        currentExpandedId === entryId ? nextEntries[0]?.id ?? null : currentExpandedId,
+      )
+      return nextEntries
+    })
   }
 
   function addMockBarcode(entryId: string, index: number) {
@@ -69,7 +97,8 @@ export function MilkCollectionEntryScreen({
       entries,
       submittedAt: new Date().toISOString(),
     })
-    setEntries([createMilkEntry()])
+    setEntries(createDefaultMilkEntries())
+    setExpandedEntryId('default-cow-milk')
   }
 
   return (
@@ -108,9 +137,28 @@ export function MilkCollectionEntryScreen({
 
           <div className="milk-entry-list">
             {entries.map((entry, index) => (
-              <article className="milk-entry-card" key={entry.id}>
+              <article
+                className={`milk-entry-card ${expandedEntryId === entry.id ? 'expanded' : 'collapsed'}`}
+                key={entry.id}
+              >
                 <div className="milk-entry-header">
-                  <h3>Milk Entry {index + 1}</h3>
+                  <button
+                    className="milk-entry-toggle"
+                    type="button"
+                    aria-expanded={expandedEntryId === entry.id}
+                    aria-controls={`milk-entry-details-${entry.id}`}
+                    onClick={() =>
+                      setExpandedEntryId((current) => current === entry.id ? null : entry.id)
+                    }
+                  >
+                    <span className="milk-entry-title">
+                      {entry.milkType || 'Select milk type'}
+                    </span>
+                    <span className="milk-entry-kg">{formatKg(entry.kg)}</span>
+                    <span className="milk-entry-chevron" aria-hidden="true">
+                      {expandedEntryId === entry.id ? '-' : '+'}
+                    </span>
+                  </button>
                   <button
                     className="remove-button"
                     type="button"
@@ -121,7 +169,8 @@ export function MilkCollectionEntryScreen({
                   </button>
                 </div>
 
-                <div className="entry-form-grid">
+                {expandedEntryId === entry.id && (
+                <div className="entry-form-grid" id={`milk-entry-details-${entry.id}`}>
                   <label className="form-field">
                     <span>Milk type</span>
                     <select
@@ -154,6 +203,52 @@ export function MilkCollectionEntryScreen({
                     />
                   </label>
 
+                  <label className="form-field">
+                    <span>Water %</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={entry.waterPercentage}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { waterPercentage: event.target.value })
+                      }
+                      placeholder="0.0"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Temperature °C</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      value={entry.temperature}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { temperature: event.target.value })
+                      }
+                      placeholder="0.0"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Mobility</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={entry.mobility}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { mobility: event.target.value })
+                      }
+                      placeholder="0.0"
+                    />
+                  </label>
+
                   <div className="form-field scan-field">
                     <span>QR/barcode</span>
                     <button
@@ -170,6 +265,7 @@ export function MilkCollectionEntryScreen({
                     <strong>{entry.barcode || 'No scan yet'}</strong>
                   </div>
                 </div>
+                )}
               </article>
             ))}
           </div>
