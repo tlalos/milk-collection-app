@@ -1,4 +1,6 @@
 import Dexie, { type EntityTable, type Table } from 'dexie'
+import type { LocalItem } from '../types/items'
+import type { LocalSupplier } from '../types/suppliers'
 
 export interface Collection {
   id: number
@@ -42,6 +44,8 @@ class MilkDb extends Dexie {
   farmers!: EntityTable<Farmer, 'id'>
   syncLogs!: EntityTable<SyncLog, 'id'>
   offlineUsers!: Table<OfflineUser>
+  suppliers!: Table<LocalSupplier, number>
+  items!: Table<LocalItem, number>
 
   constructor() {
     super('MilkCollectionDB')
@@ -71,6 +75,14 @@ class MilkDb extends Dexie {
     // v5 — add username index for fast login lookup
     this.version(5).stores({
       offlineUsers: '++_localId, username',
+    })
+
+    this.version(6).stores({
+      suppliers: 'sup_id, sup_code, sup_name, sup_type, sup_vatsts',
+    })
+
+    this.version(7).stores({
+      items: 'item_id, item_code, item_descr, item_offline_type',
     })
   }
 }

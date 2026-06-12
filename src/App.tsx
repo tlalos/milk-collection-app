@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { CustomersScreen } from './components/CustomersScreen'
+import { DataSyncScreen } from './components/DataSyncScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
-import { mockSuppliers } from './data/mockSuppliers'
 import { authStore } from './store/authStore'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
@@ -19,6 +19,7 @@ type Screen =
   | 'settings'
   | 'home'
   | 'customers'
+  | 'dataSync'
   | 'suppliers'
   | 'entry'
 
@@ -110,9 +111,12 @@ export function App() {
         <CustomersScreen onBack={() => setScreen('home')} />
       )}
 
+      {screen === 'dataSync' && (
+        <DataSyncScreen onBack={() => setScreen('home')} />
+      )}
+
       {screen === 'suppliers' && (
         <SupplierSelectionScreen
-          suppliers={mockSuppliers}
           successMessage={successMessage}
           submittedCount={submittedCollections.length}
           onBack={() => setScreen('home')}
@@ -188,6 +192,23 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Customers</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => setScreen('dataSync')}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12a9 9 0 01-15.39 6.36L3 16" />
+                    <path d="M3 16h5v5" />
+                    <path d="M3 12A9 9 0 0118.39 5.64L21 8" />
+                    <path d="M21 8h-5V3" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Data sync</span>
               </button>
             </div>
           </main>

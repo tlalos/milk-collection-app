@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { mockSuppliers } from '../data/mockSuppliers'
+import { db } from '../db/database'
 import type { Supplier, SupplierType } from '../types'
+import { erpSupplierToSupplier } from '../types/suppliers'
 
 interface SupplierSelectionScreenProps {
-  suppliers: Supplier[]
   successMessage: string
   submittedCount: number
   onBack: () => void
@@ -16,13 +18,39 @@ function typeClassName(type: SupplierType) {
 }
 
 export function SupplierSelectionScreen({
-  suppliers,
   successMessage,
   submittedCount,
   onBack,
   onSelectSupplier,
 }: SupplierSelectionScreenProps) {
   const [searchTerm, setSearchTerm] = useState('')
+  const [localSuppliers, setLocalSuppliers] = useState<Supplier[]>([])
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(true)
+
+  useEffect(() => {
+    let isMounted = true
+
+    db.suppliers
+      .toArray()
+      .then((suppliers) => {
+        if (!isMounted) return
+        setLocalSuppliers(suppliers.map(erpSupplierToSupplier))
+      })
+      .catch(() => {
+        if (!isMounted) return
+        setLocalSuppliers([])
+      })
+      .finally(() => {
+        if (!isMounted) return
+        setIsLoadingSuppliers(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const suppliers = localSuppliers.length > 0 ? localSuppliers : mockSuppliers
 
   const filteredSuppliers = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase()
@@ -75,7 +103,11 @@ export function SupplierSelectionScreen({
         </label>
 
         <div className="supplier-list" role="list">
-          {filteredSuppliers.map((supplier) => (
+          {isLoadingSuppliers && (
+            <p className="supplier-list-note">Loading local suppliers...</p>
+          )}
+
+          {!isLoadingSuppliers && filteredSuppliers.map((supplier) => (
             <div key={supplier.id} role="listitem">
               <button
                 className="supplier-card"
@@ -92,6 +124,10 @@ export function SupplierSelectionScreen({
               </button>
             </div>
           ))}
+
+          {!isLoadingSuppliers && filteredSuppliers.length === 0 && (
+            <p className="supplier-list-note">No suppliers found.</p>
+          )}
         </div>
       </main>
     </div>
