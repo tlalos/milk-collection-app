@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable, type Table } from 'dexie'
 import type { LocalItem } from '../types/items'
+import type { JournalEntry } from '../types/journal'
 import type { LocalSupplier } from '../types/suppliers'
 
 export interface Collection {
@@ -46,6 +47,7 @@ class MilkDb extends Dexie {
   offlineUsers!: Table<OfflineUser>
   suppliers!: Table<LocalSupplier, number>
   items!: Table<LocalItem, number>
+  journalEntries!: Table<JournalEntry, number>
 
   constructor() {
     super('MilkCollectionDB')
@@ -83,6 +85,10 @@ class MilkDb extends Dexie {
 
     this.version(7).stores({
       items: 'item_id, item_code, item_descr, item_offline_type',
+    })
+
+    this.version(8).stores({
+      journalEntries: '++id, collectionId, collectionDate, submittedAt, supplierName, milkType',
     })
   }
 }

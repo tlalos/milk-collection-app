@@ -12,6 +12,7 @@ interface DataSyncScreenProps {
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error'
 type SyncTarget = 'suppliers' | 'items'
+type SyncStage = 'idle' | 'suppliers' | 'items' | 'complete' | 'error'
 
 function formatDateTime(value: string | null) {
   if (!value) return 'Never'
@@ -38,6 +39,8 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
     suppliers: '',
     items: '',
   })
+  const [stage, setStage] = useState<SyncStage>('idle')
+  const [progress, setProgress] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -75,55 +78,68 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
     return (err as Error).message || 'Network error. Check Settings and try again.'
   }
 
-  async function handleSupplierSync() {
-    if (status.suppliers === 'syncing') return
+  const isSyncing = stage === 'suppliers' || stage === 'items'
+
+  async function handleSyncAll() {
+    if (isSyncing) return
 
     abortRef.current?.abort()
     abortRef.current = new AbortController()
+    setStage('suppliers')
+    setProgress(0)
     setTargetStatus('suppliers', 'syncing')
+    setTargetStatus('items', 'idle')
     setTargetMessage('suppliers', '')
+    setTargetMessage('items', '')
+    let currentTarget: SyncTarget = 'suppliers'
 
     try {
-      const count = await syncSuppliers(
+      const supplierTotal = await syncSuppliers(
         { mode, username },
         abortRef.current.signal,
       )
-      setSupplierCount(count)
+      setSupplierCount(supplierTotal)
       setSuppliersLastSync(getSuppliersLastSync())
       setTargetStatus('suppliers', 'success')
-      setTargetMessage('suppliers', `${count} suppliers synced locally.`)
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
+      setTargetMessage('suppliers', `${supplierTotal} suppliers synced locally.`)
+      setProgress(50)
+      setStage('items')
+      currentTarget = 'items'
+      setTargetStatus('items', 'syncing')
 
-      setTargetStatus('suppliers', 'error')
-      setTargetMessage('suppliers', getErrorMessage(err, 'Supplier'))
-    }
-  }
-
-  async function handleItemSync() {
-    if (status.items === 'syncing') return
-
-    abortRef.current?.abort()
-    abortRef.current = new AbortController()
-    setTargetStatus('items', 'syncing')
-    setTargetMessage('items', '')
-
-    try {
-      const count = await syncItems(
+      const itemTotal = await syncItems(
         { mode, username },
         abortRef.current.signal,
       )
-      setItemCount(count)
+      setItemCount(itemTotal)
       setItemsLastSync(getItemsLastSync())
       setTargetStatus('items', 'success')
-      setTargetMessage('items', `${count} items synced locally.`)
+      setTargetMessage('items', `${itemTotal} items synced locally.`)
+      setProgress(100)
+      setStage('complete')
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
 
-      setTargetStatus('items', 'error')
-      setTargetMessage('items', getErrorMessage(err, 'Items'))
+      setStage('error')
+      if (currentTarget === 'items') {
+        setTargetStatus('items', 'error')
+        setTargetMessage('items', getErrorMessage(err, 'Items'))
+      } else {
+        setTargetStatus('suppliers', 'error')
+        setTargetMessage('suppliers', getErrorMessage(err, 'Supplier'))
+      }
     }
   }
+
+  const progressLabel = stage === 'suppliers'
+    ? 'Syncing suppliers...'
+    : stage === 'items'
+      ? 'Syncing items...'
+      : stage === 'complete'
+        ? 'Sync complete'
+        : stage === 'error'
+          ? 'Sync stopped'
+          : 'Ready to sync'
 
   return (
     <div className="data-sync-screen">
@@ -189,22 +205,22 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
           </div>
         </section>
 
-        <section className="data-sync-panel" aria-labelledby="supplier-sync-title">
+        <section className="data-sync-panel" aria-labelledby="sync-all-title">
           <div className="data-sync-panel-header">
             <div>
-              <h2 id="supplier-sync-title">Supplier local sync</h2>
-              <p>Downloads suppliers from ERP and replaces the local offline supplier list.</p>
+              <h2 id="sync-all-title">Run local sync</h2>
+              <p>Syncs suppliers first, then ERP items, and replaces the local offline data.</p>
             </div>
-            <span className="data-sync-badge">Step 1</span>
+            <span className="data-sync-badge">2 steps</span>
           </div>
 
           <button
-            className="data-sync-button"
+            className="data-sync-button data-sync-primary-button"
             type="button"
-            onClick={handleSupplierSync}
-            disabled={status.suppliers === 'syncing'}
+            onClick={handleSyncAll}
+            disabled={isSyncing}
           >
-            {status.suppliers === 'syncing' ? (
+            {isSyncing ? (
               <svg className="spin" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
               </svg>
@@ -213,48 +229,36 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
                 <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
               </svg>
             )}
-            Sync suppliers
+            Sync suppliers and items
           </button>
 
-          {message.suppliers && (
-            <p className={`data-sync-message ${status.suppliers === 'error' ? 'error' : 'success'}`} role="status">
-              {message.suppliers}
-            </p>
-          )}
-        </section>
-
-        <section className="data-sync-panel" aria-labelledby="item-sync-title">
-          <div className="data-sync-panel-header">
-            <div>
-              <h2 id="item-sync-title">Item local sync</h2>
-              <p>Downloads ERP items for supplies and milk collection and stores them locally.</p>
+          <div className="data-sync-progress" aria-label={progressLabel}>
+            <div className="data-sync-progress-top">
+              <span>{progressLabel}</span>
+              <strong>{progress}%</strong>
             </div>
-            <span className="data-sync-badge">Step 2</span>
+            <div className="data-sync-progress-track">
+              <span style={{ width: `${progress}%` }} />
+            </div>
           </div>
 
-          <button
-            className="data-sync-button"
-            type="button"
-            onClick={handleItemSync}
-            disabled={status.items === 'syncing'}
-          >
-            {status.items === 'syncing' ? (
-              <svg className="spin" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-            )}
-            Sync items
-          </button>
+          <div className="data-sync-steps" aria-label="Sync steps">
+            <div className={`data-sync-step ${status.suppliers}`}>
+              <span className="data-sync-step-dot" />
+              <div>
+                <strong>Suppliers</strong>
+                <p>{message.suppliers || 'Waiting for sync'}</p>
+              </div>
+            </div>
 
-          {message.items && (
-            <p className={`data-sync-message ${status.items === 'error' ? 'error' : 'success'}`} role="status">
-              {message.items}
-            </p>
-          )}
+            <div className={`data-sync-step ${status.items}`}>
+              <span className="data-sync-step-dot" />
+              <div>
+                <strong>Items</strong>
+                <p>{message.items || 'Waiting for sync'}</p>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>

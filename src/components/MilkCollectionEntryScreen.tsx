@@ -5,7 +5,7 @@ import type { MilkEntry, MilkType, SubmittedCollection, Supplier, SupplierType }
 interface MilkCollectionEntryScreenProps {
   supplier: Supplier
   onBack: () => void
-  onSubmit: (collection: SubmittedCollection) => void
+  onSubmit: (collection: SubmittedCollection) => void | Promise<void>
 }
 
 const defaultMilkTypes: MilkType[] = ['Cow milk', 'Sheep milk', 'Buffalo milk']
@@ -91,8 +91,8 @@ export function MilkCollectionEntryScreen({
     })
   }
 
-  function submitForm() {
-    onSubmit({
+  async function submitForm() {
+    await onSubmit({
       supplier,
       entries,
       submittedAt: new Date().toISOString(),

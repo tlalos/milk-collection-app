@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CustomersScreen } from './components/CustomersScreen'
 import { DataSyncScreen } from './components/DataSyncScreen'
+import { JournalScreen } from './components/JournalScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
@@ -8,6 +9,7 @@ import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { authStore } from './store/authStore'
+import { saveCollectionToJournal } from './store/journalStore'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import './App.css'
@@ -20,6 +22,7 @@ type Screen =
   | 'home'
   | 'customers'
   | 'dataSync'
+  | 'journal'
   | 'suppliers'
   | 'entry'
 
@@ -74,9 +77,17 @@ export function App() {
     setScreen('suppliers')
   }
 
-  function submitCollection(collection: SubmittedCollection) {
+  async function submitCollection(collection: SubmittedCollection) {
     setSubmittedCollections((current) => [collection, ...current])
-    setSuccessMessage(`Collection submitted for ${collection.supplier.name}.`)
+    try {
+      const savedEntries = await saveCollectionToJournal(collection)
+      setSuccessMessage(`Collection submitted for ${collection.supplier.name}.`)
+      if (savedEntries === 0) {
+        setSuccessMessage(`Collection submitted for ${collection.supplier.name}. No journal rows were saved because no milk quantities were entered.`)
+      }
+    } catch {
+      setSuccessMessage(`Collection submitted for ${collection.supplier.name}, but the local journal could not be saved.`)
+    }
     setSelectedSupplier(null)
     setScreen('suppliers')
   }
@@ -113,6 +124,10 @@ export function App() {
 
       {screen === 'dataSync' && (
         <DataSyncScreen onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'journal' && (
+        <JournalScreen onBack={() => setScreen('home')} />
       )}
 
       {screen === 'suppliers' && (
@@ -209,6 +224,25 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Data sync</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => setScreen('journal')}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16v16H4z" />
+                    <path d="M8 2v4" />
+                    <path d="M16 2v4" />
+                    <path d="M4 9h16" />
+                    <path d="M8 13h3" />
+                    <path d="M8 17h6" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Journal</span>
               </button>
             </div>
           </main>

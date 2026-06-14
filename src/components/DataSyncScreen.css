@@ -183,6 +183,11 @@
   height: 20px;
 }
 
+.data-sync-primary-button {
+  min-height: 60px;
+  font-size: 1rem;
+}
+
 .data-sync-button .spin {
   animation: spin 0.75s linear infinite;
 }
@@ -211,6 +216,102 @@
   border: 1px solid #f1baba;
   background: #fbe8e8;
   color: #9c2f2f;
+}
+
+.data-sync-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.data-sync-progress-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #63706a;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.data-sync-progress-top strong {
+  color: #155938;
+}
+
+.data-sync-progress-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e5ede9;
+}
+
+.data-sync-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #237a50, #4caf7d);
+  transition: width 0.25s ease;
+}
+
+.data-sync-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.data-sync-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #d9e3de;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfc;
+}
+
+.data-sync-step-dot {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #b8c7bf;
+  border-radius: 50%;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.data-sync-step strong {
+  display: block;
+  color: #17231d;
+  font-size: 0.94rem;
+}
+
+.data-sync-step p {
+  margin-top: 2px;
+  color: #63706a;
+  font-size: 0.82rem;
+}
+
+.data-sync-step.syncing {
+  border-color: #9fcdb5;
+  background: #f2fbf6;
+}
+
+.data-sync-step.syncing .data-sync-step-dot {
+  border-color: #237a50;
+  border-top-color: transparent;
+  animation: spin 0.75s linear infinite;
+}
+
+.data-sync-step.success .data-sync-step-dot {
+  border-color: #237a50;
+  background: #237a50;
+}
+
+.data-sync-step.error {
+  border-color: #f1baba;
+  background: #fff7f7;
+}
+
+.data-sync-step.error .data-sync-step-dot {
+  border-color: #9c2f2f;
+  background: #9c2f2f;
 }
 
 @media (min-width: 720px) {
