@@ -8,6 +8,7 @@ import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScree
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
+import { TransportScreen } from './components/TransportScreen'
 import { authStore } from './store/authStore'
 import { saveCollectionToJournal } from './store/journalStore'
 import type { AuthUser } from './types/auth'
@@ -23,6 +24,7 @@ type Screen =
   | 'customers'
   | 'dataSync'
   | 'journal'
+  | 'transport'
   | 'suppliers'
   | 'entry'
 
@@ -128,6 +130,10 @@ export function App() {
 
       {screen === 'journal' && (
         <JournalScreen onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'transport' && (
+        <TransportScreen onBack={() => setScreen('home')} />
       )}
 
       {screen === 'suppliers' && (
@@ -243,6 +249,23 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Journal</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => setScreen('transport')}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 17h4V5H2v12h3" />
+                    <path d="M14 8h4l4 4v5h-3" />
+                    <circle cx="7.5" cy="17.5" r="2.5" />
+                    <circle cx="16.5" cy="17.5" r="2.5" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Transport</span>
               </button>
             </div>
           </main>

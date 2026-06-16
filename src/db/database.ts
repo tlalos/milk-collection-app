@@ -2,6 +2,7 @@ import Dexie, { type EntityTable, type Table } from 'dexie'
 import type { LocalItem } from '../types/items'
 import type { JournalEntry } from '../types/journal'
 import type { LocalSupplier } from '../types/suppliers'
+import type { TransportDetails } from '../types/transport'
 
 export interface Collection {
   id: number
@@ -48,6 +49,7 @@ class MilkDb extends Dexie {
   suppliers!: Table<LocalSupplier, number>
   items!: Table<LocalItem, number>
   journalEntries!: Table<JournalEntry, number>
+  transportDetails!: Table<TransportDetails, string>
 
   constructor() {
     super('MilkCollectionDB')
@@ -89,6 +91,10 @@ class MilkDb extends Dexie {
 
     this.version(8).stores({
       journalEntries: '++id, collectionId, collectionDate, submittedAt, supplierName, milkType',
+    })
+
+    this.version(9).stores({
+      transportDetails: '&id, updatedAt',
     })
   }
 }
