@@ -204,6 +204,32 @@
   font-weight: 750;
 }
 
+.journal-entry-lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.journal-entry-lines span {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: #f0f5f2;
+  color: #35443d;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.journal-entry-actions {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  align-content: center;
+}
+
 .journal-entry-kg {
   min-height: 36px;
   display: inline-flex;
@@ -215,6 +241,62 @@
   color: #155938;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.journal-send-button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #155938;
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.journal-send-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.journal-send-button.sent {
+  background: #1f6f8b;
+}
+
+.journal-send-button.failed {
+  background: #9c2f2f;
+}
+
+.journal-send-button.sending {
+  background: #6b7280;
+}
+
+.journal-erp-message {
+  margin: 6px 0 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.journal-erp-message.sent {
+  background: #e8f5ee;
+  color: #155938;
+}
+
+.journal-erp-message.failed {
+  background: #fff0f0;
+  color: #9c2f2f;
+}
+
+.journal-erp-message.sending {
+  background: #f3f4f6;
+  color: #4b5563;
 }
 
 .journal-empty,
@@ -244,6 +326,20 @@
 @media (max-width: 520px) {
   .journal-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .journal-entry-card {
+    grid-template-columns: 1fr;
+  }
+
+  .journal-entry-actions {
+    justify-items: stretch;
+  }
+
+  .journal-entry-kg,
+  .journal-send-button {
+    justify-content: center;
+    width: 100%;
   }
 
   .journal-type-totals {

@@ -38,9 +38,9 @@ export async function apiPost<TBody, TResponse>(
     'Content-Type': 'application/json',
   }
 
-  if (options.authorized) {
-    const token = getToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
+  const resolvedToken = options.token ?? (options.authorized ? getToken() : null)
+  if (resolvedToken) {
+    headers['Authorization'] = `Bearer ${resolvedToken}`
   }
 
   const res = await fetch(`${getBaseUrl()}/${path}`, {
@@ -57,7 +57,8 @@ export async function apiPost<TBody, TResponse>(
 
   // 201 / 204 responses may have no body
   const text = await res.text()
-  return text ? (JSON.parse(text) as TResponse) : (undefined as TResponse)
+  const parsed = text ? (JSON.parse(text) as TResponse | string) : undefined
+  return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
 }
 
 export async function apiGet<TResponse>(

@@ -1,10 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getJournalEntriesByDate, toLocalDateKey } from '../store/journalStore'
+import {
+  getJournalEntriesByCollection,
+  getJournalEntriesByDate,
+  journalEntriesToCollection,
+  toLocalDateKey,
+  updateJournalCollectionErpStatus,
+} from '../store/journalStore'
+import { sendSuppliesOrderToErp } from '../store/suppliesOrderStore'
+import type { AuthUser } from '../types/auth'
 import type { JournalEntry } from '../types/journal'
 import './JournalScreen.css'
 
 interface JournalScreenProps {
   onBack: () => void
+  user: AuthUser
+}
+
+interface JournalOrder {
+  collectionId: string
+  supplierName: string
+  supplierCode: string
+  submittedAt: string
+  entries: JournalEntry[]
+  totalKg: number
+  erpStatus: JournalEntry['erpStatus']
+  erpMessage: string
 }
 
 function formatKg(value: number) {
@@ -18,10 +38,23 @@ function formatTime(value: string) {
   }).format(new Date(value))
 }
 
-export function JournalScreen({ onBack }: JournalScreenProps) {
+function getOrderStatus(entries: JournalEntry[]): JournalEntry['erpStatus'] {
+  if (entries.some((entry) => entry.erpStatus === 'sending')) return 'sending'
+  if (entries.some((entry) => entry.erpStatus === 'failed')) return 'failed'
+  if (entries.every((entry) => entry.erpStatus === 'sent')) return 'sent'
+  return 'pending'
+}
+
+export function JournalScreen({ onBack, user }: JournalScreenProps) {
   const [selectedDate, setSelectedDate] = useState(toLocalDateKey())
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [sendingId, setSendingId] = useState<string | null>(null)
+
+  async function refreshEntries(date = selectedDate) {
+    const records = await getJournalEntriesByDate(date)
+    setEntries(records)
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -44,10 +77,37 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
     }
   }, [selectedDate])
 
+  const orders = useMemo<JournalOrder[]>(() => {
+    const grouped = new Map<string, JournalEntry[]>()
+
+    for (const entry of entries) {
+      const current = grouped.get(entry.collectionId) ?? []
+      current.push(entry)
+      grouped.set(entry.collectionId, current)
+    }
+
+    return Array.from(grouped.entries()).map(([collectionId, orderEntries]) => {
+      const first = orderEntries[0]
+      const messageEntry = [...orderEntries].reverse().find((entry) => entry.erpMessage)
+
+      return {
+        collectionId,
+        supplierName: first.supplierName,
+        supplierCode: first.supplierCode,
+        submittedAt: first.submittedAt,
+        entries: orderEntries,
+        totalKg: orderEntries.reduce((total, entry) => total + entry.kg, 0),
+        erpStatus: getOrderStatus(orderEntries),
+        erpMessage: messageEntry?.erpMessage ?? '',
+      }
+    })
+  }, [entries])
+
   const totalKg = useMemo(
     () => entries.reduce((total, entry) => total + entry.kg, 0),
     [entries],
   )
+
   const totalsByMilkType = useMemo(() => {
     const totals = new Map<string, number>()
 
@@ -59,6 +119,33 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
       .map(([milkType, kg]) => ({ milkType, kg }))
       .sort((a, b) => b.kg - a.kg)
   }, [entries])
+
+  async function handleSendToErp(collectionId: string) {
+    if (sendingId) return
+
+    setSendingId(collectionId)
+    await updateJournalCollectionErpStatus(collectionId, 'sending', 'Sending order to ERP...')
+    await refreshEntries()
+
+    try {
+      const orderEntries = await getJournalEntriesByCollection(collectionId)
+      const collection = journalEntriesToCollection(orderEntries)
+      const response = await sendSuppliesOrderToErp(collection, user)
+      const message = response.newid
+        ? `Sent to ERP. New document #${response.newid}.`
+        : 'Sent to ERP.'
+      await updateJournalCollectionErpStatus(collectionId, 'sent', message, response.newid ?? '')
+    } catch (err) {
+      await updateJournalCollectionErpStatus(
+        collectionId,
+        'failed',
+        (err as Error).message || 'ERP sync failed.',
+      )
+    } finally {
+      setSendingId(null)
+      await refreshEntries()
+    }
+  }
 
   return (
     <div className="journal-screen">
@@ -85,8 +172,8 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
 
         <section className="journal-summary" aria-label="Journal totals">
           <div className="journal-stat">
-            <span>Pickups</span>
-            <strong>{entries.length}</strong>
+            <span>Orders</span>
+            <strong>{orders.length}</strong>
           </div>
           <div className="journal-stat">
             <span>Total quantity</span>
@@ -99,14 +186,14 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
                 <span>By milk type</span>
               </div>
 
-            <div className="journal-type-total-list">
-              {totalsByMilkType.map((total) => (
-                <div className="journal-type-total" key={total.milkType}>
-                  <span>{total.milkType}:</span>
-                  <strong>{formatKg(total.kg)}</strong>
-                </div>
-              ))}
-            </div>
+              <div className="journal-type-total-list">
+                {totalsByMilkType.map((total) => (
+                  <div className="journal-type-total" key={total.milkType}>
+                    <span>{total.milkType}:</span>
+                    <strong>{formatKg(total.kg)}</strong>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -119,21 +206,47 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
           <div className="journal-error">Could not load the local journal.</div>
         )}
 
-        {status === 'ready' && entries.length === 0 && (
+        {status === 'ready' && orders.length === 0 && (
           <div className="journal-empty">
-            No pickups recorded for this date.
+            No supply orders recorded for this date.
           </div>
         )}
 
-        {status === 'ready' && entries.length > 0 && (
-          <section className="journal-list" aria-label="Pickup list">
-            {entries.map((entry) => (
-              <article className="journal-entry-card" key={entry.id}>
+        {status === 'ready' && orders.length > 0 && (
+          <section className="journal-list" aria-label="Supply order list">
+            {orders.map((order) => (
+              <article className="journal-entry-card" key={order.collectionId}>
                 <div className="journal-entry-main">
-                  <strong>{entry.supplierName}</strong>
-                  <span>{entry.milkType} · {formatTime(entry.submittedAt)}</span>
+                  <strong>{order.supplierName}</strong>
+                  <span>{order.supplierCode} - {formatTime(order.submittedAt)}</span>
+                  <div className="journal-entry-lines">
+                    {order.entries.map((entry) => (
+                      <span key={entry.id ?? `${order.collectionId}-${entry.milkType}`}>
+                        {entry.milkType}: {formatKg(entry.kg)}
+                      </span>
+                    ))}
+                  </div>
+                  {order.erpMessage && (
+                    <p className={`journal-erp-message ${order.erpStatus}`}>
+                      {order.erpMessage}
+                    </p>
+                  )}
                 </div>
-                <span className="journal-entry-kg">{formatKg(entry.kg)}</span>
+                <div className="journal-entry-actions">
+                  <span className="journal-entry-kg">{formatKg(order.totalKg)}</span>
+                  <button
+                    className={`journal-send-button ${order.erpStatus}`}
+                    type="button"
+                    onClick={() => handleSendToErp(order.collectionId)}
+                    disabled={Boolean(sendingId)}
+                  >
+                    {sendingId === order.collectionId || order.erpStatus === 'sending'
+                      ? 'Sending...'
+                      : order.erpStatus === 'sent'
+                        ? 'Send again'
+                        : 'Send to ERP'}
+                  </button>
+                </div>
               </article>
             ))}
           </section>

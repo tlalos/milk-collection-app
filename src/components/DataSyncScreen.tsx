@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { db } from '../db/database'
-import { settingsStore } from '../store/settingsStore'
 import { getItemsLastSync, syncItems } from '../sync/syncItems'
 import { getSuppliersLastSync, syncSuppliers } from '../sync/syncSuppliers'
+import type { AuthUser } from '../types/auth'
 import './DataSyncScreen.css'
 
 interface DataSyncScreenProps {
   onBack: () => void
+  user: AuthUser
 }
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error'
@@ -23,10 +24,11 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value))
 }
 
-export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
-  const settings = settingsStore.get()
-  const [mode, setMode] = useState('ALL')
-  const [username, setUsername] = useState(settings.apiUsername)
+export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
+  const syncOptions = {
+    mode: 'ALL',
+    username: user.username,
+  }
   const [supplierCount, setSupplierCount] = useState(0)
   const [itemCount, setItemCount] = useState(0)
   const [suppliersLastSync, setSuppliersLastSync] = useState<string | null>(getSuppliersLastSync())
@@ -95,7 +97,7 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
 
     try {
       const supplierTotal = await syncSuppliers(
-        { mode, username },
+        syncOptions,
         abortRef.current.signal,
       )
       setSupplierCount(supplierTotal)
@@ -108,7 +110,7 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
       setTargetStatus('items', 'syncing')
 
       const itemTotal = await syncItems(
-        { mode, username },
+        syncOptions,
         abortRef.current.signal,
       )
       setItemCount(itemTotal)
@@ -170,38 +172,6 @@ export function DataSyncScreen({ onBack }: DataSyncScreenProps) {
           <div className="data-sync-stat">
             <span>Item sync</span>
             <strong>{formatDateTime(itemsLastSync)}</strong>
-          </div>
-        </section>
-
-        <section className="data-sync-panel" aria-labelledby="sync-parameters-title">
-          <div className="data-sync-panel-header">
-            <div>
-              <h2 id="sync-parameters-title">Sync parameters</h2>
-              <p>These values are sent to each offline ERP list endpoint.</p>
-            </div>
-            <span className="data-sync-badge">Shared</span>
-          </div>
-
-          <div className="data-sync-fields">
-            <label className="data-sync-field" htmlFor="supplier-sync-mode">
-              <span>Mode</span>
-              <input
-                id="supplier-sync-mode"
-                value={mode}
-                onChange={(event) => setMode(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
-
-            <label className="data-sync-field" htmlFor="supplier-sync-username">
-              <span>Username</span>
-              <input
-                id="supplier-sync-username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                autoComplete="username"
-              />
-            </label>
           </div>
         </section>
 

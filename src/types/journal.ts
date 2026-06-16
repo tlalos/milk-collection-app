@@ -1,5 +1,7 @@
 import type { MilkType } from '../types'
 
+export type JournalErpStatus = 'pending' | 'sending' | 'sent' | 'failed'
+
 export interface JournalEntry {
   id?: number
   collectionId: string
@@ -10,4 +12,12 @@ export interface JournalEntry {
   supplierName: string
   milkType: MilkType
   kg: number
+  barcode: string
+  waterPercentage: string
+  temperature: string
+  mobility: string
+  erpStatus: JournalErpStatus
+  erpMessage: string
+  erpNewId: string
+  erpSyncedAt: string | null
 }

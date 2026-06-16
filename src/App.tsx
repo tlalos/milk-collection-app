@@ -11,6 +11,7 @@ import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { TransportScreen } from './components/TransportScreen'
 import { authStore } from './store/authStore'
 import { saveCollectionToJournal } from './store/journalStore'
+import { sendSuppliesOrderToErp } from './store/suppliesOrderStore'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import './App.css'
@@ -86,6 +87,17 @@ export function App() {
       setSuccessMessage(`Collection submitted for ${collection.supplier.name}.`)
       if (savedEntries === 0) {
         setSuccessMessage(`Collection submitted for ${collection.supplier.name}. No journal rows were saved because no milk quantities were entered.`)
+      } else if (!user) {
+        setSuccessMessage(`Collection saved locally for ${collection.supplier.name}, but no user is signed in for ERP sync.`)
+      } else {
+        try {
+          const erpResponse = await sendSuppliesOrderToErp(collection, user)
+          setSuccessMessage(
+            `Collection submitted for ${collection.supplier.name} and sent to ERP${erpResponse.newid ? ` (#${erpResponse.newid})` : ''}.`,
+          )
+        } catch {
+          setSuccessMessage(`Collection saved locally for ${collection.supplier.name}, but ERP sync failed.`)
+        }
       }
     } catch {
       setSuccessMessage(`Collection submitted for ${collection.supplier.name}, but the local journal could not be saved.`)
@@ -125,11 +137,11 @@ export function App() {
       )}
 
       {screen === 'dataSync' && (
-        <DataSyncScreen onBack={() => setScreen('home')} />
+        user && <DataSyncScreen onBack={() => setScreen('home')} user={user} />
       )}
 
       {screen === 'journal' && (
-        <JournalScreen onBack={() => setScreen('home')} />
+        user && <JournalScreen onBack={() => setScreen('home')} user={user} />
       )}
 
       {screen === 'transport' && (
