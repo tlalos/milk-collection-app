@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
 import { db } from '../db/database'
 import { getItemsLastSync, syncItems } from '../sync/syncItems'
 import { getSuppliersLastSync, syncSuppliers } from '../sync/syncSuppliers'
+import { getZgParamLastSync, syncZgParam } from '../sync/syncZgParam'
 import type { AuthUser } from '../types/auth'
 import './DataSyncScreen.css'
 
@@ -12,8 +13,8 @@ interface DataSyncScreenProps {
 }
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error'
-type SyncTarget = 'suppliers' | 'items'
-type SyncStage = 'idle' | 'suppliers' | 'items' | 'complete' | 'error'
+type SyncTarget = 'suppliers' | 'items' | 'params'
+type SyncStage = 'idle' | 'suppliers' | 'items' | 'params' | 'complete' | 'error'
 
 function formatDateTime(value: string | null) {
   if (!value) return 'Never'
@@ -31,15 +32,19 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
   }
   const [supplierCount, setSupplierCount] = useState(0)
   const [itemCount, setItemCount] = useState(0)
+  const [paramCount, setParamCount] = useState(0)
   const [suppliersLastSync, setSuppliersLastSync] = useState<string | null>(getSuppliersLastSync())
   const [itemsLastSync, setItemsLastSync] = useState<string | null>(getItemsLastSync())
+  const [paramsLastSync, setParamsLastSync] = useState<string | null>(getZgParamLastSync())
   const [status, setStatus] = useState<Record<SyncTarget, SyncStatus>>({
     suppliers: 'idle',
     items: 'idle',
+    params: 'idle',
   })
   const [message, setMessage] = useState<Record<SyncTarget, string>>({
     suppliers: '',
     items: '',
+    params: '',
   })
   const [stage, setStage] = useState<SyncStage>('idle')
   const [progress, setProgress] = useState(0)
@@ -52,6 +57,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     db.items.count()
       .then(setItemCount)
       .catch(() => setItemCount(0))
+    db.zgParams.count()
+      .then(setParamCount)
+      .catch(() => setParamCount(0))
 
     return () => abortRef.current?.abort()
   }, [])
@@ -80,7 +88,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     return (err as Error).message || 'Network error. Check Settings and try again.'
   }
 
-  const isSyncing = stage === 'suppliers' || stage === 'items'
+  const isSyncing = stage === 'suppliers' || stage === 'items' || stage === 'params'
 
   async function handleSyncAll() {
     if (isSyncing) return
@@ -91,8 +99,10 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     setProgress(0)
     setTargetStatus('suppliers', 'syncing')
     setTargetStatus('items', 'idle')
+    setTargetStatus('params', 'idle')
     setTargetMessage('suppliers', '')
     setTargetMessage('items', '')
+    setTargetMessage('params', '')
     let currentTarget: SyncTarget = 'suppliers'
 
     try {
@@ -104,7 +114,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       setSuppliersLastSync(getSuppliersLastSync())
       setTargetStatus('suppliers', 'success')
       setTargetMessage('suppliers', `${supplierTotal} suppliers synced locally.`)
-      setProgress(50)
+      setProgress(33)
       setStage('items')
       currentTarget = 'items'
       setTargetStatus('items', 'syncing')
@@ -117,6 +127,21 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       setItemsLastSync(getItemsLastSync())
       setTargetStatus('items', 'success')
       setTargetMessage('items', `${itemTotal} items synced locally.`)
+      setProgress(66)
+      setStage('params')
+      currentTarget = 'params'
+      setTargetStatus('params', 'syncing')
+
+      const paramTotal = await syncZgParam(
+        { username: syncOptions.username },
+        abortRef.current.signal,
+      )
+      setParamCount(paramTotal)
+      setParamsLastSync(getZgParamLastSync())
+      setTargetStatus('params', 'success')
+      setTargetMessage('params', paramTotal > 0
+        ? 'ZG parameters synced locally.'
+        : 'No ZG parameters found for this user.')
       setProgress(100)
       setStage('complete')
     } catch (err) {
@@ -126,6 +151,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       if (currentTarget === 'items') {
         setTargetStatus('items', 'error')
         setTargetMessage('items', getErrorMessage(err, 'Items'))
+      } else if (currentTarget === 'params') {
+        setTargetStatus('params', 'error')
+        setTargetMessage('params', getErrorMessage(err, 'ZG parameters'))
       } else {
         setTargetStatus('suppliers', 'error')
         setTargetMessage('suppliers', getErrorMessage(err, 'Supplier'))
@@ -137,11 +165,13 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     ? 'Syncing suppliers...'
     : stage === 'items'
       ? 'Syncing items...'
-      : stage === 'complete'
-        ? 'Sync complete'
-        : stage === 'error'
-          ? 'Sync stopped'
-          : 'Ready to sync'
+      : stage === 'params'
+        ? 'Syncing ZG parameters...'
+        : stage === 'complete'
+          ? 'Sync complete'
+          : stage === 'error'
+            ? 'Sync stopped'
+            : 'Ready to sync'
 
   return (
     <div className="data-sync-screen">
@@ -173,15 +203,23 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
             <span>Item sync</span>
             <strong>{formatDateTime(itemsLastSync)}</strong>
           </div>
+          <div className="data-sync-stat">
+            <span>Parameters</span>
+            <strong>{paramCount}</strong>
+          </div>
+          <div className="data-sync-stat">
+            <span>Parameter sync</span>
+            <strong>{formatDateTime(paramsLastSync)}</strong>
+          </div>
         </section>
 
         <section className="data-sync-panel" aria-labelledby="sync-all-title">
           <div className="data-sync-panel-header">
             <div>
               <h2 id="sync-all-title">Run local sync</h2>
-              <p>Syncs suppliers first, then ERP items, and replaces the local offline data.</p>
+              <p>Syncs suppliers, ERP items, and ZG parameters for local offline use.</p>
             </div>
-            <span className="data-sync-badge">2 steps</span>
+            <span className="data-sync-badge">3 steps</span>
           </div>
 
           <button
@@ -199,7 +237,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
                 <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
               </svg>
             )}
-            Sync suppliers and items
+            Sync local data
           </button>
 
           <div className="data-sync-progress" aria-label={progressLabel}>
@@ -226,6 +264,14 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
               <div>
                 <strong>Items</strong>
                 <p>{message.items || 'Waiting for sync'}</p>
+              </div>
+            </div>
+
+            <div className={`data-sync-step ${status.params}`}>
+              <span className="data-sync-step-dot" />
+              <div>
+                <strong>ZG parameters</strong>
+                <p>{message.params || 'Waiting for sync'}</p>
               </div>
             </div>
           </div>

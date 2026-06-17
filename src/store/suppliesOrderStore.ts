@@ -36,6 +36,11 @@ function readStringSetting(settings: UserSettings | null, keys: string[], fallba
   return String(readSetting(settings, keys, fallback))
 }
 
+function preferParam(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim() ?? ''
+  return trimmed || fallback
+}
+
 function normalize(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
 }
@@ -49,6 +54,16 @@ function milkAliases(milkType: MilkType): string[] {
 }
 
 function matchMilkItem(entry: CompletedMilkEntry, items: LocalItem[]): LocalItem | undefined {
+  if (entry.itemId !== undefined) {
+    const byId = items.find((item) => item.item_id === entry.itemId)
+    if (byId) return byId
+  }
+
+  if (entry.itemCode) {
+    const byCode = items.find((item) => normalize(item.item_code) === normalize(entry.itemCode ?? ''))
+    if (byCode) return byCode
+  }
+
   const wanted = milkAliases(entry.milkType)
   const candidates = items.filter((item) => normalize(item.item_offline_type) === 'milkcollection')
 
@@ -56,6 +71,9 @@ function matchMilkItem(entry: CompletedMilkEntry, items: LocalItem[]): LocalItem
     ?? candidates.find((item) => wanted.includes(normalize(item.item_descr)))
     ?? candidates.find((item) => wanted.some((alias) => normalize(item.item_descr).includes(alias)))
     ?? candidates.find((item) => wanted.includes(normalize(item.item_code)))
+    ?? items.find((item) => wanted.includes(normalize(item.item_descr)))
+    ?? items.find((item) => wanted.some((alias) => normalize(item.item_descr).includes(alias)))
+    ?? items.find((item) => wanted.includes(normalize(item.item_code)))
 }
 
 function toDateKey(value: string): string {
@@ -87,18 +105,34 @@ export async function createSuppliesOrderPayload(
 
   const items = await db.items.toArray()
   const transport = await db.transportDetails.get('current')
+  const zgParam = await db.zgParams.get('current')
   const internalnum = createInternalNumber(collection)
   const settings = user.settings
-  const salespickingseries = readNumberSetting(settings, [
-    'salespickingseries',
-    'salesPickingSeries',
-    'sales_picking_series',
-  ])
-  const frombranch = readStringSetting(settings, ['frombranch', 'fromBranch'])
-  const fromstore = readStringSetting(settings, ['fromstore', 'fromStore', 'fromwhouse'])
+  const salespickingseries = toNumber(
+    zgParam?.par_supplies_series1,
+    readNumberSetting(settings, [
+      'salespickingseries',
+      'salesPickingSeries',
+      'sales_picking_series',
+    ]),
+  )
+  const frombranch = preferParam(
+    zgParam?.par_from_branch,
+    readStringSetting(settings, ['frombranch', 'fromBranch']),
+  )
+  const fromstore = preferParam(
+    zgParam?.par_from_store,
+    readStringSetting(settings, ['fromstore', 'fromStore', 'fromwhouse']),
+  )
   const fromposition = readStringSetting(settings, ['fromposition', 'fromPosition'])
-  const tobranch = readStringSetting(settings, ['tobranch', 'toBranch'])
-  const tostore = readStringSetting(settings, ['tostore', 'toStore', 'towhouse'])
+  const tobranch = preferParam(
+    zgParam?.par_to_branch,
+    readStringSetting(settings, ['tobranch', 'toBranch']),
+  )
+  const tostore = preferParam(
+    zgParam?.par_to_store,
+    readStringSetting(settings, ['tostore', 'toStore', 'towhouse']),
+  )
   const toposition = readStringSetting(settings, ['toposition', 'toPosition'])
   const buyerid = readStringSetting(settings, ['buyerid', 'buyerId'])
   const carrierid = readStringSetting(settings, ['carrierid', 'carrierId'])

@@ -3,7 +3,7 @@ export type SupplierType =
   | 'VAT-excluded farmer'
   | 'Agricultural cooperative farmer'
 
-export type MilkType = 'Cow milk' | 'Sheep milk' | 'Buffalo milk' | 'Goat milk'
+export type MilkType = string
 
 export interface Supplier {
   id: string
@@ -15,6 +15,9 @@ export interface Supplier {
 export interface MilkEntry {
   id: string
   milkType: MilkType | ''
+  itemId?: number
+  itemCode?: string
+  itemDescription?: string
   kg: string
   waterPercentage: string
   temperature: string

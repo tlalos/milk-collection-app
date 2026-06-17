@@ -600,6 +600,132 @@ button {
   margin-top: 14px;
 }
 
+.milk-type-field {
+  position: relative;
+}
+
+.milk-type-combobox {
+  position: relative;
+}
+
+.milk-type-select-button {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.milk-type-select-button:focus-visible,
+.milk-type-search:focus {
+  border-color: var(--color-green-mid);
+  box-shadow: 0 0 0 3px rgba(35, 122, 80, 0.16);
+  outline: none;
+}
+
+.milk-type-select-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.milk-type-select-button strong {
+  flex: 0 0 auto;
+  color: var(--color-green-dark);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.milk-type-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #b7dcc9;
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+  box-shadow: 0 12px 28px rgba(23, 35, 29, 0.18);
+}
+
+.milk-type-search {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fbfdfc;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.milk-type-options {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.milk-type-option {
+  width: 100%;
+  min-height: 52px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f7fbf9;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.milk-type-option:active,
+.milk-type-option:focus-visible {
+  border-color: #b7dcc9;
+  background: var(--color-green-soft);
+  outline: none;
+}
+
+.milk-type-option span {
+  color: var(--color-green-dark);
+  font-size: 0.9rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.milk-type-option small {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.milk-type-empty {
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+  text-align: center;
+}
+
 .scan-field {
   justify-content: end;
 }

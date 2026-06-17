@@ -3,6 +3,7 @@ import type { LocalItem } from '../types/items'
 import type { JournalEntry } from '../types/journal'
 import type { LocalSupplier } from '../types/suppliers'
 import type { TransportDetails } from '../types/transport'
+import type { LocalZgParam } from '../types/zgParam'
 
 export interface Collection {
   id: number
@@ -50,6 +51,7 @@ class MilkDb extends Dexie {
   items!: Table<LocalItem, number>
   journalEntries!: Table<JournalEntry, number>
   transportDetails!: Table<TransportDetails, string>
+  zgParams!: Table<LocalZgParam, string>
 
   constructor() {
     super('MilkCollectionDB')
@@ -95,6 +97,10 @@ class MilkDb extends Dexie {
 
     this.version(9).stores({
       transportDetails: '&id, updatedAt',
+    })
+
+    this.version(10).stores({
+      zgParams: '&id, username, syncedAt',
     })
   }
 }

@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { milkTypes } from '../data/mockSuppliers'
+import { db } from '../db/database'
 import type { MilkEntry, MilkType, SubmittedCollection, Supplier, SupplierType } from '../types'
+import type { LocalItem } from '../types/items'
 
 interface MilkCollectionEntryScreenProps {
   supplier: Supplier
@@ -9,6 +11,14 @@ interface MilkCollectionEntryScreenProps {
 }
 
 const defaultMilkTypes: MilkType[] = ['Cow milk', 'Sheep milk', 'Buffalo milk']
+
+interface MilkTypeOption {
+  id: string
+  itemId?: number
+  label: string
+  code: string
+  offlineType: string
+}
 
 function createEntryId(milkType: MilkType | '') {
   if (milkType) return `default-${milkType.toLowerCase().replace(/\s+/g, '-')}`
@@ -49,6 +59,115 @@ function formatKg(kg: string) {
   return `${kg || '0.0'} kg`
 }
 
+function normalize(value: string) {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function itemToMilkTypeOption(item: LocalItem): MilkTypeOption {
+  return {
+    id: String(item.item_id),
+    itemId: item.item_id,
+    label: item.item_descr,
+    code: item.item_code,
+    offlineType: item.item_offline_type,
+  }
+}
+
+function fallbackMilkTypeOptions(): MilkTypeOption[] {
+  return milkTypes.map((milkType) => ({
+    id: milkType,
+    label: milkType,
+    code: '',
+    offlineType: '',
+  }))
+}
+
+function formatItemLabel(option: Pick<MilkTypeOption, 'label' | 'code'>) {
+  return option.code ? `${option.code} - ${option.label}` : option.label
+}
+
+function MilkTypeSearchDropdown({
+  value,
+  itemCode,
+  options,
+  onChange,
+}: {
+  value: MilkType | ''
+  itemCode?: string
+  options: MilkTypeOption[]
+  onChange: (option: MilkTypeOption | null) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+
+    if (!normalizedQuery) return options
+
+    return options.filter((option) => {
+      const searchable = `${option.code} ${option.label} ${option.offlineType}`.toLowerCase()
+      return searchable.includes(normalizedQuery)
+    })
+  }, [options, query])
+
+  function selectOption(option: MilkTypeOption) {
+    onChange(option)
+    setQuery('')
+    setIsOpen(false)
+  }
+
+  const selectedLabel = value
+    ? formatItemLabel({ label: value, code: itemCode ?? '' })
+    : 'Select item'
+
+  return (
+    <div className="form-field milk-type-field">
+      <span>Milk type</span>
+      <div className="milk-type-combobox">
+        <button
+          className="milk-type-select-button"
+          type="button"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <span>{selectedLabel}</span>
+          <strong aria-hidden="true">{isOpen ? '-' : '+'}</strong>
+        </button>
+
+        {isOpen && (
+          <div className="milk-type-menu">
+            <input
+              className="milk-type-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search item code or description"
+              autoComplete="off"
+            />
+
+            <div className="milk-type-options" role="listbox">
+              {filteredOptions.map((option) => (
+                <button
+                  className="milk-type-option"
+                  key={option.id}
+                  type="button"
+                  onClick={() => selectOption(option)}
+                >
+                  <span>{option.code || 'No code'}</span>
+                  <small>{option.label}</small>
+                </button>
+              ))}
+
+              {filteredOptions.length === 0 && (
+                <p className="milk-type-empty">No items found.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function MilkCollectionEntryScreen({
   supplier,
   onBack,
@@ -56,6 +175,41 @@ export function MilkCollectionEntryScreen({
 }: MilkCollectionEntryScreenProps) {
   const [entries, setEntries] = useState<MilkEntry[]>(createDefaultMilkEntries)
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>('default-cow-milk')
+  const [syncedMilkOptions, setSyncedMilkOptions] = useState<MilkTypeOption[]>([])
+
+  useEffect(() => {
+    let isMounted = true
+
+    db.items
+      .toArray()
+      .then((items) => {
+        if (!isMounted) return
+
+        const options = items
+          .map(itemToMilkTypeOption)
+          .filter((option) => option.label.trim() || option.code.trim())
+          .sort((a, b) => {
+            const aIsMilk = normalize(a.offlineType) === 'milkcollection'
+            const bIsMilk = normalize(b.offlineType) === 'milkcollection'
+            if (aIsMilk !== bIsMilk) return aIsMilk ? -1 : 1
+            return formatItemLabel(a).localeCompare(formatItemLabel(b))
+          })
+
+        setSyncedMilkOptions(options)
+      })
+      .catch(() => {
+        if (!isMounted) return
+        setSyncedMilkOptions([])
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const milkTypeOptions = syncedMilkOptions.length > 0
+    ? syncedMilkOptions
+    : fallbackMilkTypeOptions()
 
   function updateEntry(entryId: string, updates: Partial<MilkEntry>) {
     setEntries((current) =>
@@ -171,24 +325,19 @@ export function MilkCollectionEntryScreen({
 
                 {expandedEntryId === entry.id && (
                 <div className="entry-form-grid" id={`milk-entry-details-${entry.id}`}>
-                  <label className="form-field">
-                    <span>Milk type</span>
-                    <select
-                      value={entry.milkType}
-                      onChange={(event) =>
-                        updateEntry(entry.id, {
-                          milkType: event.target.value as MilkType | '',
-                        })
-                      }
-                    >
-                      <option value="">Select milk type</option>
-                      {milkTypes.map((milkType) => (
-                        <option key={milkType} value={milkType}>
-                          {milkType}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <MilkTypeSearchDropdown
+                    value={entry.milkType}
+                    itemCode={entry.itemCode}
+                    options={milkTypeOptions}
+                    onChange={(option) =>
+                      updateEntry(entry.id, {
+                        milkType: option?.label ?? '',
+                        itemId: option?.itemId,
+                        itemCode: option?.code,
+                        itemDescription: option?.label,
+                      })
+                    }
+                  />
 
                   <label className="form-field">
                     <span>Kg</span>
