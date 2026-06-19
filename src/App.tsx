@@ -10,10 +10,15 @@ import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { TransportScreen } from './components/TransportScreen'
 import { authStore } from './store/authStore'
-import { saveCollectionToJournal } from './store/journalStore'
-import { sendSuppliesOrderToErp } from './store/suppliesOrderStore'
+import { ErpPayloadDebugModal } from './components/ErpPayloadDebugModal'
+import { saveCollectionToJournal, updateJournalCollectionErpStatus } from './store/journalStore'
+import {
+  createSuppliesOrderPayload,
+  sendSuppliesOrderPayloadToErp,
+} from './store/suppliesOrderStore'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
+import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
 import './App.css'
 
 type Screen =
@@ -36,6 +41,12 @@ export function App() {
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [submittedCollections, setSubmittedCollections] = useState<SubmittedCollection[]>([])
   const [successMessage, setSuccessMessage] = useState('')
+  const [pendingErpSend, setPendingErpSend] = useState<{
+    collectionId: string
+    collection: SubmittedCollection
+    payload: ERP_SuppliesPickingOrder[]
+  } | null>(null)
+  const [pendingErpSending, setPendingErpSending] = useState(false)
 
   function handleStartupComplete() {
     if (authStore.isLoggedIn()) {
@@ -83,7 +94,7 @@ export function App() {
   async function submitCollection(collection: SubmittedCollection) {
     setSubmittedCollections((current) => [collection, ...current])
     try {
-      const savedEntries = await saveCollectionToJournal(collection)
+      const { collectionId, savedEntries } = await saveCollectionToJournal(collection)
       setSuccessMessage(`Collection submitted for ${collection.supplier.name}.`)
       if (savedEntries === 0) {
         setSuccessMessage(`Collection submitted for ${collection.supplier.name}. No journal rows were saved because no milk quantities were entered.`)
@@ -91,12 +102,16 @@ export function App() {
         setSuccessMessage(`Collection saved locally for ${collection.supplier.name}, but no user is signed in for ERP sync.`)
       } else {
         try {
-          const erpResponse = await sendSuppliesOrderToErp(collection, user)
-          setSuccessMessage(
-            `Collection submitted for ${collection.supplier.name} and sent to ERP${erpResponse.newid ? ` (#${erpResponse.newid})` : ''}.`,
+          const payload = await createSuppliesOrderPayload(collection, user)
+          setPendingErpSend({ collectionId, collection, payload })
+          setSuccessMessage(`Collection saved locally for ${collection.supplier.name}. Review ERP debug values before sending.`)
+        } catch (err) {
+          await updateJournalCollectionErpStatus(
+            collectionId,
+            'failed',
+            (err as Error).message || 'ERP payload could not be prepared.',
           )
-        } catch {
-          setSuccessMessage(`Collection saved locally for ${collection.supplier.name}, but ERP sync failed.`)
+          setSuccessMessage(`Collection saved locally for ${collection.supplier.name}, but ERP payload could not be prepared.`)
         }
       }
     } catch {
@@ -104,6 +119,38 @@ export function App() {
     }
     setSelectedSupplier(null)
     setScreen('suppliers')
+  }
+
+  async function confirmPendingErpSend() {
+    if (!pendingErpSend || pendingErpSending) return
+
+    setPendingErpSending(true)
+    await updateJournalCollectionErpStatus(pendingErpSend.collectionId, 'sending', 'Sending order to ERP...')
+
+    try {
+      const erpResponse = await sendSuppliesOrderPayloadToErp(pendingErpSend.payload)
+      await updateJournalCollectionErpStatus(
+        pendingErpSend.collectionId,
+        'sent',
+        erpResponse.newid
+          ? `Sent to ERP. New document #${erpResponse.newid}.`
+          : 'Sent to ERP.',
+        erpResponse.newid ?? '',
+      )
+      setSuccessMessage(
+        `Collection sent to ERP for ${pendingErpSend.collection.supplier.name}${erpResponse.newid ? ` (#${erpResponse.newid})` : ''}.`,
+      )
+      setPendingErpSend(null)
+    } catch (err) {
+      await updateJournalCollectionErpStatus(
+        pendingErpSend.collectionId,
+        'failed',
+        (err as Error).message || 'ERP sync failed.',
+      )
+      setSuccessMessage(`ERP sync failed for ${pendingErpSend.collection.supplier.name}.`)
+    } finally {
+      setPendingErpSending(false)
+    }
   }
 
   return (
@@ -282,6 +329,15 @@ export function App() {
             </div>
           </main>
         </div>
+      )}
+
+      {pendingErpSend && (
+        <ErpPayloadDebugModal
+          payload={pendingErpSend.payload}
+          isSending={pendingErpSending}
+          onCancel={() => setPendingErpSend(null)}
+          onSend={confirmPendingErpSend}
+        />
       )}
     </>
   )

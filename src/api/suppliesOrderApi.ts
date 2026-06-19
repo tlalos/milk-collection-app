@@ -7,7 +7,7 @@ export function saveZGParalavesSuppliesOrder(
   token?: string,
 ): Promise<ERP_RetFunc> {
   return apiPost<ERP_SuppliesPickingOrder[], ERP_RetFunc>(
-    'WMS/ERP_SaveZGParalavesSuppliesOrder',
+    'WMS/ERP_SaveRomZGParalavesSuppliesOrder',
     order,
     { signal, token },
   )

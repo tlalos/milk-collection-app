@@ -18,6 +18,7 @@ export interface MilkEntry {
   itemId?: number
   itemCode?: string
   itemDescription?: string
+  itemMeasure?: string
   kg: string
   waterPercentage: string
   temperature: string

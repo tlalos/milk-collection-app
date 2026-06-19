@@ -6,9 +6,14 @@ import {
   toLocalDateKey,
   updateJournalCollectionErpStatus,
 } from '../store/journalStore'
-import { sendSuppliesOrderToErp } from '../store/suppliesOrderStore'
+import {
+  createSuppliesOrderPayload,
+  sendSuppliesOrderPayloadToErp,
+} from '../store/suppliesOrderStore'
+import { ErpPayloadDebugModal } from './ErpPayloadDebugModal'
 import type { AuthUser } from '../types/auth'
 import type { JournalEntry } from '../types/journal'
+import type { ERP_SuppliesPickingOrder } from '../types/suppliesOrder'
 import './JournalScreen.css'
 
 interface JournalScreenProps {
@@ -27,8 +32,8 @@ interface JournalOrder {
   erpMessage: string
 }
 
-function formatKg(value: number) {
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} kg`
+function formatQuantity(value: number, measure = 'kg') {
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${measure || 'kg'}`
 }
 
 function formatTime(value: string) {
@@ -50,6 +55,10 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [debugPayload, setDebugPayload] = useState<{
+    collectionId: string
+    payload: ERP_SuppliesPickingOrder[]
+  } | null>(null)
 
   async function refreshEntries(date = selectedDate) {
     const records = await getJournalEntriesByDate(date)
@@ -110,13 +119,17 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
 
   const totalsByMilkType = useMemo(() => {
     const totals = new Map<string, number>()
+    const measures = new Map<string, string>()
 
     for (const entry of entries) {
       totals.set(entry.milkType, (totals.get(entry.milkType) ?? 0) + entry.kg)
+      if (entry.itemMeasure && !measures.has(entry.milkType)) {
+        measures.set(entry.milkType, entry.itemMeasure)
+      }
     }
 
     return Array.from(totals.entries())
-      .map(([milkType, kg]) => ({ milkType, kg }))
+      .map(([milkType, kg]) => ({ milkType, kg, measure: measures.get(milkType) ?? 'kg' }))
       .sort((a, b) => b.kg - a.kg)
   }, [entries])
 
@@ -124,20 +137,40 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
     if (sendingId) return
 
     setSendingId(collectionId)
-    await updateJournalCollectionErpStatus(collectionId, 'sending', 'Sending order to ERP...')
-    await refreshEntries()
-
     try {
       const orderEntries = await getJournalEntriesByCollection(collectionId)
       const collection = journalEntriesToCollection(orderEntries)
-      const response = await sendSuppliesOrderToErp(collection, user)
-      const message = response.newid
-        ? `Sent to ERP. New document #${response.newid}.`
-        : 'Sent to ERP.'
-      await updateJournalCollectionErpStatus(collectionId, 'sent', message, response.newid ?? '')
+      const payload = await createSuppliesOrderPayload(collection, user)
+      setDebugPayload({ collectionId, payload })
     } catch (err) {
       await updateJournalCollectionErpStatus(
         collectionId,
+        'failed',
+        (err as Error).message || 'ERP sync failed.',
+      )
+    } finally {
+      setSendingId(null)
+      await refreshEntries()
+    }
+  }
+
+  async function confirmSendToErp() {
+    if (!debugPayload || sendingId) return
+
+    setSendingId(debugPayload.collectionId)
+    await updateJournalCollectionErpStatus(debugPayload.collectionId, 'sending', 'Sending order to ERP...')
+    await refreshEntries()
+
+    try {
+      const response = await sendSuppliesOrderPayloadToErp(debugPayload.payload)
+      const message = response.newid
+        ? `Sent to ERP. New document #${response.newid}.`
+        : 'Sent to ERP.'
+      await updateJournalCollectionErpStatus(debugPayload.collectionId, 'sent', message, response.newid ?? '')
+      setDebugPayload(null)
+    } catch (err) {
+      await updateJournalCollectionErpStatus(
+        debugPayload.collectionId,
         'failed',
         (err as Error).message || 'ERP sync failed.',
       )
@@ -177,7 +210,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
           </div>
           <div className="journal-stat">
             <span>Total quantity</span>
-            <strong>{formatKg(totalKg)}</strong>
+            <strong>{formatQuantity(totalKg)}</strong>
           </div>
 
           {totalsByMilkType.length > 0 && (
@@ -190,7 +223,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                 {totalsByMilkType.map((total) => (
                   <div className="journal-type-total" key={total.milkType}>
                     <span>{total.milkType}:</span>
-                    <strong>{formatKg(total.kg)}</strong>
+                    <strong>{formatQuantity(total.kg, total.measure)}</strong>
                   </div>
                 ))}
               </div>
@@ -222,7 +255,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                   <div className="journal-entry-lines">
                     {order.entries.map((entry) => (
                       <span key={entry.id ?? `${order.collectionId}-${entry.milkType}`}>
-                        {entry.milkType}: {formatKg(entry.kg)}
+                        {entry.milkType}: {formatQuantity(entry.kg, entry.itemMeasure)}
                       </span>
                     ))}
                   </div>
@@ -233,7 +266,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                   )}
                 </div>
                 <div className="journal-entry-actions">
-                  <span className="journal-entry-kg">{formatKg(order.totalKg)}</span>
+                  <span className="journal-entry-kg">{formatQuantity(order.totalKg)}</span>
                   <button
                     className={`journal-send-button ${order.erpStatus}`}
                     type="button"
@@ -252,6 +285,14 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
           </section>
         )}
       </main>
+      {debugPayload && (
+        <ErpPayloadDebugModal
+          payload={debugPayload.payload}
+          isSending={sendingId === debugPayload.collectionId}
+          onCancel={() => setDebugPayload(null)}
+          onSend={confirmSendToErp}
+        />
+      )}
     </div>
   )
 }

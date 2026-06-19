@@ -11,6 +11,10 @@ export interface JournalEntry {
   supplierCode: string
   supplierName: string
   milkType: MilkType
+  itemId?: number
+  itemCode?: string
+  itemDescription?: string
+  itemMeasure?: string
   kg: number
   barcode: string
   waterPercentage: string

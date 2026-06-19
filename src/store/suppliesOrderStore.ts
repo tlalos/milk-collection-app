@@ -199,13 +199,20 @@ export async function sendSuppliesOrderToErp(
   user: AuthUser,
   signal?: AbortSignal,
 ): Promise<ERP_RetFunc> {
+  const payload = await createSuppliesOrderPayload(collection, user)
+  return sendSuppliesOrderPayloadToErp(payload, signal)
+}
+
+export async function sendSuppliesOrderPayloadToErp(
+  payload: ERP_SuppliesPickingOrder[],
+  signal?: AbortSignal,
+): Promise<ERP_RetFunc> {
   const { apiUsername, apiPassword, defaultFiscalYear } = settingsStore.get()
 
   if (!apiUsername || !apiPassword) {
     throw new Error('API credentials not configured. Open Settings first.')
   }
 
-  const payload = await createSuppliesOrderPayload(collection, user)
   const loginResponse = await login(
     { Username: apiUsername, Password: apiPassword, fiscalyear: defaultFiscalYear },
     signal,

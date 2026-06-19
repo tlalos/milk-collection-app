@@ -17,6 +17,7 @@ interface MilkTypeOption {
   itemId?: number
   label: string
   code: string
+  measure: string
   offlineType: string
 }
 
@@ -55,10 +56,6 @@ function createDefaultMilkEntries() {
   return defaultMilkTypes.map((milkType) => createMilkEntry(milkType))
 }
 
-function formatKg(kg: string) {
-  return `${kg || '0.0'} kg`
-}
-
 function normalize(value: string) {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
 }
@@ -69,6 +66,7 @@ function itemToMilkTypeOption(item: LocalItem): MilkTypeOption {
     itemId: item.item_id,
     label: item.item_descr,
     code: item.item_code,
+    measure: item.item_mu1_shortcut,
     offlineType: item.item_offline_type,
   }
 }
@@ -78,22 +76,30 @@ function fallbackMilkTypeOptions(): MilkTypeOption[] {
     id: milkType,
     label: milkType,
     code: '',
+    measure: '',
     offlineType: '',
   }))
 }
 
-function formatItemLabel(option: Pick<MilkTypeOption, 'label' | 'code'>) {
-  return option.code ? `${option.code} - ${option.label}` : option.label
+function formatItemLabel(option: Pick<MilkTypeOption, 'label' | 'code' | 'measure'>) {
+  const itemLabel = option.code ? `${option.code} - ${option.label}` : option.label
+  return option.measure ? `${itemLabel} (${option.measure})` : itemLabel
+}
+
+function formatQuantity(quantity: string, measure?: string) {
+  return `${quantity || '0.0'} ${measure || 'kg'}`
 }
 
 function MilkTypeSearchDropdown({
   value,
   itemCode,
+  itemMeasure,
   options,
   onChange,
 }: {
   value: MilkType | ''
   itemCode?: string
+  itemMeasure?: string
   options: MilkTypeOption[]
   onChange: (option: MilkTypeOption | null) => void
 }) {
@@ -105,7 +111,7 @@ function MilkTypeSearchDropdown({
     if (!normalizedQuery) return options
 
     return options.filter((option) => {
-      const searchable = `${option.code} ${option.label} ${option.offlineType}`.toLowerCase()
+      const searchable = `${option.code} ${option.label} ${option.measure} ${option.offlineType}`.toLowerCase()
       return searchable.includes(normalizedQuery)
     })
   }, [options, query])
@@ -117,7 +123,7 @@ function MilkTypeSearchDropdown({
   }
 
   const selectedLabel = value
-    ? formatItemLabel({ label: value, code: itemCode ?? '' })
+    ? formatItemLabel({ label: value, code: itemCode ?? '', measure: itemMeasure ?? '' })
     : 'Select item'
 
   return (
@@ -153,7 +159,7 @@ function MilkTypeSearchDropdown({
                   onClick={() => selectOption(option)}
                 >
                   <span>{option.code || 'No code'}</span>
-                  <small>{option.label}</small>
+                  <small>{option.measure ? `${option.label} - ${option.measure}` : option.label}</small>
                 </button>
               ))}
 
@@ -308,7 +314,7 @@ export function MilkCollectionEntryScreen({
                     <span className="milk-entry-title">
                       {entry.milkType || 'Select milk type'}
                     </span>
-                    <span className="milk-entry-kg">{formatKg(entry.kg)}</span>
+                    <span className="milk-entry-kg">{formatQuantity(entry.kg, entry.itemMeasure)}</span>
                     <span className="milk-entry-chevron" aria-hidden="true">
                       {expandedEntryId === entry.id ? '-' : '+'}
                     </span>
@@ -328,6 +334,7 @@ export function MilkCollectionEntryScreen({
                   <MilkTypeSearchDropdown
                     value={entry.milkType}
                     itemCode={entry.itemCode}
+                    itemMeasure={entry.itemMeasure}
                     options={milkTypeOptions}
                     onChange={(option) =>
                       updateEntry(entry.id, {
@@ -335,12 +342,13 @@ export function MilkCollectionEntryScreen({
                         itemId: option?.itemId,
                         itemCode: option?.code,
                         itemDescription: option?.label,
+                        itemMeasure: option?.measure,
                       })
                     }
                   />
 
                   <label className="form-field">
-                    <span>Kg</span>
+                    <span>Quantity{entry.itemMeasure ? ` (${entry.itemMeasure})` : ''}</span>
                     <input
                       type="number"
                       inputMode="decimal"

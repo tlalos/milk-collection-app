@@ -14,7 +14,12 @@ export function toLocalDateKey(value: Date | string = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
-export async function saveCollectionToJournal(collection: SubmittedCollection): Promise<number> {
+export interface SaveCollectionToJournalResult {
+  collectionId: string
+  savedEntries: number
+}
+
+export async function saveCollectionToJournal(collection: SubmittedCollection): Promise<SaveCollectionToJournalResult> {
   const collectionId = globalThis.crypto?.randomUUID?.() ?? `collection-${Date.now()}`
   const collectionDate = toLocalDateKey(collection.submittedAt)
   const journalEntries: JournalEntry[] = collection.entries
@@ -27,6 +32,10 @@ export async function saveCollectionToJournal(collection: SubmittedCollection): 
       supplierCode: collection.supplier.code,
       supplierName: collection.supplier.name,
       milkType: entry.milkType,
+      itemId: entry.itemId,
+      itemCode: entry.itemCode,
+      itemDescription: entry.itemDescription,
+      itemMeasure: entry.itemMeasure,
       kg: Number(entry.kg),
       barcode: entry.barcode,
       waterPercentage: entry.waterPercentage,
@@ -39,11 +48,11 @@ export async function saveCollectionToJournal(collection: SubmittedCollection): 
     }))
 
   if (journalEntries.length === 0) {
-    return 0
+    return { collectionId, savedEntries: 0 }
   }
 
   await db.journalEntries.bulkAdd(journalEntries)
-  return journalEntries.length
+  return { collectionId, savedEntries: journalEntries.length }
 }
 
 export async function getJournalEntriesByDate(date: string): Promise<JournalEntry[]> {
@@ -82,6 +91,10 @@ export function journalEntriesToCollection(entries: JournalEntry[]): SubmittedCo
     entries: entries.map((entry) => ({
       id: String(entry.id ?? `${entry.collectionId}-${entry.milkType}`),
       milkType: entry.milkType,
+      itemId: entry.itemId,
+      itemCode: entry.itemCode,
+      itemDescription: entry.itemDescription,
+      itemMeasure: entry.itemMeasure,
       kg: String(entry.kg),
       barcode: entry.barcode ?? '',
       waterPercentage: entry.waterPercentage ?? '',
