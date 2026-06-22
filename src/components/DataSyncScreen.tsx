@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
 import { db } from '../db/database'
 import { getItemsLastSync, syncItems } from '../sync/syncItems'
 import { getSuppliersLastSync, syncSuppliers } from '../sync/syncSuppliers'
+import { getTrucksLastSync, syncTrucks } from '../sync/syncTrucks'
 import { getZgParamLastSync, syncZgParam } from '../sync/syncZgParam'
 import type { AuthUser } from '../types/auth'
 import './DataSyncScreen.css'
@@ -13,8 +14,8 @@ interface DataSyncScreenProps {
 }
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error'
-type SyncTarget = 'suppliers' | 'items' | 'params'
-type SyncStage = 'idle' | 'suppliers' | 'items' | 'params' | 'complete' | 'error'
+type SyncTarget = 'suppliers' | 'items' | 'trucks' | 'params'
+type SyncStage = 'idle' | 'suppliers' | 'items' | 'trucks' | 'params' | 'complete' | 'error'
 
 function formatDateTime(value: string | null) {
   if (!value) return 'Never'
@@ -32,18 +33,22 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
   }
   const [supplierCount, setSupplierCount] = useState(0)
   const [itemCount, setItemCount] = useState(0)
+  const [truckCount, setTruckCount] = useState(0)
   const [paramCount, setParamCount] = useState(0)
   const [suppliersLastSync, setSuppliersLastSync] = useState<string | null>(getSuppliersLastSync())
   const [itemsLastSync, setItemsLastSync] = useState<string | null>(getItemsLastSync())
+  const [trucksLastSync, setTrucksLastSync] = useState<string | null>(getTrucksLastSync())
   const [paramsLastSync, setParamsLastSync] = useState<string | null>(getZgParamLastSync())
   const [status, setStatus] = useState<Record<SyncTarget, SyncStatus>>({
     suppliers: 'idle',
     items: 'idle',
+    trucks: 'idle',
     params: 'idle',
   })
   const [message, setMessage] = useState<Record<SyncTarget, string>>({
     suppliers: '',
     items: '',
+    trucks: '',
     params: '',
   })
   const [stage, setStage] = useState<SyncStage>('idle')
@@ -57,6 +62,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     db.items.count()
       .then(setItemCount)
       .catch(() => setItemCount(0))
+    db.trucks.count()
+      .then(setTruckCount)
+      .catch(() => setTruckCount(0))
     db.zgParams.count()
       .then(setParamCount)
       .catch(() => setParamCount(0))
@@ -88,7 +96,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     return (err as Error).message || 'Network error. Check Settings and try again.'
   }
 
-  const isSyncing = stage === 'suppliers' || stage === 'items' || stage === 'params'
+  const isSyncing = stage === 'suppliers' || stage === 'items' || stage === 'trucks' || stage === 'params'
 
   async function handleSyncAll() {
     if (isSyncing) return
@@ -99,9 +107,11 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     setProgress(0)
     setTargetStatus('suppliers', 'syncing')
     setTargetStatus('items', 'idle')
+    setTargetStatus('trucks', 'idle')
     setTargetStatus('params', 'idle')
     setTargetMessage('suppliers', '')
     setTargetMessage('items', '')
+    setTargetMessage('trucks', '')
     setTargetMessage('params', '')
     let currentTarget: SyncTarget = 'suppliers'
 
@@ -114,7 +124,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       setSuppliersLastSync(getSuppliersLastSync())
       setTargetStatus('suppliers', 'success')
       setTargetMessage('suppliers', `${supplierTotal} suppliers synced locally.`)
-      setProgress(33)
+      setProgress(25)
       setStage('items')
       currentTarget = 'items'
       setTargetStatus('items', 'syncing')
@@ -127,7 +137,20 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       setItemsLastSync(getItemsLastSync())
       setTargetStatus('items', 'success')
       setTargetMessage('items', `${itemTotal} items synced locally.`)
-      setProgress(66)
+      setProgress(50)
+      setStage('trucks')
+      currentTarget = 'trucks'
+      setTargetStatus('trucks', 'syncing')
+
+      const truckTotal = await syncTrucks(
+        syncOptions,
+        abortRef.current.signal,
+      )
+      setTruckCount(truckTotal)
+      setTrucksLastSync(getTrucksLastSync())
+      setTargetStatus('trucks', 'success')
+      setTargetMessage('trucks', `${truckTotal} trucks synced locally.`)
+      setProgress(75)
       setStage('params')
       currentTarget = 'params'
       setTargetStatus('params', 'syncing')
@@ -151,6 +174,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
       if (currentTarget === 'items') {
         setTargetStatus('items', 'error')
         setTargetMessage('items', getErrorMessage(err, 'Items'))
+      } else if (currentTarget === 'trucks') {
+        setTargetStatus('trucks', 'error')
+        setTargetMessage('trucks', getErrorMessage(err, 'Supplier vehicles'))
       } else if (currentTarget === 'params') {
         setTargetStatus('params', 'error')
         setTargetMessage('params', getErrorMessage(err, 'ZG parameters'))
@@ -165,13 +191,15 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
     ? 'Syncing suppliers...'
     : stage === 'items'
       ? 'Syncing items...'
-      : stage === 'params'
-        ? 'Syncing ZG parameters...'
-        : stage === 'complete'
-          ? 'Sync complete'
-          : stage === 'error'
-            ? 'Sync stopped'
-            : 'Ready to sync'
+      : stage === 'trucks'
+        ? 'Syncing trucks...'
+        : stage === 'params'
+          ? 'Syncing ZG parameters...'
+          : stage === 'complete'
+            ? 'Sync complete'
+            : stage === 'error'
+              ? 'Sync stopped'
+              : 'Ready to sync'
 
   return (
     <div className="data-sync-screen">
@@ -204,6 +232,14 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
             <strong>{formatDateTime(itemsLastSync)}</strong>
           </div>
           <div className="data-sync-stat">
+            <span>Trucks</span>
+            <strong>{truckCount}</strong>
+          </div>
+          <div className="data-sync-stat">
+            <span>Truck sync</span>
+            <strong>{formatDateTime(trucksLastSync)}</strong>
+          </div>
+          <div className="data-sync-stat">
             <span>Parameters</span>
             <strong>{paramCount}</strong>
           </div>
@@ -217,9 +253,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
           <div className="data-sync-panel-header">
             <div>
               <h2 id="sync-all-title">Run local sync</h2>
-              <p>Syncs suppliers, ERP items, and ZG parameters for local offline use.</p>
+              <p>Syncs suppliers, ERP items, trucks, and ZG parameters for local offline use.</p>
             </div>
-            <span className="data-sync-badge">3 steps</span>
+            <span className="data-sync-badge">4 steps</span>
           </div>
 
           <button
@@ -264,6 +300,14 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
               <div>
                 <strong>Items</strong>
                 <p>{message.items || 'Waiting for sync'}</p>
+              </div>
+            </div>
+
+            <div className={`data-sync-step ${status.trucks}`}>
+              <span className="data-sync-step-dot" />
+              <div>
+                <strong>Trucks</strong>
+                <p>{message.trucks || 'Waiting for sync'}</p>
               </div>
             </div>
 

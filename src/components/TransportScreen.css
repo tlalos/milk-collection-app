@@ -97,7 +97,8 @@
   font-weight: 800;
 }
 
-.transport-field input {
+.transport-field input,
+.transport-field select {
   width: 100%;
   min-height: 50px;
   border: 1px solid #d9e3de;
@@ -109,7 +110,8 @@
   outline: none;
 }
 
-.transport-field input:focus {
+.transport-field input:focus,
+.transport-field select:focus {
   border-color: #237a50;
   box-shadow: 0 0 0 3px rgba(35, 122, 80, 0.16);
 }

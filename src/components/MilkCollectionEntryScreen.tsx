@@ -503,22 +503,6 @@ export function MilkCollectionEntryScreen({
                   </label>
 
                   <label className="form-field">
-                    <span>Water %</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={entry.waterPercentage}
-                      onChange={(event) =>
-                        updateEntry(entry.id, { waterPercentage: event.target.value })
-                      }
-                      placeholder="0.0"
-                    />
-                  </label>
-
-                  <label className="form-field">
                     <span>Temperature °C</span>
                     <input
                       type="number"
@@ -527,38 +511,6 @@ export function MilkCollectionEntryScreen({
                       value={entry.temperature}
                       onChange={(event) =>
                         updateEntry(entry.id, { temperature: event.target.value })
-                      }
-                      placeholder="0.0"
-                    />
-                  </label>
-
-                  <label className="form-field">
-                    <span>pH</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="14"
-                      step="0.01"
-                      value={entry.ph}
-                      onChange={(event) =>
-                        updateEntry(entry.id, { ph: event.target.value })
-                      }
-                      placeholder="0.00"
-                    />
-                  </label>
-
-                  <label className="form-field">
-                    <span>Mobility</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={entry.mobility}
-                      onChange={(event) =>
-                        updateEntry(entry.id, { mobility: event.target.value })
                       }
                       placeholder="0.0"
                     />
@@ -577,19 +529,19 @@ export function MilkCollectionEntryScreen({
                   </label>
 
                   <label className="form-field">
-                    <span>Antibiotics test</span>
-                    <select
-                      value={entry.antibioticsTest}
+                    <span>Water %</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={entry.waterPercentage}
                       onChange={(event) =>
-                        updateEntry(entry.id, {
-                          antibioticsTest: event.target.value as MilkEntry['antibioticsTest'],
-                        })
+                        updateEntry(entry.id, { waterPercentage: event.target.value })
                       }
-                    >
-                      <option value="">Select</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
+                      placeholder="0.0"
+                    />
                   </label>
 
                   <label className="form-field">
@@ -611,25 +563,19 @@ export function MilkCollectionEntryScreen({
                   </label>
 
                   <label className="form-field">
-                    <span>Entry time</span>
-                    <input
-                      type="time"
-                      value={entry.entryTime}
+                    <span>Antibiotics test</span>
+                    <select
+                      value={entry.antibioticsTest}
                       onChange={(event) =>
-                        updateEntry(entry.id, { entryTime: event.target.value })
+                        updateEntry(entry.id, {
+                          antibioticsTest: event.target.value as MilkEntry['antibioticsTest'],
+                        })
                       }
-                    />
-                  </label>
-
-                  <label className="form-field">
-                    <span>Exit time</span>
-                    <input
-                      type="time"
-                      value={entry.exitTime}
-                      onChange={(event) =>
-                        updateEntry(entry.id, { exitTime: event.target.value })
-                      }
-                    />
+                    >
+                      <option value="">Select</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
                   </label>
 
                   <div className="form-field scan-field">
@@ -643,10 +589,18 @@ export function MilkCollectionEntryScreen({
                     </button>
                   </div>
 
-                  <div className="barcode-value">
-                    <span>Scanned value</span>
-                    <strong>{entry.barcode || 'No scan yet'}</strong>
-                  </div>
+                  <label className="form-field barcode-value">
+                    <span>QR/barcode value</span>
+                    <input
+                      type="text"
+                      value={entry.barcode}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { barcode: event.target.value })
+                      }
+                      placeholder="Enter or scan value"
+                      autoComplete="off"
+                    />
+                  </label>
                 </div>
                 )}
               </article>

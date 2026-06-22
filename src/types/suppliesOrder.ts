@@ -38,6 +38,15 @@ export interface ERP_SuppliesPickingOrder {
   carrierid: string
   shipkindid: string
   shipmentid: string
+  fat: string
+  density: string
+  temperature: string
+  water: string
+  alcohol: string
+  antibiotic: string
+  silo: string
+  ph: string
+  mobility: string
 }
 
 export interface ERP_RetFunc {

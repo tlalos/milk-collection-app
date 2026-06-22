@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { db } from '../db/database'
 import { getTransportDetails, saveTransportDetails } from '../store/transportStore'
 import type { TransportDetails } from '../types/transport'
+import type { LocalTruck } from '../types/trucks'
 import './TransportScreen.css'
 
 interface TransportScreenProps {
@@ -20,16 +22,21 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
   const [truckNumber, setTruckNumber] = useState('')
   const [driverName, setDriverName] = useState(initialDriverName)
   const [savedDetails, setSavedDetails] = useState<TransportDetails | null>(null)
+  const [trucks, setTrucks] = useState<LocalTruck[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'error'>('loading')
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     let isMounted = true
 
-    getTransportDetails()
-      .then((details) => {
+    Promise.all([
+      getTransportDetails(),
+      db.trucks.orderBy('truck_code').toArray(),
+    ])
+      .then(([details, localTrucks]) => {
         if (!isMounted) return
 
+        setTrucks(localTrucks)
         if (details) {
           setTransporterName(details.transporterName)
           setTruckNumber(details.truckNumber)
@@ -104,12 +111,18 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
 
             <label className="transport-field" htmlFor="truck-number">
               <span>Truck number</span>
-              <input
+              <select
                 id="truck-number"
                 value={truckNumber}
-                onChange={(event) => setTruckNumber(event.target.value.toUpperCase())}
-                autoComplete="off"
-              />
+                onChange={(event) => setTruckNumber(event.target.value)}
+              >
+                <option value="">Select truck</option>
+                {trucks.map((truck) => (
+                  <option value={truck.truck_code} key={truck.truck_id}>
+                    {truck.truck_code}{truck.truck_name ? ` - ${truck.truck_name}` : ''}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="transport-field" htmlFor="driver-name">

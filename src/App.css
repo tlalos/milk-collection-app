@@ -743,27 +743,7 @@ button {
 }
 
 .barcode-value {
-  min-height: 58px;
-  display: grid;
-  gap: 6px;
-  align-content: center;
-  border: 1px dashed #b8c7bf;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fbfdfc;
-}
-
-.barcode-value span {
-  color: var(--color-text-muted);
-  font-size: 0.78rem;
-  font-weight: 750;
-}
-
-.barcode-value strong {
-  color: var(--color-text);
-  font-size: 1rem;
-  letter-spacing: 0;
-  word-break: break-word;
+  min-width: 0;
 }
 
 .add-entry-button {

@@ -86,11 +86,6 @@ function createInternalNumber(collection: SubmittedCollection): string {
   return String(toNumber(`${datePart}${supplierPart}`.slice(-9), Date.now() % 1000000000))
 }
 
-function getQty2(qty1: number, item: LocalItem): number {
-  if (item.item_mu21_rel > 0) return qty1 / item.item_mu21_rel
-  return qty1
-}
-
 export async function createSuppliesOrderPayload(
   collection: SubmittedCollection,
   user: AuthUser,
@@ -163,7 +158,7 @@ export async function createSuppliesOrderPayload(
       item_id: item.item_id,
       item_code: item.item_code,
       qty1,
-      qty2: getQty2(qty1, item),
+      qty2: qty1,
       price: 0,
       disc1prc: 0,
       disc2prc: 0,
@@ -190,6 +185,15 @@ export async function createSuppliesOrderPayload(
       carrierid,
       shipkindid,
       shipmentid,
+      fat: entry.fatPercentage,
+      density: entry.density,
+      temperature: entry.temperature,
+      water: entry.waterPercentage,
+      alcohol: entry.alcoholTest,
+      antibiotic: entry.antibioticsTest,
+      silo: entry.siloTankNumber,
+      ph: entry.ph,
+      mobility: entry.mobility,
     }
   })
 }
