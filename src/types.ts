@@ -20,9 +20,17 @@ export interface MilkEntry {
   itemDescription?: string
   itemMeasure?: string
   kg: string
+  fatPercentage: string
+  density: string
   waterPercentage: string
   temperature: string
+  ph: string
   mobility: string
+  alcoholTest: string
+  antibioticsTest: '' | 'Yes' | 'No'
+  siloTankNumber: string
+  entryTime: string
+  exitTime: string
   barcode: string
 }
 

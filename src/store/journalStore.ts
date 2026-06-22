@@ -38,9 +38,17 @@ export async function saveCollectionToJournal(collection: SubmittedCollection): 
       itemMeasure: entry.itemMeasure,
       kg: Number(entry.kg),
       barcode: entry.barcode,
+      fatPercentage: entry.fatPercentage,
+      density: entry.density,
       waterPercentage: entry.waterPercentage,
       temperature: entry.temperature,
+      ph: entry.ph,
       mobility: entry.mobility,
+      alcoholTest: entry.alcoholTest,
+      antibioticsTest: entry.antibioticsTest,
+      siloTankNumber: entry.siloTankNumber,
+      entryTime: entry.entryTime,
+      exitTime: entry.exitTime,
       erpStatus: 'pending',
       erpMessage: '',
       erpNewId: '',
@@ -73,6 +81,25 @@ export async function getJournalEntriesByCollection(collectionId: string): Promi
     .toArray()
 }
 
+export async function deleteJournalCollection(collectionId: string): Promise<void> {
+  const rows = await getJournalEntriesByCollection(collectionId)
+
+  await db.transaction('rw', db.journalEntries, async () => {
+    await Promise.all(
+      rows
+        .filter((row): row is JournalEntry & { id: number } => row.id !== undefined)
+        .map((row) => db.journalEntries.delete(row.id)),
+    )
+  })
+}
+
+export async function deleteJournalEntriesByDate(collectionDate: string): Promise<void> {
+  await db.journalEntries
+    .where('collectionDate')
+    .equals(collectionDate)
+    .delete()
+}
+
 export function journalEntriesToCollection(entries: JournalEntry[]): SubmittedCollection {
   const first = entries[0]
 
@@ -97,9 +124,17 @@ export function journalEntriesToCollection(entries: JournalEntry[]): SubmittedCo
       itemMeasure: entry.itemMeasure,
       kg: String(entry.kg),
       barcode: entry.barcode ?? '',
+      fatPercentage: entry.fatPercentage ?? '',
+      density: entry.density ?? '',
       waterPercentage: entry.waterPercentage ?? '',
       temperature: entry.temperature ?? '',
+      ph: entry.ph ?? '',
       mobility: entry.mobility ?? '',
+      alcoholTest: entry.alcoholTest ?? '',
+      antibioticsTest: entry.antibioticsTest ?? '',
+      siloTankNumber: entry.siloTankNumber ?? '',
+      entryTime: entry.entryTime ?? '',
+      exitTime: entry.exitTime ?? '',
     })),
   }
 }

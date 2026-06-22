@@ -39,8 +39,35 @@
 }
 
 .journal-header h1 {
+  flex: 1;
   font-size: 1.2rem;
   font-weight: 750;
+}
+
+.journal-clear-button {
+  min-height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.journal-clear-button.confirm {
+  border-color: #f1baba;
+  background: #fff0f0;
+  color: #9c2f2f;
+}
+
+.journal-clear-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .journal-body {
@@ -94,13 +121,14 @@
 .journal-summary {
   display: grid;
   grid-template-columns: minmax(92px, 0.75fr) minmax(130px, 1fr) minmax(0, 1.9fr);
-  overflow: hidden;
+  align-items: stretch;
+  overflow: visible;
 }
 
 .journal-stat {
   display: grid;
   gap: 4px;
-  min-height: 74px;
+  min-height: 86px;
   align-content: start;
   padding: 12px;
   background: #fff;
@@ -126,6 +154,7 @@
 .journal-type-totals {
   display: grid;
   gap: 8px;
+  min-height: 86px;
   align-content: start;
   padding: 12px;
   background: #fff;
@@ -243,13 +272,12 @@
   white-space: nowrap;
 }
 
-.journal-send-button {
+.journal-send-button,
+.journal-delete-button {
   min-height: 38px;
   border: 0;
   border-radius: 8px;
   padding: 0 12px;
-  background: #155938;
-  color: #fff;
   font: inherit;
   font-size: 0.82rem;
   font-weight: 900;
@@ -257,7 +285,36 @@
   white-space: nowrap;
 }
 
-.journal-send-button:disabled {
+.journal-send-button {
+  background: #155938;
+  color: #fff;
+}
+
+.journal-delete-button {
+  width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #f1baba;
+  background: #fff0f0;
+  color: #9c2f2f;
+}
+
+.journal-delete-button.confirm {
+  width: auto;
+  min-width: 96px;
+  padding: 0 14px;
+  background: #9c2f2f;
+  color: #fff;
+}
+
+.journal-delete-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.journal-send-button:disabled,
+.journal-delete-button:disabled {
   cursor: wait;
   opacity: 0.72;
 }
@@ -337,7 +394,8 @@
   }
 
   .journal-entry-kg,
-  .journal-send-button {
+  .journal-send-button,
+  .journal-delete-button {
     justify-content: center;
     width: 100%;
   }

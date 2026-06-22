@@ -17,9 +17,17 @@ export interface JournalEntry {
   itemMeasure?: string
   kg: number
   barcode: string
+  fatPercentage?: string
+  density?: string
   waterPercentage: string
   temperature: string
+  ph?: string
   mobility: string
+  alcoholTest?: string
+  antibioticsTest?: '' | 'Yes' | 'No'
+  siloTankNumber?: string
+  entryTime?: string
+  exitTime?: string
   erpStatus: JournalErpStatus
   erpMessage: string
   erpNewId: string

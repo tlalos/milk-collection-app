@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  deleteJournalCollection,
+  deleteJournalEntriesByDate,
   getJournalEntriesByCollection,
   getJournalEntriesByDate,
   journalEntriesToCollection,
@@ -28,12 +30,24 @@ interface JournalOrder {
   submittedAt: string
   entries: JournalEntry[]
   totalKg: number
+  measure: string
   erpStatus: JournalEntry['erpStatus']
   erpMessage: string
 }
 
 function formatQuantity(value: number, measure = 'kg') {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${measure || 'kg'}`
+}
+
+function getSharedMeasure(entries: JournalEntry[]) {
+  const measures = entries
+    .map((entry) => entry.itemMeasure?.trim())
+    .filter((measure): measure is string => Boolean(measure))
+  const normalizedMeasures = new Set(measures.map((measure) => measure.toLowerCase()))
+
+  if (normalizedMeasures.size === 1) return measures[0]
+  if (normalizedMeasures.size > 1) return 'units'
+  return 'kg'
 }
 
 function formatTime(value: string) {
@@ -55,6 +69,10 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [clearingAll, setClearingAll] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [debugPayload, setDebugPayload] = useState<{
     collectionId: string
     payload: ERP_SuppliesPickingOrder[]
@@ -68,6 +86,8 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   useEffect(() => {
     let isMounted = true
     setStatus('loading')
+    setConfirmDeleteId(null)
+    setConfirmClearAll(false)
 
     getJournalEntriesByDate(selectedDate)
       .then((records) => {
@@ -106,6 +126,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
         submittedAt: first.submittedAt,
         entries: orderEntries,
         totalKg: orderEntries.reduce((total, entry) => total + entry.kg, 0),
+        measure: getSharedMeasure(orderEntries),
         erpStatus: getOrderStatus(orderEntries),
         erpMessage: messageEntry?.erpMessage ?? '',
       }
@@ -116,6 +137,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
     () => entries.reduce((total, entry) => total + entry.kg, 0),
     [entries],
   )
+  const totalMeasure = useMemo(() => getSharedMeasure(entries), [entries])
 
   const totalsByMilkType = useMemo(() => {
     const totals = new Map<string, number>()
@@ -134,7 +156,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }, [entries])
 
   async function handleSendToErp(collectionId: string) {
-    if (sendingId) return
+    if (sendingId || deletingId || clearingAll) return
 
     setSendingId(collectionId)
     try {
@@ -155,7 +177,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }
 
   async function confirmSendToErp() {
-    if (!debugPayload || sendingId) return
+    if (!debugPayload || sendingId || deletingId || clearingAll) return
 
     setSendingId(debugPayload.collectionId)
     await updateJournalCollectionErpStatus(debugPayload.collectionId, 'sending', 'Sending order to ERP...')
@@ -180,6 +202,48 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
     }
   }
 
+  async function handleDeleteCollection(collectionId: string) {
+    if (sendingId || deletingId || clearingAll) return
+
+    if (confirmDeleteId !== collectionId) {
+      setConfirmDeleteId(collectionId)
+      setConfirmClearAll(false)
+      return
+    }
+
+    setDeletingId(collectionId)
+    setDebugPayload((current) => current?.collectionId === collectionId ? null : current)
+
+    try {
+      await deleteJournalCollection(collectionId)
+      setConfirmDeleteId(null)
+    } finally {
+      setDeletingId(null)
+      await refreshEntries()
+    }
+  }
+
+  async function handleClearAllForDate() {
+    if (sendingId || deletingId || clearingAll || entries.length === 0) return
+
+    if (!confirmClearAll) {
+      setConfirmClearAll(true)
+      setConfirmDeleteId(null)
+      return
+    }
+
+    setClearingAll(true)
+    setDebugPayload(null)
+
+    try {
+      await deleteJournalEntriesByDate(selectedDate)
+      setConfirmClearAll(false)
+    } finally {
+      setClearingAll(false)
+      await refreshEntries()
+    }
+  }
+
   return (
     <div className="journal-screen">
       <header className="journal-header">
@@ -190,6 +254,14 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
           </svg>
         </button>
         <h1>Journal</h1>
+        <button
+          className={`journal-clear-button ${confirmClearAll ? 'confirm' : ''}`}
+          type="button"
+          onClick={handleClearAllForDate}
+          disabled={status !== 'ready' || entries.length === 0 || Boolean(sendingId || deletingId || clearingAll)}
+        >
+          {clearingAll ? 'Clearing...' : confirmClearAll ? 'Confirm clear' : 'Clear all'}
+        </button>
       </header>
 
       <main className="journal-body">
@@ -205,12 +277,12 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
 
         <section className="journal-summary" aria-label="Journal totals">
           <div className="journal-stat">
-            <span>Orders</span>
+            <span>Pickups</span>
             <strong>{orders.length}</strong>
           </div>
           <div className="journal-stat">
             <span>Total quantity</span>
-            <strong>{formatQuantity(totalKg)}</strong>
+            <strong>{formatQuantity(totalKg, totalMeasure)}</strong>
           </div>
 
           {totalsByMilkType.length > 0 && (
@@ -266,18 +338,41 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                   )}
                 </div>
                 <div className="journal-entry-actions">
-                  <span className="journal-entry-kg">{formatQuantity(order.totalKg)}</span>
+                  <span className="journal-entry-kg">{formatQuantity(order.totalKg, order.measure)}</span>
                   <button
                     className={`journal-send-button ${order.erpStatus}`}
                     type="button"
                     onClick={() => handleSendToErp(order.collectionId)}
-                    disabled={Boolean(sendingId)}
+                    disabled={Boolean(sendingId || deletingId || clearingAll)}
                   >
                     {sendingId === order.collectionId || order.erpStatus === 'sending'
                       ? 'Sending...'
                       : order.erpStatus === 'sent'
                         ? 'Send again'
                         : 'Send to ERP'}
+                  </button>
+                  <button
+                    className={`journal-delete-button ${confirmDeleteId === order.collectionId ? 'confirm' : ''}`}
+                    type="button"
+                    onClick={() => handleDeleteCollection(order.collectionId)}
+                    disabled={Boolean(sendingId || deletingId || clearingAll)}
+                    aria-label={`Delete ${order.supplierName} pickup`}
+                    title="Delete pickup"
+                  >
+                    {deletingId === order.collectionId ? (
+                      'Deleting...'
+                    ) : confirmDeleteId === order.collectionId ? (
+                      'Confirm'
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+                        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v5" />
+                        <path d="M14 11v5" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </article>

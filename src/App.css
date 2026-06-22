@@ -600,7 +600,12 @@ button {
   margin-top: 14px;
 }
 
+.entry-form-grid > * {
+  min-width: 0;
+}
+
 .milk-type-field {
+  min-width: 0;
   position: relative;
 }
 
@@ -844,7 +849,7 @@ button {
   }
 
   .entry-form-grid {
-    grid-template-columns: 1.25fr 0.7fr 0.8fr 0.85fr;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.85fr);
     align-items: end;
   }
 }

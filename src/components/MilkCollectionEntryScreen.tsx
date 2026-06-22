@@ -31,9 +31,17 @@ function createMilkEntry(milkType: MilkType | '' = ''): MilkEntry {
     id: createEntryId(milkType),
     milkType,
     kg: '',
+    fatPercentage: '',
+    density: '',
     waterPercentage: '',
     temperature: '',
+    ph: '',
     mobility: '',
+    alcoholTest: '',
+    antibioticsTest: '',
+    siloTankNumber: '',
+    entryTime: '',
+    exitTime: '',
     barcode: '',
   }
 }
@@ -45,10 +53,11 @@ function supplierTypeClassName(type: SupplierType) {
 }
 
 function barcodePrefix(milkType: MilkType | '') {
-  if (milkType === 'Goat milk') return 'GOAT'
-  if (milkType === 'Sheep milk') return 'SHEEP'
-  if (milkType === 'Cow milk') return 'COW'
-  if (milkType === 'Buffalo milk') return 'BUFFALO'
+  const normalizedMilkType = normalize(milkType)
+  if (normalizedMilkType.includes('goat')) return 'GOAT'
+  if (normalizedMilkType.includes('sheep') || normalizedMilkType.includes('oaie')) return 'SHEEP'
+  if (normalizedMilkType.includes('cow') || normalizedMilkType.includes('vaca')) return 'COW'
+  if (normalizedMilkType.includes('buffalo') || normalizedMilkType.includes('bivol')) return 'BUFFALO'
   return 'MILK'
 }
 
@@ -58,6 +67,69 @@ function createDefaultMilkEntries() {
 
 function normalize(value: string) {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function defaultMilkAliases(milkType: MilkType): string[] {
+  if (milkType === 'Cow milk') return ['cowmilk', 'cow', 'laptedevaca', 'vaca']
+  if (milkType === 'Sheep milk') return ['sheepmilk', 'sheep', 'laptedeoaie', 'oaie']
+  if (milkType === 'Buffalo milk') return ['buffalomilk', 'buffalo', 'laptedebivol', 'bivol']
+  return [normalize(milkType)]
+}
+
+function defaultMilkTypeForEntry(entry: MilkEntry): MilkType | undefined {
+  return defaultMilkTypes.find((milkType) => entry.id === createEntryId(milkType))
+}
+
+function isNonMilkDairyItem(searchable: string) {
+  return [
+    'cheese',
+    'telemea',
+    'branza',
+    'cascaval',
+    'iaurt',
+    'yogurt',
+  ].some((keyword) => searchable.includes(keyword))
+}
+
+function scoreDefaultMilkOption(milkType: MilkType, option: MilkTypeOption) {
+  const searchable = normalize(`${option.code} ${option.label}`)
+  const aliases = defaultMilkAliases(milkType)
+  const hasAnimalMatch = aliases.some((alias) => searchable.includes(alias))
+  const hasMilkWord = searchable.includes('lapte') || searchable.includes('milk')
+
+  if (!hasAnimalMatch) return -1
+
+  let score = 0
+  if (normalize(option.offlineType) === 'milkcollection') score += 20
+  if (hasMilkWord) score += 40
+  if (hasAnimalMatch && hasMilkWord) score += 40
+  if (isNonMilkDairyItem(searchable)) score -= 100
+  if (milkType === 'Cow milk' && normalize(option.code) === 'mf0010') score += 100
+
+  return score
+}
+
+function findDefaultMilkOption(
+  milkType: MilkType,
+  options: MilkTypeOption[],
+): MilkTypeOption | undefined {
+  const milkCollectionOptions = options.filter(
+    (option) => normalize(option.offlineType) === 'milkcollection',
+  )
+  const candidateGroups = milkCollectionOptions.length > 0
+    ? [milkCollectionOptions, options]
+    : [options]
+
+  for (const candidates of candidateGroups) {
+    const match = candidates
+      .map((option) => ({ option, score: scoreDefaultMilkOption(milkType, option) }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.option
+
+    if (match) return match
+  }
+
+  return undefined
 }
 
 function itemToMilkTypeOption(item: LocalItem): MilkTypeOption {
@@ -217,6 +289,45 @@ export function MilkCollectionEntryScreen({
     ? syncedMilkOptions
     : fallbackMilkTypeOptions()
 
+  useEffect(() => {
+    if (syncedMilkOptions.length === 0) return
+
+    setEntries((current) => {
+      let changed = false
+
+      const nextEntries = current.map((entry) => {
+        const defaultMilkType = defaultMilkTypeForEntry(entry)
+        if (!defaultMilkType) {
+          return entry
+        }
+
+        const option = findDefaultMilkOption(defaultMilkType, syncedMilkOptions)
+        if (!option) return entry
+
+        if (
+          entry.itemId === option.itemId
+          && entry.milkType === option.label
+          && entry.itemCode === option.code
+          && entry.itemMeasure === option.measure
+        ) {
+          return entry
+        }
+
+        changed = true
+        return {
+          ...entry,
+          milkType: option.label,
+          itemId: option.itemId,
+          itemCode: option.code,
+          itemDescription: option.label,
+          itemMeasure: option.measure,
+        }
+      })
+
+      return changed ? nextEntries : current
+    })
+  })
+
   function updateEntry(entryId: string, updates: Partial<MilkEntry>) {
     setEntries((current) =>
       current.map((entry) =>
@@ -361,6 +472,37 @@ export function MilkCollectionEntryScreen({
                   </label>
 
                   <label className="form-field">
+                    <span>Fat %</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={entry.fatPercentage}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { fatPercentage: event.target.value })
+                      }
+                      placeholder="0.0"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Density</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.001"
+                      value={entry.density}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { density: event.target.value })
+                      }
+                      placeholder="0.000"
+                    />
+                  </label>
+
+                  <label className="form-field">
                     <span>Water %</span>
                     <input
                       type="number"
@@ -391,6 +533,22 @@ export function MilkCollectionEntryScreen({
                   </label>
 
                   <label className="form-field">
+                    <span>pH</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="14"
+                      step="0.01"
+                      value={entry.ph}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { ph: event.target.value })
+                      }
+                      placeholder="0.00"
+                    />
+                  </label>
+
+                  <label className="form-field">
                     <span>Mobility</span>
                     <input
                       type="number"
@@ -403,6 +561,74 @@ export function MilkCollectionEntryScreen({
                         updateEntry(entry.id, { mobility: event.target.value })
                       }
                       placeholder="0.0"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Alcohol test</span>
+                    <input
+                      type="text"
+                      value={entry.alcoholTest}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { alcoholTest: event.target.value })
+                      }
+                      placeholder="Result"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Antibiotics test</span>
+                    <select
+                      value={entry.antibioticsTest}
+                      onChange={(event) =>
+                        updateEntry(entry.id, {
+                          antibioticsTest: event.target.value as MilkEntry['antibioticsTest'],
+                        })
+                      }
+                    >
+                      <option value="">Select</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </label>
+
+                  <label className="form-field">
+                    <span>Silo / Tank number</span>
+                    <select
+                      value={entry.siloTankNumber}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { siloTankNumber: event.target.value })
+                      }
+                    >
+                      <option value="">Select tank</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                    </select>
+                  </label>
+
+                  <label className="form-field">
+                    <span>Entry time</span>
+                    <input
+                      type="time"
+                      value={entry.entryTime}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { entryTime: event.target.value })
+                      }
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Exit time</span>
+                    <input
+                      type="time"
+                      value={entry.exitTime}
+                      onChange={(event) =>
+                        updateEntry(entry.id, { exitTime: event.target.value })
+                      }
                     />
                   </label>
 
