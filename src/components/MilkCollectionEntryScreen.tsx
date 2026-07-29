@@ -158,6 +158,10 @@ function formatItemLabel(option: Pick<MilkTypeOption, 'label' | 'code' | 'measur
   return option.measure ? `${itemLabel} (${option.measure})` : itemLabel
 }
 
+function formatSelectedItemLabel(option: Pick<MilkTypeOption, 'label' | 'measure'>) {
+  return option.measure ? `${option.label} (${option.measure})` : option.label
+}
+
 function formatQuantity(quantity: string, measure?: string) {
   return `${quantity || '0.0'} ${measure || 'kg'}`
 }
@@ -195,7 +199,7 @@ function MilkTypeSearchDropdown({
   }
 
   const selectedLabel = value
-    ? formatItemLabel({ label: value, code: itemCode ?? '', measure: itemMeasure ?? '' })
+    ? formatSelectedItemLabel({ label: value, measure: itemMeasure ?? '' })
     : 'Select item'
 
   return (
@@ -208,7 +212,10 @@ function MilkTypeSearchDropdown({
           aria-expanded={isOpen}
           onClick={() => setIsOpen((current) => !current)}
         >
-          <span>{selectedLabel}</span>
+          <span className="milk-type-selected-text">
+            <span>{selectedLabel}</span>
+            {itemCode && <small>{itemCode}</small>}
+          </span>
           <strong aria-hidden="true">{isOpen ? '-' : '+'}</strong>
         </button>
 

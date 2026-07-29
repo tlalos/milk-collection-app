@@ -74,7 +74,12 @@ export async function apiGet<TResponse>(
   const qs = new URLSearchParams(params).toString()
   const url = `${getBaseUrl()}/${path}${qs ? `?${qs}` : ''}`
 
-  const res = await fetch(url, { method: 'GET', headers, signal: options.signal })
+  const res = await fetch(url, {
+    method: 'GET',
+    headers,
+    signal: options.signal,
+    cache: 'no-store',
+  })
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)

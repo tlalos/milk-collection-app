@@ -36,6 +36,8 @@ export async function syncTrucks(
     signal,
   )
 
+  await db.trucks.clear()
+
   const trucks = await getRomOfflineSupplierVehicles(
     mode,
     username,
@@ -50,7 +52,6 @@ export async function syncTrucks(
   }))
 
   await db.transaction('rw', db.trucks, async () => {
-    await db.trucks.clear()
     if (localTrucks.length > 0) {
       await db.trucks.bulkPut(localTrucks)
     }

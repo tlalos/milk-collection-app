@@ -30,6 +30,8 @@ export async function syncZgParam(
     signal,
   )
 
+  await db.zgParams.clear()
+
   const params = await getRomZgParam(
     username,
     signal,
@@ -40,8 +42,6 @@ export async function syncZgParam(
   const firstParam = params[0]
 
   await db.transaction('rw', db.zgParams, async () => {
-    await db.zgParams.clear()
-
     if (firstParam) {
       const localParam = Object.assign({
         par_invoiceheaderline1: '',

@@ -36,6 +36,8 @@ export async function syncItems(
     signal,
   )
 
+  await db.items.clear()
+
   const items = await getRomOfflineItems(
     mode,
     username,
@@ -50,7 +52,6 @@ export async function syncItems(
   }))
 
   await db.transaction('rw', db.items, async () => {
-    await db.items.clear()
     if (localItems.length > 0) {
       await db.items.bulkPut(localItems)
     }

@@ -36,6 +36,8 @@ export async function syncSuppliers(
     signal,
   )
 
+  await db.suppliers.clear()
+
   const suppliers = await getRomOfflineSuppliers(
     mode,
     username,
@@ -50,7 +52,6 @@ export async function syncSuppliers(
   }))
 
   await db.transaction('rw', db.suppliers, async () => {
-    await db.suppliers.clear()
     if (localSuppliers.length > 0) {
       await db.suppliers.bulkPut(localSuppliers)
     }

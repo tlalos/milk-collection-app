@@ -638,11 +638,23 @@ button {
   outline: none;
 }
 
-.milk-type-select-button span {
+.milk-type-selected-text {
   min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.milk-type-selected-text span,
+.milk-type-selected-text small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.milk-type-selected-text small {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .milk-type-select-button strong {
