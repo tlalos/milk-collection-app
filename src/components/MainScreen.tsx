@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { ApiError } from '../api/client'
 import { db } from '../db/database'
 import { settingsStore } from '../store/settingsStore'
@@ -16,7 +16,14 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [syncError, setSyncError] = useState('')
   const [userCount, setUserCount] = useState<number | null>(null)
+  const [photoName, setPhotoName] = useState('')
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState('')
+  const [cameraStatus, setCameraStatus] = useState('')
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   // Refresh user count whenever a sync completes
   useEffect(() => {
@@ -31,6 +38,16 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
     const t = setTimeout(() => setSyncStatus('idle'), 2000)
     return () => clearTimeout(t)
   }, [syncStatus])
+
+  useEffect(() => {
+    return () => stopCamera()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+    }
+  }, [photoPreviewUrl])
 
   async function handleSync() {
     if (syncStatus === 'syncing') return
@@ -68,6 +85,45 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
             : 'Network error — could not reach the server. Check Settings.'
         )
       }
+    }
+  }
+
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    setIsCameraOpen(false)
+  }
+
+  function handleFilePhotoChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+
+    setPhotoName(file ? file.name : '')
+    setPhotoPreviewUrl(file ? URL.createObjectURL(file) : '')
+  }
+
+  async function openLiveCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraStatus('Live camera is not supported in this browser.')
+      return
+    }
+
+    try {
+      setCameraStatus('Opening camera...')
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      setIsCameraOpen(true)
+      setCameraStatus('Live camera is active.')
+    } catch (err) {
+      setCameraStatus((err as Error).message || 'Could not open the camera.')
+      stopCamera()
     }
   }
 
@@ -148,6 +204,57 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
             Auto-sync
           </span>
         </div>
+
+        <div className="main-photo-actions" aria-label="Mobile photo capture tests">
+          <input
+            ref={fileInputRef}
+            className="main-photo-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFilePhotoChange}
+          />
+          <button
+            className="main-photo-btn"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path d="M4 5a2 2 0 00-2 2v7a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.28a2 2 0 01-1.42-.59l-.71-.7A2 2 0 0011.17 3H8.83a2 2 0 00-1.42.59l-.71.7A2 2 0 015.28 5H4zm6 9a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm0-1.5a2 2 0 110-4 2 2 0 010 4z" />
+            </svg>
+            File input photo
+          </button>
+          <button
+            className="main-photo-btn"
+            type="button"
+            onClick={isCameraOpen ? stopCamera : openLiveCamera}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path d="M3.25 5A2.25 2.25 0 001 7.25v5.5A2.25 2.25 0 003.25 15h8.5A2.25 2.25 0 0014 12.75v-5.5A2.25 2.25 0 0011.75 5h-8.5zM16 7.7l2.26-1.3a.5.5 0 01.74.43v6.34a.5.5 0 01-.74.43L16 12.3V7.7z" />
+            </svg>
+            {isCameraOpen ? 'Stop live camera' : 'Live camera'}
+          </button>
+        </div>
+
+        {(photoName || photoPreviewUrl || cameraStatus || isCameraOpen) && (
+          <div className="main-photo-preview">
+            {photoName && <span>Selected: {photoName}</span>}
+            {photoPreviewUrl && (
+              <img
+                className="main-photo-image"
+                src={photoPreviewUrl}
+                alt="Selected preview"
+              />
+            )}
+            {cameraStatus && <span>{cameraStatus}</span>}
+            <video
+              ref={videoRef}
+              className={isCameraOpen ? 'main-camera-video active' : 'main-camera-video'}
+              playsInline
+              muted
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Bottom card ── */}

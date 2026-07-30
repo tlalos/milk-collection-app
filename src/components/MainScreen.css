@@ -144,6 +144,83 @@
   opacity: 0.85;
 }
 
+.main-photo-actions {
+  width: min(100%, 420px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.main-photo-input {
+  display: none;
+}
+
+.main-photo-btn {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: rgba(255,255,255,0.16);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+}
+
+.main-photo-btn:active {
+  background: rgba(255,255,255,0.26);
+  transform: scale(0.98);
+}
+
+.main-photo-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.main-photo-preview {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(0,0,0,0.16);
+  color: rgba(255,255,255,0.9);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.main-camera-video {
+  display: none;
+}
+
+.main-photo-image {
+  width: 100%;
+  max-height: 190px;
+  display: block;
+  border-radius: 8px;
+  background: #0b1f14;
+  object-fit: contain;
+}
+
+.main-camera-video.active {
+  width: 100%;
+  max-height: 180px;
+  display: block;
+  border-radius: 8px;
+  background: #0b1f14;
+  object-fit: cover;
+}
+
 /* ── Bottom card ── */
 .main-bottom {
   background: #ffffff;
@@ -227,4 +304,14 @@
   font-size: 0.75rem;
   color: #9ca3af;
   margin: 0;
+}
+
+@media (max-width: 420px) {
+  .main-photo-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .main-photo-btn {
+    min-height: 46px;
+  }
 }
