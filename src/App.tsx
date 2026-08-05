@@ -5,6 +5,8 @@ import { JournalScreen } from './components/JournalScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
+import { OcrDocumentScreen } from './components/OcrDocumentScreen'
+import { OcrReviewScreen } from './components/OcrReviewScreen'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
@@ -33,9 +35,17 @@ type Screen =
   | 'transport'
   | 'suppliers'
   | 'entry'
+  | 'ocrDocuments'
+  | 'ocrReview'
+
+function initialScreen(): Screen {
+  if (window.location.pathname === '/ocr/upload') return 'ocrDocuments'
+  if (window.location.pathname === '/ocr/review') return 'ocrReview'
+  return 'startup'
+}
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('startup')
+  const [screen, setScreen] = useState<Screen>(initialScreen)
   const [prevScreen, setPrevScreen] = useState<Screen>('main')
   const [user, setUser] = useState<AuthUser | null>(null)
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
@@ -195,6 +205,14 @@ export function App() {
         <TransportScreen onBack={() => setScreen('home')} />
       )}
 
+      {screen === 'ocrDocuments' && (
+        <OcrDocumentScreen onBack={() => { window.location.href = '/' }} />
+      )}
+
+      {screen === 'ocrReview' && (
+        <OcrReviewScreen />
+      )}
+
       {screen === 'suppliers' && (
         <SupplierSelectionScreen
           successMessage={successMessage}
@@ -326,6 +344,7 @@ export function App() {
                 </div>
                 <span className="home-tile-label">Transport</span>
               </button>
+
             </div>
           </main>
         </div>

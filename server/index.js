@@ -1,0 +1,202 @@
+import 'dotenv/config'
+import express from 'express'
+import multer from 'multer'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  createJob,
+  getJob,
+  getStoredFilePath,
+  initializeJobStore,
+  listJobs,
+  toPublicJob,
+  updateJob,
+} from './jobStore.js'
+import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
+import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
+import { MilkCollectionDocumentSchema } from './ocrSchema.js'
+
+const app = express()
+const port = Number(process.env.PORT || 8787)
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 10, fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_request, file, callback) => {
+    const supported = supportedTypes.has(file.mimetype)
+    callback(supported ? null : new Error(`Unsupported file type: ${file.mimetype}`), supported)
+  },
+})
+
+app.use(express.json({ limit: '1mb' }))
+
+app.get('/api/ocr/health', (_request, response) => {
+  response.json({
+    ok: true,
+    configured: Boolean(process.env.OPENAI_API_KEY),
+    model: process.env.OPENAI_OCR_MODEL || 'gpt-5.6-terra',
+  })
+})
+
+app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, response, next) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return response.status(503).json({ error: 'OCR is not configured. Set OPENAI_API_KEY on the server.' })
+    }
+    if (!request.files?.length) {
+      return response.status(400).json({ error: 'Add at least one document.' })
+    }
+
+    const jobs = []
+    for (const file of request.files) {
+      const job = await createJob(file)
+      jobs.push(toPublicJob(job, false))
+      enqueueOcrJob(job.id)
+    }
+
+    response.status(202).json({ jobs })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/jobs', async (request, response, next) => {
+  try {
+    let jobs = await listJobs()
+    if (request.query.reviewStatus) jobs = jobs.filter((job) => job.reviewStatus === request.query.reviewStatus)
+    if (request.query.status) jobs = jobs.filter((job) => job.status === request.query.status)
+    response.json({ jobs: jobs.map((job) => toPublicJob(job, false)) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/jobs/:id', async (request, response, next) => {
+  try {
+    const job = await getJob(request.params.id)
+    if (!job) return response.status(404).json({ error: 'OCR job not found.' })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/jobs/:id/file', async (request, response, next) => {
+  try {
+    const job = await getJob(request.params.id)
+    if (!job) return response.status(404).json({ error: 'OCR job not found.' })
+    response.type(job.mimeType)
+    response.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(job.sourceFile)}`)
+    response.sendFile(getStoredFilePath(job))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
+
+    const parsed = MilkCollectionDocumentSchema.safeParse(request.body.data)
+    if (!parsed.success) {
+      return response.status(400).json({
+        error: 'Corrected document data is invalid.',
+        details: parsed.error.issues,
+      })
+    }
+
+    const job = await updateJob(current.id, { data: parsed.data })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/ocr/jobs/:id/review', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be reviewed.' })
+
+    const job = await updateJob(current.id, {
+      reviewStatus: 'reviewed',
+      reviewedAt: new Date().toISOString(),
+      excelExport: { status: 'queued', queuedAt: new Date().toISOString(), error: null },
+    })
+    enqueueExcelExport(current.id)
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/ocr/jobs/:id/excel/retry', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.reviewStatus !== 'reviewed') return response.status(409).json({ error: 'Review this document before exporting it to Excel.' })
+    if (current.excelExport?.status === 'queued' || current.excelExport?.status === 'exporting') {
+      return response.status(409).json({ error: 'Excel export is already in progress.' })
+    }
+    const job = await updateJob(current.id, { excelExport: { status: 'queued', queuedAt: new Date().toISOString(), error: null } })
+    enqueueExcelExport(current.id)
+    response.status(202).json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return response.status(503).json({ error: 'OCR is not configured. Set OPENAI_API_KEY on the server.' })
+    }
+
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.status === 'queued' || current.status === 'processing') {
+      return response.status(409).json({ error: 'This document is already queued or being processed.' })
+    }
+
+    const job = await updateJob(current.id, {
+      status: 'queued',
+      reviewStatus: 'pending',
+      startedAt: null,
+      completedAt: null,
+      reviewedAt: null,
+      data: null,
+      openai: null,
+      excelExport: { status: 'not_ready', error: null },
+      error: null,
+    })
+    enqueueOcrJob(current.id)
+    response.status(202).json({ job: toPublicJob(job, false) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.use(express.static(path.join(rootDir, 'dist')))
+app.use((request, response, next) => {
+  if (request.method === 'GET' && request.accepts('html')) {
+    return response.sendFile(path.join(rootDir, 'dist', 'index.html'))
+  }
+  next()
+})
+
+app.use((error, _request, response, _next) => {
+  const status = error instanceof multer.MulterError ? 400 : 500
+  response.status(status).json({ error: error instanceof Error ? error.message : 'Unexpected server error.' })
+})
+
+await initializeJobStore()
+await resumePendingJobs()
+await resumeExcelExports()
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`MilkCollect server running at http://127.0.0.1:${port}`)
+})

@@ -32,3 +32,9 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Runtime OCR uploads and job metadata
+data/ocr/
+
+# Local development/test artifacts
+work/
