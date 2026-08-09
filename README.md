@@ -19,6 +19,8 @@ Back-office APIs list pending jobs, return job details and source files, and mar
 
 After a document is saved and marked reviewed, its collection rows are queued for background append to Excel Online table `Daily_Routes` / `tblDailyRoutes`. The server reuses the delegated Microsoft Graph configuration and refresh-token cache from `C:\Users\tlalos\Documents\Codex\2026-07-31\excel-to-erp-soft1-codex-text\excel-to-erp-soft1` by default. Override that location with `EXCEL_GRAPH_PROJECT_DIR`. `OCR_EXCEL_DEFAULT_MILK_CODE` defaults to `MILK-COW` and `OCR_EXCEL_ANTIBIOTICS_STATUS` defaults to `OK`.
 
+OCR collection-center names are compared with `Ref_Centers` / `tblCenters` after extraction. A match of 60% or higher automatically replaces the OCR description with the reference description and is visibly marked as system-replaced. Lower matches remain optional suggestions; `Center_Code` is not mandatory and the workbook keeps responsibility for its normal code lookup.
+
 For frontend development, run `npm run server` and `npm run dev` in separate terminals. Vite proxies `/api/ocr` to the local backend.
 
 ## OCR configuration

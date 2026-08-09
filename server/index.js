@@ -15,6 +15,7 @@ import {
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema } from './ocrSchema.js'
+import { matchCentersForRows } from './excelService.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -109,9 +110,41 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
       })
     }
 
-    const job = await updateJob(current.id, { data: parsed.data })
+    const centerMatches = Array.isArray(request.body.centerMatches)
+      ? request.body.centerMatches.map((match) => ({
+        rowNumber: Number(match.rowNumber),
+        originalName: match.originalName ?? null,
+        status: ['exact', 'auto_replaced', 'suggested', 'unmatched', 'confirmed'].includes(match.status) ? match.status : 'unmatched',
+        selectedCode: match.selectedCode ? String(match.selectedCode) : null,
+        selectedName: match.selectedName ? String(match.selectedName) : null,
+        suggestions: Array.isArray(match.suggestions) ? match.suggestions.slice(0, 5) : [],
+      }))
+      : current.centerMatches
+    const job = await updateJob(current.id, { data: parsed.data, centerMatches })
     response.json({ job: toPublicJob(job, true) })
   } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/ocr/jobs/:id/centers/match', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (!current.data?.rows) return response.status(409).json({ error: 'OCR data is not ready.' })
+    const centerMatches = await matchCentersForRows(current.data.rows)
+    const data = {
+      ...current.data,
+      rows: current.data.rows.map((row) => {
+        const match = centerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+        return match?.selectedName ? { ...row, collectionCenter: match.selectedName } : row
+      }),
+    }
+    const job = await updateJob(current.id, { data, centerMatches, centerMatchError: null })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    const current = await getJob(request.params.id)
+    if (current) await updateJob(current.id, { centerMatchError: error instanceof Error ? error.message : 'Reference-center lookup failed.' })
     next(error)
   }
 })

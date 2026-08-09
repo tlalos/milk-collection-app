@@ -77,6 +77,8 @@ export async function createJob(file) {
     data: null,
     openai: null,
     excelExport: { status: 'not_ready', error: null },
+    centerMatches: [],
+    centerMatchError: null,
     error: null,
   })
 }

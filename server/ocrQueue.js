@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { extractMilkCollectionDocument } from './ocrService.js'
 import { getJob, getStoredFilePath, listJobs, updateJob } from './jobStore.js'
+import { matchCentersForRows } from './excelService.js'
 
 const pendingIds = []
 const queuedIds = new Set()
@@ -31,10 +32,26 @@ async function processNext() {
       mimetype: job.mimeType,
       originalname: job.sourceFile,
     })
+    let centerMatches = []
+    let centerMatchError = null
+    try {
+      centerMatches = await matchCentersForRows(extraction.data.rows)
+    } catch (error) {
+      centerMatchError = error instanceof Error ? error.message : 'Reference-center lookup failed.'
+    }
+    const matchedData = centerMatches.length ? {
+      ...extraction.data,
+      rows: extraction.data.rows.map((row) => {
+        const match = centerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+        return match?.selectedName ? { ...row, collectionCenter: match.selectedName } : row
+      }),
+    } : extraction.data
     await updateJob(id, {
       status: 'completed',
-      data: extraction.data,
+      data: matchedData,
       openai: extraction.openai,
+      centerMatches,
+      centerMatchError,
       completedAt: new Date().toISOString(),
       error: null,
     })

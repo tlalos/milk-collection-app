@@ -4,6 +4,7 @@ import { parse as parseEnv } from 'dotenv'
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const defaultExcelProject = 'C:\\Users\\tlalos\\Documents\\Codex\\2026-07-31\\excel-to-erp-soft1-codex-text\\excel-to-erp-soft1'
+let centerCache = { expiresAt: 0, centers: [] }
 
 async function loadConfig() {
   const projectDir = process.env.EXCEL_GRAPH_PROJECT_DIR || defaultExcelProject
@@ -55,6 +56,7 @@ export async function appendReviewedDocumentToExcel(job) {
   const dateSerial = toExcelSerial(job.data.date)
 
   const values = job.data.rows.map((row) => {
+    const confirmedCenter = job.centerMatches?.find((match) => match.rowNumber === row.rowNumber && match.selectedCode)
     const missing = [
       ['center', row.collectionCenter], ['liters', row.liters], ['notice number', row.noticeNumber],
     ].filter(([, value]) => value === null || value === undefined || value === '').map(([name]) => name)
@@ -67,7 +69,7 @@ export async function appendReviewedDocumentToExcel(job) {
       Truck: job.data.vehicleRegistration,
       Route_ID: job.data.route,
       Aviz_No: row.noticeNumber,
-      Center_Name: row.collectionCenter,
+      Center_Name: confirmedCenter?.selectedName || row.collectionCenter,
       Milk_Code: config.milkCode,
       Qty_Collected_L: row.liters,
       'Fat/Densitate': row.fatPercent ?? row.density,
@@ -77,6 +79,7 @@ export async function appendReviewedDocumentToExcel(job) {
       Comments: '',
       ERP_Action: 'Create',
       ERP_Status: '',
+      Center_Code: confirmedCenter?.selectedCode || null,
     }
     return columnNames.slice(0, 14).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null)
   })
@@ -96,6 +99,88 @@ export async function appendReviewedDocumentToExcel(job) {
     method: 'PATCH', headers, body: JSON.stringify({ values }),
   })
   return { workbook: workbook.name, table: config.tableName, rowCount: values.length, range: targetAddress }
+}
+
+export async function matchCentersForRows(rows) {
+  const centers = await loadReferenceCenters()
+  return rows.map((row) => {
+    const originalName = row.collectionCenter || ''
+    const suggestions = centers
+      .map((center) => ({ ...center, score: similarity(originalName, center.name) }))
+      .filter((center) => center.score >= 0.32)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5)
+      .map((center) => ({ code: center.code, name: center.name, score: Number(center.score.toFixed(3)) }))
+    const best = suggestions[0]
+    const autoReplace = best?.score >= 0.6
+    return {
+      rowNumber: row.rowNumber,
+      originalName: row.collectionCenter,
+      status: autoReplace ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched',
+      selectedCode: autoReplace ? best.code : null,
+      selectedName: autoReplace ? best.name : null,
+      suggestions,
+    }
+  })
+}
+
+async function loadReferenceCenters() {
+  if (centerCache.expiresAt > Date.now()) return centerCache.centers
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const tablePath = `${workbookPath}/tables/${encodeURIComponent('tblCenters')}`
+  const [columns, range] = await Promise.all([
+    graphFetch(`${tablePath}/columns`, token),
+    graphFetch(`${tablePath}/dataBodyRange`, token),
+  ])
+  const names = (columns.value || []).map((column) => column.name)
+  const codeIndex = names.findIndex((name) => name.toLowerCase() === 'center_code')
+  const nameIndex = names.findIndex((name) => name.toLowerCase() === 'center_name')
+  if (codeIndex < 0 || nameIndex < 0) throw new Error('tblCenters must contain Center_Code and Center_Name columns.')
+  const centers = (range.values || [])
+    .map((values) => ({ code: String(values[codeIndex] ?? '').trim(), name: String(values[nameIndex] ?? '').trim() }))
+    .filter((center) => center.code && center.name)
+  centerCache = { expiresAt: Date.now() + 5 * 60 * 1000, centers }
+  return centers
+}
+
+function normalizeCenter(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase().replace(/[^A-Z0-9]+/gu, ' ').trim().replace(/\s+/gu, ' ')
+}
+
+function similarity(leftValue, rightValue) {
+  const left = normalizeCenter(leftValue)
+  const right = normalizeCenter(rightValue)
+  if (!left || !right) return 0
+  if (left === right) return 1
+  const distance = levenshtein(left, right)
+  const characterScore = 1 - distance / Math.max(left.length, right.length)
+  const leftTokens = new Set(left.split(' '))
+  const rightTokens = new Set(right.split(' '))
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length
+  const tokenScore = intersection / new Set([...leftTokens, ...rightTokens]).size
+  const containment = left.includes(right) || right.includes(left) ? Math.min(left.length, right.length) / Math.max(left.length, right.length) : 0
+  return Math.max(characterScore * 0.72 + tokenScore * 0.28, containment * 0.92)
+}
+
+function levenshtein(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex]
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      )
+    }
+    previous.splice(0, previous.length, ...current)
+  }
+  return previous[right.length]
 }
 
 function toExcelSerial(isoDate) {
