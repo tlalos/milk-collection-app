@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import './OcrDocumentScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
+import { appPath } from '../ocrPaths'
 
 interface OcrDocumentScreenProps {
   onBack: () => void
@@ -102,7 +103,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
     documents.forEach((document) => formData.append('documents', document.file, document.file.name))
 
     try {
-      const response = await fetch('/api/ocr/jobs', { method: 'POST', body: formData })
+      const response = await fetch(appPath('/api/ocr/jobs'), { method: 'POST', body: formData })
       const responseText = await response.text()
       let payload: UploadPayload
 

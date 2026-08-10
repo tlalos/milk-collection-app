@@ -8,7 +8,12 @@ let centerCache = { expiresAt: 0, centers: [] }
 
 async function loadConfig() {
   const projectDir = process.env.EXCEL_GRAPH_PROJECT_DIR || defaultExcelProject
-  const inherited = parseEnv(await readFile(path.join(projectDir, '.env'), 'utf8'))
+  let inherited = {}
+  try {
+    inherited = parseEnv(await readFile(path.join(projectDir, '.env'), 'utf8'))
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
   const env = { ...inherited, ...process.env }
   return {
     tenantId: env.AZURE_TENANT_ID || 'organizations',

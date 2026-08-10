@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './OcrReviewScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
+import { appPath } from '../ocrPaths'
 
 interface ExtractedRow {
   rowNumber: number
@@ -148,6 +149,7 @@ export function OcrReviewScreen() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loadingId, setLoadingId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
   const [saving, setSaving] = useState(false)
   const [reprocessing, setReprocessing] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -162,7 +164,7 @@ export function OcrReviewScreen() {
     const cached = jobCacheRef.current.get(id)
     if (cached && !bypassCache) return cached
 
-    const response = await fetch(`/api/ocr/jobs/${id}`)
+    const response = await fetch(appPath(`/api/ocr/jobs/${id}`))
     const payload = await response.json() as { job?: OcrJob; error?: string }
     if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not load this document.')
     jobCacheRef.current.set(id, payload.job)
@@ -171,7 +173,7 @@ export function OcrReviewScreen() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const response = await fetch(`/api/ocr/jobs?reviewStatus=${queueView}`)
+      const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${queueView}`))
       const payload = await response.json() as { jobs?: OcrJob[]; error?: string }
       if (!response.ok) throw new Error(payload.error || 'Could not load OCR jobs.')
       const nextJobs = payload.jobs ?? []
@@ -248,6 +250,36 @@ export function OcrReviewScreen() {
     }
   }
 
+  async function deleteDocument(job: OcrJob) {
+    const prompt = isRo
+      ? `Ștergeți definitiv „${job.sourceFile}”, fișierul încărcat și procesul OCR?`
+      : `Permanently delete “${job.sourceFile}”, its uploaded file, and OCR process?`
+    if (!window.confirm(prompt)) return
+    setDeletingId(job.id)
+    setError('')
+    setSuccess('')
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${job.id}`), { method: 'DELETE' })
+      const payload = await response.json() as { deleted?: boolean; error?: string }
+      if (!response.ok || !payload.deleted) throw new Error(payload.error || 'Could not delete the document.')
+      jobCacheRef.current.delete(job.id)
+      if (selectedId === job.id) {
+        setSelectedId('')
+        setSelectedSummary(null)
+        setSelected(null)
+        setDraft(null)
+        setCenterMatches([])
+      }
+      setJobs((current) => current.filter((item) => item.id !== job.id))
+      setSuccess(isRo ? 'Documentul și procesul OCR au fost șterse.' : 'Document and OCR process deleted.')
+      await loadJobs()
+    } catch (deleteError) {
+      setError((deleteError as Error).message)
+    } finally {
+      setDeletingId('')
+    }
+  }
+
   function updateTextField(field: TextField, input: string) {
     setDraft((current) => current ? { ...current, [field]: input.trim() ? input : null } : current)
   }
@@ -289,7 +321,7 @@ export function OcrReviewScreen() {
     setMatchingCenters(true)
     setError('')
     try {
-      const response = await fetch(`/api/ocr/jobs/${selected.id}/centers/match`, { method: 'POST' })
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/centers/match`), { method: 'POST' })
       const payload = await response.json() as { job?: OcrJob; error?: string }
       if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not search Ref_Centers.')
       setCenterMatches(structuredClone(payload.job.centerMatches ?? []))
@@ -323,7 +355,7 @@ export function OcrReviewScreen() {
     setError('')
     setSuccess('')
     try {
-      const saveResponse = await fetch(`/api/ocr/jobs/${selected.id}`, {
+      const saveResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: draft, centerMatches }),
@@ -333,7 +365,7 @@ export function OcrReviewScreen() {
 
       let savedJob = savePayload.job
       if (markReviewed) {
-        const reviewResponse = await fetch(`/api/ocr/jobs/${selected.id}/review`, { method: 'PATCH' })
+        const reviewResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}/review`), { method: 'PATCH' })
         const reviewPayload = await reviewResponse.json() as { job?: OcrJob; error?: string }
         if (!reviewResponse.ok || !reviewPayload.job) throw new Error(reviewPayload.error || 'Data was saved, but the review could not be completed.')
         savedJob = reviewPayload.job
@@ -411,7 +443,7 @@ export function OcrReviewScreen() {
     setError('')
     setSuccess('')
     try {
-      const response = await fetch(`/api/ocr/jobs/${selected.id}/reprocess`, { method: 'POST' })
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/reprocess`), { method: 'POST' })
       const payload = await response.json() as { job?: OcrJob; error?: string }
       if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not redo OCR for this document.')
       jobCacheRef.current.delete(selected.id)
@@ -433,7 +465,7 @@ export function OcrReviewScreen() {
     setExporting(true)
     setError('')
     try {
-      const response = await fetch(`/api/ocr/jobs/${selected.id}/excel/retry`, { method: 'POST' })
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/excel/retry`), { method: 'POST' })
       const payload = await response.json() as { job?: OcrJob; error?: string }
       if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not queue the Excel export.')
       jobCacheRef.current.set(payload.job.id, payload.job)
@@ -466,8 +498,10 @@ export function OcrReviewScreen() {
     <div className="review-screen">
       <header className="review-header">
         <div><h1>{isRo ? 'Verificare OCR' : 'OCR Review'}</h1><p>{isRo ? 'Verificarea documentelor în back-office' : 'Back-office document verification'}</p></div>
-        <OcrLanguageSwitch language={language} onChange={setLanguage} />
-        <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
+        <div className="review-header-actions">
+          <OcrLanguageSwitch language={language} onChange={setLanguage} />
+          <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
+        </div>
       </header>
 
       {error && <p className="review-global-error" role="alert">{error}</p>}
@@ -501,7 +535,8 @@ export function OcrReviewScreen() {
           {jobs.length === 0 ? <p className="review-empty">{isRo ? 'Nu există documente în această listă.' : `No ${queueView} documents.`}</p> : (
             <div className="review-job-list">
               {visibleJobs.map((job) => (
-                <button className={`${selectedId === job.id ? 'selected' : ''} status-${job.status}`} type="button" key={job.id} onClick={() => void openJob(job)} disabled={loadingId === job.id}>
+                <article className={`review-job-item ${selectedId === job.id ? 'selected' : ''} status-${job.status}`} key={job.id}>
+                <button className="review-job-open" type="button" onClick={() => void openJob(job)} disabled={loadingId === job.id || deletingId === job.id}>
                   <span className="review-job-title"><strong>{job.sourceFile}</strong>{job.attention?.needsAttention && <b title="OCR values need verification">!</b>}</span>
                   <span className="review-job-status"><i aria-hidden="true" />{loadingId === job.id ? (isRo ? 'Se deschide…' : 'Opening…') : statusLabel(job, language)}</span>
                   {job.attention?.needsAttention && <span className="review-attention-text">{isRo ? 'Necesită verificare' : 'Needs verification'}</span>}
@@ -509,6 +544,8 @@ export function OcrReviewScreen() {
                   {job.excelExport?.status && job.excelExport.status !== 'not_ready' && <span className={`review-excel-status excel-${job.excelExport.status}`}>Excel: {job.excelExport.status}</span>}
                   <small>{new Date(job.createdAt).toLocaleString()}</small>
                 </button>
+                <button className="review-job-delete" type="button" onClick={() => void deleteDocument(job)} disabled={deletingId === job.id} title={isRo ? 'Șterge documentul și procesul' : 'Delete document and process'} aria-label={isRo ? `Șterge ${job.sourceFile}` : `Delete ${job.sourceFile}`}>{deletingId === job.id ? '…' : '×'}</button>
+                </article>
               ))}
             </div>
           )}

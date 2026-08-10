@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   createJob,
+  deleteJob,
   getJob,
   getStoredFilePath,
   initializeJobStore,
@@ -12,6 +13,7 @@ import {
   toPublicJob,
   updateJob,
 } from './jobStore.js'
+import { getSessionUser, initializeAuthStore, login, logout } from './authStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema } from './ocrSchema.js'
@@ -21,6 +23,19 @@ const app = express()
 const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
+
+function normalizeBasePath(value) {
+  const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
+  return normalized ? `/${normalized}` : ''
+}
+
+app.use((request, _response, next) => {
+  if (appBasePath && (request.url === appBasePath || request.url.startsWith(`${appBasePath}/`))) {
+    request.url = request.url.slice(appBasePath.length) || '/'
+  }
+  next()
+})
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -33,12 +48,71 @@ const upload = multer({
 
 app.use(express.json({ limit: '1mb' }))
 
+const cookieName = 'milk_session'
+const sessionDays = Math.max(1, Number(process.env.AUTH_SESSION_DAYS || 30))
+const cookiePath = appBasePath || '/'
+
+function sessionToken(request) {
+  const cookies = Object.fromEntries(String(request.headers.cookie || '').split(';').map((part) => {
+    const separator = part.indexOf('=')
+    return separator < 0 ? ['', ''] : [part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1))]
+  }))
+  return cookies[cookieName] || ''
+}
+
+function cookieValue(token, maxAge) {
+  const secure = String(process.env.AUTH_COOKIE_SECURE || '').toLowerCase() === 'true' ? '; Secure' : ''
+  return `${cookieName}=${encodeURIComponent(token)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
+}
+
+app.post('/api/auth/login', async (request, response, next) => {
+  try {
+    const result = await login(request.body?.username, request.body?.password, sessionDays)
+    if (!result) return response.status(401).json({ error: 'Invalid username or password.' })
+    response.setHeader('Set-Cookie', cookieValue(result.token, sessionDays * 86400))
+    response.json({ user: result.user, expiresAt: result.expiresAt })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/auth/session', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    if (!user) return response.status(401).json({ authenticated: false })
+    response.json({ authenticated: true, user })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/auth/logout', async (request, response, next) => {
+  try {
+    await logout(sessionToken(request))
+    response.setHeader('Set-Cookie', cookieValue('', 0))
+    response.json({ loggedOut: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/ocr/health', (_request, response) => {
   response.json({
     ok: true,
     configured: Boolean(process.env.OPENAI_API_KEY),
     model: process.env.OPENAI_OCR_MODEL || 'gpt-5.6-terra',
   })
+})
+
+app.use('/api/ocr', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    if (!user) return response.status(401).json({ error: 'Authentication required.' })
+    request.authUser = user
+    next()
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, response, next) => {
@@ -79,6 +153,16 @@ app.get('/api/ocr/jobs/:id', async (request, response, next) => {
     const job = await getJob(request.params.id)
     if (!job) return response.status(404).json({ error: 'OCR job not found.' })
     response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/ocr/jobs/:id', async (request, response, next) => {
+  try {
+    const deleted = await deleteJob(request.params.id)
+    if (!deleted) return response.status(404).json({ error: 'OCR job not found.' })
+    response.json({ deleted: true })
   } catch (error) {
     next(error)
   }
@@ -226,6 +310,7 @@ app.use((error, _request, response, _next) => {
   response.status(status).json({ error: error instanceof Error ? error.message : 'Unexpected server error.' })
 })
 
+await initializeAuthStore()
 await initializeJobStore()
 await resumePendingJobs()
 await resumeExcelExports()

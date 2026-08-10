@@ -111,6 +111,16 @@ export function getStoredFilePath(job) {
   return path.join(filesDir, job.storedFilename)
 }
 
+export async function deleteJob(id) {
+  const job = await getJob(id)
+  if (!job) return false
+  await Promise.all([
+    rm(jobPath(id), { force: true }),
+    rm(getStoredFilePath(job), { force: true }),
+  ])
+  return true
+}
+
 export function toPublicJob(job, includeData = true) {
   const { storedFilename: _storedFilename, ...publicJob } = job
   if (!includeData) delete publicJob.data
@@ -126,6 +136,6 @@ export function toPublicJob(job, includeData = true) {
       uncertainFieldCount,
       needsAttention: job.reviewStatus === 'pending' && (warningCount > 0 || uncertainFieldCount > 0),
     },
-    fileUrl: `/api/ocr/jobs/${job.id}/file`,
+    fileUrl: `${String(process.env.APP_BASE_PATH || '').replace(/\/$/u, '')}/api/ocr/jobs/${job.id}/file`,
   }
 }

@@ -3,6 +3,7 @@
 .review-header h1 { margin: 0 0 2px; font-size: 1.35rem; }
 .review-header p { margin: 0; color: rgba(255,255,255,.7); font-size: .78rem; }
 .review-header button { padding: 9px 13px; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; background: rgba(255,255,255,.13); color: white; font-weight: 700; }
+.review-header-actions { display: flex; align-items: center; gap: 8px; margin-right: 112px; }
 .review-global-error, .review-global-success { position: fixed; top: 84px; left: 50%; z-index: 30; width: min(760px, calc(100% - 32px)); box-sizing: border-box; margin: 0; padding: 10px 12px; border-radius: 9px; transform: translateX(-50%); box-shadow: 0 8px 24px rgba(20,45,30,.15); font-size: .8rem; }
 .review-global-error { border: 1px solid #efc5c1; background: #fff0ef; color: #9d342d; }
 .review-global-success { border: 1px solid #b8d9c4; background: #eff9f3; color: #17613a; }
@@ -32,9 +33,13 @@
 .review-reviewed-count { margin-bottom: 13px; padding: 9px; border-radius: 8px; background: #e8f4ec; color: #286342; font-size: .72rem; text-align: center; }
 .review-empty { padding: 22px 8px; color: #849087; font-size: .8rem; text-align: center; }
 .review-job-list { display: grid; gap: 8px; }
-.review-job-list button { display: grid; gap: 4px; width: 100%; padding: 11px; border: 1px solid #dce4df; border-radius: 10px; background: #fafcfb; color: #1f3026; text-align: left; }
-.review-job-list button.selected { border-color: #1a6b3c; background: #edf7f1; box-shadow: 0 0 0 1px #1a6b3c; }
-.review-job-list button:disabled { cursor: default; opacity: .72; }
+.review-job-item { position: relative; border: 1px solid #dce4df; border-radius: 10px; background: #fafcfb; overflow: hidden; }
+.review-job-item.selected { border-color: #1a6b3c; background: #edf7f1; box-shadow: 0 0 0 1px #1a6b3c; }
+.review-job-open { display: grid; gap: 4px; width: 100%; padding: 11px 38px 11px 11px; border: 0; background: transparent; color: #1f3026; text-align: left; }
+.review-job-open:disabled { cursor: default; opacity: .72; }
+.review-job-delete { position: absolute; top: 7px; right: 7px; display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: #f5e8e7; color: #9d342d; font-size: 1.1rem; font-weight: 700; }
+.review-job-delete:hover { background: #efd0cd; }
+.review-job-delete:disabled { opacity: .5; }
 .review-job-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .79rem; }
 .review-job-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .review-job-title strong { min-width: 0; }

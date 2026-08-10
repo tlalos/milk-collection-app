@@ -32,9 +32,11 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+milk-collection-iis-prod-*.zip
 
 # Runtime OCR uploads and job metadata
 data/ocr/
+data/auth/
 
 # Local development/test artifacts
 work/

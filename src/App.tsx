@@ -7,6 +7,7 @@ import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
+import { OcrAuthGate } from './components/OcrAuthGate'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
@@ -22,6 +23,7 @@ import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
 import './App.css'
+import { appPath, routePathname } from './ocrPaths'
 
 type Screen =
   | 'startup'
@@ -39,8 +41,8 @@ type Screen =
   | 'ocrReview'
 
 function initialScreen(): Screen {
-  if (window.location.pathname === '/ocr/upload') return 'ocrDocuments'
-  if (window.location.pathname === '/ocr/review') return 'ocrReview'
+  if (routePathname() === '/ocr/upload') return 'ocrDocuments'
+  if (routePathname() === '/ocr/review') return 'ocrReview'
   return 'startup'
 }
 
@@ -206,11 +208,11 @@ export function App() {
       )}
 
       {screen === 'ocrDocuments' && (
-        <OcrDocumentScreen onBack={() => { window.location.href = '/' }} />
+        <OcrAuthGate><OcrDocumentScreen onBack={() => { window.location.href = appPath('/') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrReview' && (
-        <OcrReviewScreen />
+        <OcrAuthGate><OcrReviewScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (
