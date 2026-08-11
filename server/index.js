@@ -17,17 +17,41 @@ import { getSessionUser, initializeAuthStore, login, logout } from './authStore.
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema } from './ocrSchema.js'
-import { matchCentersForRows } from './excelService.js'
+import { rebuildVerificationWarnings } from './verification.js'
+import {
+  clearReferenceCaches,
+  enrichMissingRowValues,
+  listReferenceDrivers,
+  listReferenceVehicles,
+  matchCentersForRows,
+  matchReferenceDriver,
+  matchReferenceVehicle,
+  resolveReferenceRoute,
+} from './excelService.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
+const appVersion = process.env.APP_VERSION || '2026.08.11.1'
 
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
   return normalized ? `/${normalized}` : ''
+}
+
+function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSources = []) {
+  const restored = structuredClone(submittedData)
+  for (const rowSource of rowValueSources || []) {
+    const row = restored.rows.find((item) => item.rowNumber === rowSource.rowNumber)
+    const originalRow = originalData.rows.find((item) => item.rowNumber === rowSource.rowNumber)
+    if (!row || !originalRow) continue
+    for (const [field, source] of Object.entries(rowSource.fields || {})) {
+      if (String(row[field] ?? '') === String(source.value ?? '')) row[field] = originalRow[field] ?? null
+    }
+  }
+  return restored
 }
 
 app.use((request, _response, next) => {
@@ -101,6 +125,7 @@ app.get('/api/ocr/health', (_request, response) => {
     ok: true,
     configured: Boolean(process.env.OPENAI_API_KEY),
     model: process.env.OPENAI_OCR_MODEL || 'gpt-5.6-terra',
+    version: appVersion,
   })
 })
 
@@ -143,6 +168,24 @@ app.get('/api/ocr/jobs', async (request, response, next) => {
     if (request.query.reviewStatus) jobs = jobs.filter((job) => job.reviewStatus === request.query.reviewStatus)
     if (request.query.status) jobs = jobs.filter((job) => job.status === request.query.status)
     response.json({ jobs: jobs.map((job) => toPublicJob(job, false)) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/drivers', async (request, response, next) => {
+  try {
+    const drivers = await listReferenceDrivers(request.query.q)
+    response.json({ drivers })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/vehicles', async (request, response, next) => {
+  try {
+    const vehicles = await listReferenceVehicles(request.query.q)
+    response.json({ vehicles })
   } catch (error) {
     next(error)
   }
@@ -204,7 +247,25 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         suggestions: Array.isArray(match.suggestions) ? match.suggestions.slice(0, 5) : [],
       }))
       : current.centerMatches
-    const job = await updateJob(current.id, { data: parsed.data, centerMatches })
+    const driverMatch = current.driverMatch?.status === 'auto_replaced' && parsed.data.driverName === current.driverMatch.selectedName
+      ? current.driverMatch
+      : current.driverMatch ? { ...current.driverMatch, status: 'manual' } : null
+    const vehicleMatch = current.vehicleMatch?.status === 'auto_replaced' && parsed.data.vehicleRegistration === current.vehicleMatch.selectedValue
+      ? current.vehicleMatch
+      : current.vehicleMatch ? { ...current.vehicleMatch, status: 'manual' } : null
+    const routeMatch = current.routeMatch?.status === 'resolved' && parsed.data.route === current.routeMatch.selectedRoute
+      ? current.routeMatch
+      : current.routeMatch ? { ...current.routeMatch, status: 'manual' } : null
+    const data = {
+      ...parsed.data,
+      warnings: rebuildVerificationWarnings(parsed.data, {
+        driverMatch,
+        vehicleMatch,
+        routeMatch,
+        rowValueSources: current.rowValueSources,
+      }),
+    }
+    const job = await updateJob(current.id, { data, centerMatches, driverMatch, vehicleMatch, routeMatch })
     response.json({ job: toPublicJob(job, true) })
   } catch (error) {
     next(error)
@@ -267,6 +328,79 @@ app.post('/api/ocr/jobs/:id/excel/retry', async (request, response, next) => {
   }
 })
 
+app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.status !== 'completed' || !current.data) {
+      return response.status(409).json({ error: 'OCR data must be completed before Excel matching can run.' })
+    }
+
+    const parsedData = request.body?.data ? MilkCollectionDocumentSchema.safeParse(request.body.data) : null
+    if (parsedData && !parsedData.success) {
+      return response.status(400).json({ error: 'Document data is invalid.', details: parsedData.error.issues })
+    }
+    const submittedData = parsedData?.data || current.data
+    const originalData = current.ocrOriginalData || current.data
+    const sourceData = restorePreviouslyDerivedValues(submittedData, originalData, current.rowValueSources)
+    clearReferenceCaches()
+
+    const driverSource = current.driverMatch?.status === 'auto_replaced' && sourceData.driverName === current.data.driverName
+      ? current.driverMatch.originalName
+      : sourceData.driverName
+    const vehicleSource = current.vehicleMatch?.status === 'auto_replaced' && sourceData.vehicleRegistration === current.data.vehicleRegistration
+      ? current.vehicleMatch.originalValue
+      : sourceData.vehicleRegistration
+    let driverMatch = null
+    let driverMatchError = null
+    let vehicleMatch = null
+    let vehicleMatchError = null
+    let routeMatch = null
+    let routeMatchError = null
+    try { driverMatch = await matchReferenceDriver(driverSource) } catch (error) { driverMatchError = error instanceof Error ? error.message : 'Reference-driver lookup failed.' }
+    try { vehicleMatch = await matchReferenceVehicle(vehicleSource) } catch (error) { vehicleMatchError = error instanceof Error ? error.message : 'Reference-vehicle lookup failed.' }
+    const driverName = driverMatch?.status === 'auto_replaced' && driverMatch.selectedName
+      ? driverMatch.selectedName
+      : sourceData.driverName
+    const vehicleRegistration = vehicleMatch?.status === 'auto_replaced' && vehicleMatch.selectedValue
+      ? vehicleMatch.selectedValue
+      : sourceData.vehicleRegistration
+    try { routeMatch = await resolveReferenceRoute(sourceData.date, vehicleRegistration) } catch (error) { routeMatchError = error instanceof Error ? error.message : 'Reference-route lookup failed.' }
+    const route = routeMatch?.status === 'resolved' && routeMatch.selectedRoute
+      ? routeMatch.selectedRoute
+      : sourceData.route
+    let enrichedData = { ...sourceData, driverName, vehicleRegistration, route }
+    let rowValueSources = []
+    let rowValueSourceError = null
+    try {
+      const enrichment = await enrichMissingRowValues(enrichedData)
+      enrichedData = enrichment.data
+      rowValueSources = enrichment.rowValueSources
+    } catch (error) {
+      rowValueSourceError = error instanceof Error ? error.message : 'Row fallback lookup failed.'
+    }
+    enrichedData = {
+      ...enrichedData,
+      warnings: rebuildVerificationWarnings(enrichedData, { driverMatch, vehicleMatch, routeMatch, rowValueSources }),
+    }
+    const job = await updateJob(current.id, {
+      data: enrichedData,
+      ocrOriginalData: current.ocrOriginalData || current.data,
+      driverMatch,
+      driverMatchError,
+      vehicleMatch,
+      vehicleMatchError,
+      routeMatch,
+      routeMatchError,
+      rowValueSources,
+      rowValueSourceError,
+    })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -279,6 +413,7 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
       return response.status(409).json({ error: 'This document is already queued or being processed.' })
     }
 
+    clearReferenceCaches()
     const job = await updateJob(current.id, {
       status: 'queued',
       reviewStatus: 'pending',
@@ -286,8 +421,17 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
       completedAt: null,
       reviewedAt: null,
       data: null,
+      ocrOriginalData: null,
       openai: null,
       excelExport: { status: 'not_ready', error: null },
+      driverMatch: null,
+      driverMatchError: null,
+      vehicleMatch: null,
+      vehicleMatchError: null,
+      routeMatch: null,
+      routeMatchError: null,
+      rowValueSources: [],
+      rowValueSourceError: null,
       error: null,
     })
     enqueueOcrJob(current.id)

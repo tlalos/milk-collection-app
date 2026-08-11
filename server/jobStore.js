@@ -75,10 +75,19 @@ export async function createJob(file) {
     completedAt: null,
     reviewedAt: null,
     data: null,
+    ocrOriginalData: null,
     openai: null,
     excelExport: { status: 'not_ready', error: null },
     centerMatches: [],
     centerMatchError: null,
+    driverMatch: null,
+    driverMatchError: null,
+    vehicleMatch: null,
+    vehicleMatchError: null,
+    routeMatch: null,
+    routeMatchError: null,
+    rowValueSources: [],
+    rowValueSourceError: null,
     error: null,
   })
 }
@@ -122,7 +131,7 @@ export async function deleteJob(id) {
 }
 
 export function toPublicJob(job, includeData = true) {
-  const { storedFilename: _storedFilename, ...publicJob } = job
+  const { storedFilename: _storedFilename, ocrOriginalData: _ocrOriginalData, ...publicJob } = job
   if (!includeData) delete publicJob.data
   const uncertainFieldCount = job.data?.rows?.reduce(
     (total, row) => total + (row.uncertainFields?.length ?? 0),

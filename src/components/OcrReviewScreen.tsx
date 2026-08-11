@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import './OcrReviewScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
+import { APP_VERSION } from '../appVersion'
 
 interface ExtractedRow {
   rowNumber: number
@@ -45,6 +46,41 @@ interface CenterMatch {
   suggestions: CenterSuggestion[]
 }
 
+interface DriverMatch {
+  originalName: string | null
+  status: 'auto_replaced' | 'unmatched' | 'manual'
+  selectedName: string | null
+  score: number
+}
+
+interface VehicleMatch {
+  originalValue: string | null
+  status: 'auto_replaced' | 'unmatched' | 'manual'
+  selectedValue: string | null
+  score: number
+}
+
+interface RouteMatch {
+  status: 'resolved' | 'unmatched' | 'manual'
+  selectedRoute: string | null
+  date: string | null
+  vehicle: string | null
+  existingRoutes: string[]
+  optionIndex?: number | null
+}
+
+interface RowValueSource {
+  source: 'current_invoice' | 'previous_day' | 'invoice_date' | 'not_found'
+  value: string | number | null
+  sourceRowNumber?: number
+  sourceDate?: string
+}
+
+interface RowValueSourceEntry {
+  rowNumber: number
+  fields: Partial<Record<'fatPercent' | 'density' | 'water' | 'temperature' | 'noticeNumber', RowValueSource>>
+}
+
 interface OcrJob {
   id: string
   sourceFile: string
@@ -84,6 +120,14 @@ interface OcrJob {
   } | null
   centerMatches?: CenterMatch[]
   centerMatchError?: string | null
+  driverMatch?: DriverMatch | null
+  driverMatchError?: string | null
+  vehicleMatch?: VehicleMatch | null
+  vehicleMatchError?: string | null
+  routeMatch?: RouteMatch | null
+  routeMatchError?: string | null
+  rowValueSources?: RowValueSourceEntry[]
+  rowValueSourceError?: string | null
 }
 
 type QueueView = 'pending' | 'reviewed'
@@ -91,6 +135,36 @@ type TextField = 'companyName' | 'date' | 'driverName' | 'vehicleRegistration' |
 type RowTextField = 'collectionCenter' | 'noticeNumber'
 type RowNumberField = 'liters' | 'fatPercent' | 'density' | 'water' | 'temperature'
 const JOBS_PER_PAGE = 5
+let cachedDriverOptions: string[] | null = null
+let driverOptionsRequest: Promise<string[]> | null = null
+let cachedVehicleOptions: string[] | null = null
+let vehicleOptionsRequest: Promise<string[]> | null = null
+
+function loadDriverOptions() {
+  if (cachedDriverOptions) return Promise.resolve(cachedDriverOptions)
+  if (!driverOptionsRequest) {
+    driverOptionsRequest = fetch(appPath('/api/ocr/drivers')).then(async (response) => {
+      const payload = await response.json() as { drivers?: string[]; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not load drivers.')
+      cachedDriverOptions = payload.drivers ?? []
+      return cachedDriverOptions
+    }).finally(() => { driverOptionsRequest = null })
+  }
+  return driverOptionsRequest
+}
+
+function loadVehicleOptions() {
+  if (cachedVehicleOptions) return Promise.resolve(cachedVehicleOptions)
+  if (!vehicleOptionsRequest) {
+    vehicleOptionsRequest = fetch(appPath('/api/ocr/vehicles')).then(async (response) => {
+      const payload = await response.json() as { vehicles?: string[]; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not load vehicles.')
+      cachedVehicleOptions = payload.vehicles ?? []
+      return cachedVehicleOptions
+    }).finally(() => { vehicleOptionsRequest = null })
+  }
+  return vehicleOptionsRequest
+}
 
 function cloneData(data: ExtractedData) {
   return structuredClone(data)
@@ -108,6 +182,16 @@ function nullableNumber(input: string) {
   if (!input.trim()) return null
   const parsed = Number(input.replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function displayDate(value: string | null) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value ?? ''
+}
+
+function storedDate(value: string) {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : value
 }
 
 function formatCost(job: OcrJob) {
@@ -150,8 +234,11 @@ export function OcrReviewScreen() {
   const [success, setSuccess] = useState('')
   const [loadingId, setLoadingId] = useState('')
   const [deletingId, setDeletingId] = useState('')
+  const [driverOptions, setDriverOptions] = useState<string[]>([])
+  const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [reprocessing, setReprocessing] = useState(false)
+  const [rematchingReferences, setRematchingReferences] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [excelNotice, setExcelNotice] = useState<{ type: 'working' | 'success' | 'error'; message: string } | null>(null)
   const [matchingCenters, setMatchingCenters] = useState(false)
@@ -208,6 +295,12 @@ export function OcrReviewScreen() {
     const timer = window.setInterval(() => void loadJobs(), 5000)
     return () => window.clearInterval(timer)
   }, [loadJobs])
+
+  useEffect(() => {
+    if (!draft || dataTab !== 'document') return
+    void loadDriverOptions().then(setDriverOptions).catch(() => undefined)
+    void loadVehicleOptions().then(setVehicleOptions).catch(() => undefined)
+  }, [dataTab, Boolean(draft)])
 
   async function openJob(job: OcrJob) {
     setSelectedId(job.id)
@@ -460,6 +553,39 @@ export function OcrReviewScreen() {
     }
   }
 
+  async function rematchExcelReferences() {
+    if (!selected || !draft || rematchingReferences) return
+    setRematchingReferences(true)
+    setError('')
+    setSuccess('')
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/references/rematch`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: draft }),
+      })
+      const payload = await response.json() as { job?: OcrJob; error?: string }
+      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not redo Excel matching.')
+      jobCacheRef.current.set(payload.job.id, payload.job)
+      setSelected(payload.job)
+      setDraft(payload.job.data ? cloneData(payload.job.data) : null)
+      setSelectedSummary(payload.job)
+      cachedDriverOptions = null
+      cachedVehicleOptions = null
+      const [drivers, vehicles] = await Promise.all([loadDriverOptions(), loadVehicleOptions()])
+      setDriverOptions(drivers)
+      setVehicleOptions(vehicles)
+      setSuccess(isRo
+        ? 'Potrivirea Excel pentru șofer, vehicul și rută a fost refăcută fără OCR.'
+        : 'Excel matching for driver, vehicle and route was refreshed without running OCR.')
+      await loadJobs()
+    } catch (matchError) {
+      setError((matchError as Error).message || 'Could not redo Excel matching.')
+    } finally {
+      setRematchingReferences(false)
+    }
+  }
+
   async function retryExcelExport() {
     if (!selected || exporting) return
     setExporting(true)
@@ -490,6 +616,19 @@ export function OcrReviewScreen() {
   const visibleJobs = jobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE)
   const emptyCenterCount = draft?.rows.filter((row) => !row.collectionCenter?.trim()).length ?? 0
 
+  function rowSource(rowNumber: number, field: keyof RowValueSourceEntry['fields'], value: string | number | null) {
+    const source = selected?.rowValueSources?.find((item) => item.rowNumber === rowNumber)?.fields[field]
+    if (source?.source === 'not_found') return value === null || value === '' ? source : null
+    return source && String(source.value) === String(value ?? '') ? source : null
+  }
+
+  function rowSourceLabel(source: RowValueSource) {
+    if (source.source === 'current_invoice') return isRo ? `Din rândul ${source.sourceRowNumber} al documentului` : `From document row ${source.sourceRowNumber}`
+    if (source.source === 'previous_day') return isRo ? `Din ziua precedentă: ${displayDate(source.sourceDate ?? null)}` : `From previous day: ${displayDate(source.sourceDate ?? null)}`
+    if (source.source === 'not_found') return isRo ? `Nicio valoare înainte de ${displayDate(source.sourceDate ?? null)}` : `No fallback before ${displayDate(source.sourceDate ?? null)}`
+    return isRo ? 'Generat din data documentului' : 'Generated from document date'
+  }
+
   useEffect(() => {
     if (page > pageCount) setPage(pageCount)
   }, [page, pageCount])
@@ -497,7 +636,7 @@ export function OcrReviewScreen() {
   return (
     <div className="review-screen">
       <header className="review-header">
-        <div><h1>{isRo ? 'Verificare OCR' : 'OCR Review'}</h1><p>{isRo ? 'Verificarea documentelor în back-office' : 'Back-office document verification'}</p></div>
+        <div><h1>{isRo ? 'Verificare OCR' : 'OCR Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Verificarea documentelor în back-office' : 'Back-office document verification'}</p></div>
         <div className="review-header-actions">
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
@@ -599,10 +738,33 @@ export function OcrReviewScreen() {
 
                 <div className="review-fields">
                   <label>{isRo ? 'Companie' : 'Company'}<input value={draft.companyName ?? ''} onChange={(event) => updateTextField('companyName', event.target.value)} /></label>
-                  <label>{isRo ? 'Data' : 'Date'}<input type="date" value={draft.date ?? ''} onChange={(event) => updateTextField('date', event.target.value)} /></label>
-                  <label>{isRo ? 'Șofer' : 'Driver'}<input value={draft.driverName ?? ''} onChange={(event) => updateTextField('driverName', event.target.value)} /></label>
-                  <label>{isRo ? 'Vehicul' : 'Vehicle'}<input value={draft.vehicleRegistration ?? ''} onChange={(event) => updateTextField('vehicleRegistration', event.target.value)} /></label>
-                  <label>{isRo ? 'Rută' : 'Route'}<input value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} /></label>
+                  <label>{isRo ? 'Data' : 'Date'}<input inputMode="numeric" placeholder="dd/MM/yyyy" value={displayDate(draft.date)} onChange={(event) => updateTextField('date', storedDate(event.target.value))} /></label>
+                  <label>
+                    <span className="review-field-label">{isRo ? 'Șofer' : 'Driver'}
+                      {selected.driverMatch?.status === 'auto_replaced' && draft.driverName === selected.driverMatch.selectedName && <b className="review-driver-replaced">{isRo ? 'Înlocuit din Excel' : 'Replaced from Excel'}</b>}
+                      {selected.driverMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
+                      {selected.driverMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                    </span>
+                    <input list="ocr-driver-options" autoComplete="off" value={draft.driverName ?? ''} onChange={(event) => updateTextField('driverName', event.target.value)} />
+                    <datalist id="ocr-driver-options">{driverOptions.map((driver) => <option value={driver} key={driver} />)}</datalist>
+                  </label>
+                  <label>
+                    <span className="review-field-label">{isRo ? 'Vehicul' : 'Vehicle'}
+                      {selected.vehicleMatch?.status === 'auto_replaced' && draft.vehicleRegistration === selected.vehicleMatch.selectedValue && <b className="review-driver-replaced">{isRo ? 'Înlocuit din Excel' : 'Replaced from Excel'}</b>}
+                      {selected.vehicleMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
+                      {selected.vehicleMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                    </span>
+                    <input list="ocr-vehicle-options" autoComplete="off" value={draft.vehicleRegistration ?? ''} onChange={(event) => updateTextField('vehicleRegistration', event.target.value)} />
+                    <datalist id="ocr-vehicle-options">{vehicleOptions.map((vehicle) => <option value={vehicle} key={vehicle} />)}</datalist>
+                  </label>
+                  <label>
+                    <span className="review-field-label">{isRo ? 'Rută' : 'Route'}
+                      {selected.routeMatch?.status === 'resolved' && draft.route === selected.routeMatch.selectedRoute && <b className="review-driver-replaced">{isRo ? 'Obținută din Excel' : 'Retrieved from Excel'}</b>}
+                      {selected.routeMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
+                      {selected.routeMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                    </span>
+                    <input value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
+                  </label>
                   <label>{isRo ? 'Total litri' : 'Total liters'}<input inputMode="decimal" value={draft.totalLiters ?? ''} onChange={(event) => updateTotalLiters(event.target.value)} /></label>
                 </div>
 
@@ -647,7 +809,7 @@ export function OcrReviewScreen() {
 
                 <div className="review-table-wrap">
                   <table>
-                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>U.G.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Temp.</th><th>{isRo ? 'Aviz' : 'Notice'}</th><th>{isRo ? 'Încredere' : 'Confidence'}</th></tr></thead>
+                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>U.G.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Temp.</th><th>Aviz</th><th>{isRo ? 'Încredere' : 'Confidence'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number">{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span></td>
@@ -671,11 +833,11 @@ export function OcrReviewScreen() {
                           })()}
                         </div></td>
                         <td><input inputMode="decimal" value={row.liters ?? ''} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
-                        <td><input inputMode="decimal" value={row.fatPercent ?? ''} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} /></td>
-                        <td><input inputMode="decimal" value={row.density ?? ''} onChange={(event) => updateRowNumber(index, 'density', event.target.value)} /></td>
-                        <td><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} /></td>
-                        <td><input inputMode="decimal" value={row.temperature ?? ''} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} /></td>
-                        <td><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} /></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.fatPercent ?? ''} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.density ?? ''} onChange={(event) => updateRowNumber(index, 'density', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'density', row.density); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.temperature ?? ''} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td>{Math.round(row.confidence * 100)}%</td>
                       </tr>
                     ))}</tbody>
@@ -684,6 +846,7 @@ export function OcrReviewScreen() {
                 </div>)}
                 <div className="review-save-actions">
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || reprocessing}>{reprocessing ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
+                  <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || reprocessing || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching')}</button>
                   {selected.reviewStatus === 'pending' && <button className="review-save-secondary" type="button" onClick={() => void saveDocument(false)} disabled={saving}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați corecțiile' : 'Save corrections')}</button>}
                   <button className="review-complete" type="button" onClick={() => void saveDocument(selected.reviewStatus === 'pending')} disabled={saving}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : selected.reviewStatus === 'pending' ? (isRo ? 'Salvați și marcați ca verificat' : 'Save and mark as reviewed') : (isRo ? 'Salvați modificările' : 'Save changes')}</button>
                 </div>

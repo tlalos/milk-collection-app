@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import './OcrDocumentScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
+import { APP_VERSION } from '../appVersion'
 
 interface OcrDocumentScreenProps {
   onBack: () => void
@@ -139,7 +140,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
           </svg>
         </button>
         <div>
-          <h1>{isRo ? 'Document OCR' : 'OCR Document'}</h1>
+          <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>
           <p>{isRo ? 'Fotografiați sau selectați documente pentru extragerea datelor' : 'Capture or select documents to extract their data'}</p>
         </div>
         <OcrLanguageSwitch language={language} onChange={setLanguage} />

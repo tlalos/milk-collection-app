@@ -1,10 +1,23 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parse as parseEnv } from 'dotenv'
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const defaultExcelProject = 'C:\\Users\\tlalos\\Documents\\Codex\\2026-07-31\\excel-to-erp-soft1-codex-text\\excel-to-erp-soft1'
 let centerCache = { expiresAt: 0, centers: [] }
+let driverCache = { expiresAt: 0, drivers: [] }
+let vehicleCache = { expiresAt: 0, vehicles: [] }
+let vehicleRouteCache = { expiresAt: 0, routes: [] }
+const DRIVER_CACHE_MS = 30 * 60 * 1000
+let tokenRefreshPromise = null
+
+export function clearReferenceCaches() {
+  centerCache = { expiresAt: 0, centers: [] }
+  driverCache = { expiresAt: 0, drivers: [] }
+  vehicleCache = { expiresAt: 0, vehicles: [] }
+  vehicleRouteCache = { expiresAt: 0, routes: [] }
+}
 
 async function loadConfig() {
   const projectDir = process.env.EXCEL_GRAPH_PROJECT_DIR || defaultExcelProject
@@ -129,6 +142,178 @@ export async function matchCentersForRows(rows) {
   })
 }
 
+export async function listReferenceDrivers(query = '') {
+  const drivers = await loadReferenceDrivers()
+  const search = String(query || '').trim()
+  if (!search) return drivers
+  return drivers
+    .map((name) => ({ name, score: driverSimilarity(search, name) }))
+    .filter((driver) => normalizeValue(driver.name).includes(normalizeValue(search)) || driver.score >= 0.32)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+    .slice(0, 20)
+    .map((driver) => driver.name)
+}
+
+export async function matchReferenceDriver(driverName) {
+  const originalName = String(driverName || '').trim()
+  if (!originalName) return { originalName: driverName || null, status: 'unmatched', selectedName: null, score: 0 }
+  const drivers = await loadReferenceDrivers()
+  const best = drivers
+    .map((name) => ({ name, score: driverSimilarity(originalName, name) }))
+    .sort((left, right) => right.score - left.score)[0]
+  const autoReplace = best?.score >= 0.3
+  return {
+    originalName,
+    status: autoReplace ? 'auto_replaced' : 'unmatched',
+    selectedName: autoReplace ? best.name : null,
+    score: Number((best?.score || 0).toFixed(3)),
+  }
+}
+
+export async function listReferenceVehicles(query = '') {
+  const vehicles = await loadReferenceVehicles()
+  const search = String(query || '').trim()
+  if (!search) return vehicles
+  return vehicles
+    .map((name) => ({ name, score: vehicleSimilarity(search, name) }))
+    .filter((vehicle) => normalizeValue(vehicle.name).includes(normalizeValue(search)) || vehicle.score >= 0.3)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+    .slice(0, 20)
+    .map((vehicle) => vehicle.name)
+}
+
+export async function matchReferenceVehicle(vehicleRegistration) {
+  const originalValue = String(vehicleRegistration || '').trim()
+  if (!originalValue) return { originalValue: vehicleRegistration || null, status: 'unmatched', selectedValue: null, score: 0 }
+  const vehicles = await loadReferenceVehicles()
+  const best = vehicles
+    .map((value) => ({ value, score: vehicleSimilarity(originalValue, value) }))
+    .sort((left, right) => right.score - left.score)[0]
+  const autoReplace = best?.score >= 0.3
+  return {
+    originalValue,
+    status: autoReplace ? 'auto_replaced' : 'unmatched',
+    selectedValue: autoReplace ? best.value : null,
+    score: Number((best?.score || 0).toFixed(3)),
+  }
+}
+
+export async function resolveReferenceRoute(date, vehicleRegistration) {
+  const vehicle = String(vehicleRegistration || '').trim()
+  if (!date || !vehicle) return { status: 'unmatched', selectedRoute: null, date: date || null, vehicle: vehicle || null, existingRoutes: [] }
+  const routeRows = await loadVehicleRouteOptions()
+  const vehicleRoutes = routeRows.find((row) => normalizeValue(row.vehicle) === normalizeValue(vehicle))
+  if (!vehicleRoutes) return { status: 'unmatched', selectedRoute: null, date, vehicle, existingRoutes: [] }
+
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const tablePath = `${workbookPath}/tables/${encodeURIComponent(config.tableName)}`
+  const [columns, range] = await Promise.all([
+    graphFetch(`${tablePath}/columns`, token),
+    graphFetch(`${tablePath}/dataBodyRange`, token),
+  ])
+  const names = (columns.value || []).map((column) => String(column.name || '').trim().toLowerCase())
+  const dateIndex = names.indexOf('date')
+  const truckIndex = names.indexOf('truck')
+  const routeIndex = names.indexOf('route_id')
+  if (dateIndex < 0 || truckIndex < 0 || routeIndex < 0) throw new Error(`${config.tableName} must contain Date, Truck and Route_ID columns.`)
+  const expectedSerial = toExcelSerial(date)
+  const existingRoutes = [...new Set((range.values || [])
+    .filter((row) => excelDateMatches(row[dateIndex], expectedSerial) && normalizeValue(row[truckIndex]) === normalizeValue(vehicleRoutes.vehicle))
+    .map((row) => String(row[routeIndex] ?? '').trim())
+    .filter(Boolean))]
+  const options = vehicleRoutes.routes.filter(Boolean)
+  const selectedRoute = options.find((route) => !existingRoutes.some((existing) => normalizeValue(existing) === normalizeValue(route))) || options.at(-1) || null
+  return {
+    status: selectedRoute ? 'resolved' : 'unmatched',
+    selectedRoute,
+    date,
+    vehicle: vehicleRoutes.vehicle,
+    existingRoutes,
+    optionIndex: selectedRoute ? options.indexOf(selectedRoute) : null,
+  }
+}
+
+export async function enrichMissingRowValues(data) {
+  const fields = ['fatPercent', 'density', 'water', 'temperature']
+  const invoiceValues = Object.fromEntries(fields.map((field) => {
+    const sourceRow = [...data.rows].reverse().find((row) => row[field] !== null && row[field] !== undefined && row[field] !== '')
+    return [field, sourceRow ? { value: sourceRow[field], rowNumber: sourceRow.rowNumber } : null]
+  }))
+  const needsPreviousDay = fields.filter((field) => !invoiceValues[field] && data.rows.some((row) => row[field] === null || row[field] === undefined || row[field] === ''))
+  const previousDay = needsPreviousDay.length && data.date
+    ? await loadPreviousDayRowValues(data.date, needsPreviousDay)
+    : { date: null, values: {} }
+  const noticeValue = formatNoticeDate(data.date)
+  const rowValueSources = []
+  const rows = data.rows.map((row) => {
+    const next = { ...row }
+    const fieldSources = {}
+    for (const field of fields) {
+      if (row[field] !== null && row[field] !== undefined && row[field] !== '') continue
+      if (invoiceValues[field]) {
+        next[field] = invoiceValues[field].value
+        fieldSources[field] = {
+          source: 'current_invoice',
+          sourceRowNumber: invoiceValues[field].rowNumber,
+          value: invoiceValues[field].value,
+        }
+      } else if (previousDay.values[field] !== null && previousDay.values[field] !== undefined && previousDay.values[field] !== '') {
+        next[field] = previousDay.values[field]
+        fieldSources[field] = {
+          source: 'previous_day',
+          sourceDate: previousDay.date,
+          value: previousDay.values[field],
+        }
+      } else {
+        fieldSources[field] = { source: 'not_found', sourceDate: data.date, value: null }
+      }
+    }
+    if (!row.noticeNumber && noticeValue) {
+      next.noticeNumber = noticeValue
+      fieldSources.noticeNumber = { source: 'invoice_date', sourceDate: data.date, value: noticeValue }
+    }
+    if (Object.keys(fieldSources).length) rowValueSources.push({ rowNumber: row.rowNumber, fields: fieldSources })
+    return next
+  })
+  return { data: { ...data, rows }, rowValueSources }
+}
+
+async function loadPreviousDayRowValues(date, requestedFields) {
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const tablePath = `${workbookPath}/tables/${encodeURIComponent(config.tableName)}`
+  const [columns, range] = await Promise.all([
+    graphFetch(`${tablePath}/columns`, token),
+    graphFetch(`${tablePath}/dataBodyRange`, token),
+  ])
+  const names = (columns.value || []).map((column) => normalizeValue(column.name))
+  const indexes = {
+    date: names.findIndex((name) => name === 'DATE'),
+    fatPercent: names.findIndex((name) => name.includes('FAT')),
+    density: names.findIndex((name) => name === 'U G' || name === 'UG' || name === 'DENSITY' || name.includes('DENSITATE')),
+    water: names.findIndex((name) => name.includes('WATER')),
+    temperature: names.findIndex((name) => name.includes('TEMPERATURE')),
+  }
+  if (indexes.date < 0) throw new Error(`${config.tableName} must contain a Date column.`)
+  const currentSerial = toExcelSerial(date)
+  const datedRows = (range.values || []).map((row, index) => ({ row, index, serial: excelDateSerial(row[indexes.date]) }))
+    .filter((item) => Number.isFinite(item.serial) && item.serial < currentSerial)
+  const previousSerial = datedRows.reduce((latest, item) => Math.max(latest, item.serial), -Infinity)
+  if (!Number.isFinite(previousSerial)) return { date: null, values: {} }
+  const previousRows = datedRows.filter((item) => Math.round(item.serial) === Math.round(previousSerial)).sort((left, right) => right.index - left.index)
+  const values = Object.fromEntries(requestedFields.map((field) => {
+    const columnIndex = indexes[field]
+    const source = columnIndex >= 0 ? previousRows.find((item) => item.row[columnIndex] !== null && item.row[columnIndex] !== undefined && item.row[columnIndex] !== '') : null
+    return [field, source ? source.row[columnIndex] : null]
+  }))
+  return { date: excelSerialToIso(previousSerial), values }
+}
+
 async function loadReferenceCenters() {
   if (centerCache.expiresAt > Date.now()) return centerCache.centers
   const config = await loadConfig()
@@ -151,15 +336,100 @@ async function loadReferenceCenters() {
   return centers
 }
 
-function normalizeCenter(value) {
+async function loadReferenceDrivers() {
+  if (driverCache.expiresAt > Date.now()) return driverCache.drivers
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+  const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'dropdown_lists')
+  if (!worksheet) throw new Error('Excel worksheet DropDown_Lists was not found.')
+  const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
+  const values = range.values || []
+  const candidates = values.flatMap((row, rowIndex) => row.flatMap((value, columnIndex) =>
+    String(value || '').trim().toLowerCase() === 'driver' ? [{ headerRow: rowIndex, driverColumn: columnIndex }] : []))
+  const candidate = candidates.sort((left, right) => right.driverColumn - left.driverColumn)[0]
+  if (!candidate) throw new Error('DropDown_Lists must contain a Driver column.')
+  const { headerRow, driverColumn } = candidate
+  const drivers = [...new Set(values.slice(headerRow + 1)
+    .map((row) => String(row[driverColumn] ?? '').trim())
+    .filter(Boolean))]
+  driverCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, drivers }
+  return drivers
+}
+
+async function loadReferenceVehicles() {
+  if (vehicleCache.expiresAt > Date.now()) return vehicleCache.vehicles
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+  const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'dropdown_lists')
+  if (!worksheet) throw new Error('Excel worksheet DropDown_Lists was not found.')
+  const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
+  const values = range.values || []
+  let headerRow = -1
+  let vehicleColumn = -1
+  for (let rowIndex = 0; rowIndex < values.length && headerRow < 0; rowIndex += 1) {
+    const columnIndex = values[rowIndex].findIndex((value) => {
+      const header = normalizeValue(value)
+      return header === 'TRUCK' || header === 'VEHICLE' || header.includes('CAMION')
+    })
+    if (columnIndex >= 0) {
+      headerRow = rowIndex
+      vehicleColumn = columnIndex
+    }
+  }
+  if (headerRow < 0) throw new Error('DropDown_Lists must contain a truck/vehicle column.')
+  const vehicles = [...new Set(values.slice(headerRow + 1)
+    .map((row) => String(row[vehicleColumn] ?? '').trim())
+    .filter(Boolean))]
+  vehicleCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, vehicles }
+  return vehicles
+}
+
+async function loadVehicleRouteOptions() {
+  if (vehicleRouteCache.expiresAt > Date.now()) return vehicleRouteCache.routes
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+  const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'dropdown_lists')
+  if (!worksheet) throw new Error('Excel worksheet DropDown_Lists was not found.')
+  const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
+  const values = range.values || []
+  const columnCount = Math.max(...values.map((row) => row.length), 0)
+  const candidates = Array.from({ length: Math.max(columnCount - 1, 0) }, (_, vehicleColumn) => ({
+    headerRow: 0,
+    vehicleColumn,
+    score: values.slice(1).filter((row) =>
+      String(row[vehicleColumn] ?? '').trim() && /^R\d+/iu.test(String(row[vehicleColumn + 1] ?? '').trim())).length,
+  }))
+  const candidate = candidates.sort((left, right) => right.score - left.score)[0]
+  if (!candidate || candidate.score === 0) throw new Error('DropDown_Lists must contain adjacent truck and route columns.')
+  const { headerRow, vehicleColumn } = candidate
+  const routes = values.slice(headerRow + 1)
+    .map((row) => ({
+      vehicle: String(row[vehicleColumn] ?? '').trim(),
+      routes: [row[vehicleColumn + 1], row[vehicleColumn + 2], row[vehicleColumn + 3]].map((value) => String(value ?? '').trim()),
+    }))
+    .filter((row) => row.vehicle && row.routes.some(Boolean))
+  vehicleRouteCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, routes }
+  return routes
+}
+
+function normalizeValue(value) {
   return String(value || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
     .toUpperCase().replace(/[^A-Z0-9]+/gu, ' ').trim().replace(/\s+/gu, ' ')
 }
 
 function similarity(leftValue, rightValue) {
-  const left = normalizeCenter(leftValue)
-  const right = normalizeCenter(rightValue)
+  const left = normalizeValue(leftValue)
+  const right = normalizeValue(rightValue)
   if (!left || !right) return 0
   if (left === right) return 1
   const distance = levenshtein(left, right)
@@ -170,6 +440,27 @@ function similarity(leftValue, rightValue) {
   const tokenScore = intersection / new Set([...leftTokens, ...rightTokens]).size
   const containment = left.includes(right) || right.includes(left) ? Math.min(left.length, right.length) / Math.max(left.length, right.length) : 0
   return Math.max(characterScore * 0.72 + tokenScore * 0.28, containment * 0.92)
+}
+
+function driverSimilarity(leftValue, rightValue) {
+  const left = normalizeValue(leftValue)
+  const right = normalizeValue(rightValue)
+  const baseScore = similarity(left, right)
+  if (!left || !right) return baseScore
+  const leftTokens = left.split(' ')
+  const rightTokens = right.split(' ')
+  const wholeWordMatch = leftTokens.includes(right) || rightTokens.includes(left)
+  const tokenScore = Math.max(...leftTokens.flatMap((leftToken) =>
+    rightTokens.map((rightToken) => similarity(leftToken, rightToken))), 0)
+  return Math.max(baseScore, wholeWordMatch ? 0.9 : 0, tokenScore >= 0.5 ? tokenScore : 0)
+}
+
+function vehicleSimilarity(leftValue, rightValue) {
+  const left = normalizeValue(leftValue).replace(/\s+/gu, '')
+  const right = normalizeValue(rightValue).replace(/\s+/gu, '')
+  if (!left || !right) return 0
+  if (left === right) return 1
+  return 1 - levenshtein(left, right) / Math.max(left.length, right.length)
 }
 
 function levenshtein(left, right) {
@@ -189,11 +480,42 @@ function levenshtein(left, right) {
 }
 
 function toExcelSerial(isoDate) {
-  const [year, month, day] = isoDate.split('-').map(Number)
+  const parts = String(isoDate).split(/[-/]/u).map(Number)
+  const [year, month, day] = parts[0] > 31 ? parts : [parts[2], parts[1], parts[0]]
   return (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000
 }
 
+function excelDateSerial(value) {
+  if (typeof value === 'number') return value
+  return toExcelSerial(String(value || ''))
+}
+
+function excelSerialToIso(serial) {
+  return new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000).toISOString().slice(0, 10)
+}
+
+function formatNoticeDate(value) {
+  const parts = String(value || '').split(/[-/]/u).map(Number)
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null
+  const [year, month, day] = parts[0] > 31 ? parts : [parts[2], parts[1], parts[0]]
+  if (!year || !month || !day) return null
+  return `${String(day).padStart(2, '0')}${String(month).padStart(2, '0')}${String(year).padStart(4, '0')}`
+}
+
+function excelDateMatches(value, expectedSerial) {
+  if (typeof value === 'number') return Math.round(value) === Math.round(expectedSerial)
+  const parsed = toExcelSerial(String(value || ''))
+  return Number.isFinite(parsed) && Math.round(parsed) === Math.round(expectedSerial)
+}
+
 async function refreshAccessToken(config) {
+  if (!tokenRefreshPromise) {
+    tokenRefreshPromise = performTokenRefresh(config).finally(() => { tokenRefreshPromise = null })
+  }
+  return tokenRefreshPromise
+}
+
+async function performTokenRefresh(config) {
   const cached = JSON.parse(await readFile(config.tokenCachePath, 'utf8'))
   if (!cached.refresh_token) throw new Error('The Excel Graph token cache has no refresh token. Sign in from the Excel integration project first.')
   const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`, {
@@ -202,7 +524,15 @@ async function refreshAccessToken(config) {
     body: new URLSearchParams({ client_id: config.clientId, scope: config.scopes, refresh_token: cached.refresh_token, grant_type: 'refresh_token' }),
   })
   const token = await parseResponse(response, 'refresh Microsoft Graph token')
-  await writeFile(config.tokenCachePath, JSON.stringify(token, null, 2), 'utf8')
+  const temporary = `${config.tokenCachePath}.${randomUUID()}.tmp`
+  await writeFile(temporary, JSON.stringify(token, null, 2), 'utf8')
+  try {
+    await rename(temporary, config.tokenCachePath)
+  } catch (error) {
+    if (error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error
+    await copyFile(temporary, config.tokenCachePath)
+    await rm(temporary, { force: true })
+  }
   return token.access_token
 }
 

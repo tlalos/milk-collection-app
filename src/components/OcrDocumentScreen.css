@@ -1,6 +1,7 @@
 .ocr-screen { min-height: 100%; background: #f3f6f4; color: #17231c; }
 .ocr-header { display: flex; align-items: center; gap: 14px; padding: calc(env(safe-area-inset-top, 0px) + 18px) 22px 20px; background: linear-gradient(145deg, #1a6b3c, #0d4a29); color: white; }
 .ocr-header h1 { margin: 0 0 3px; font-size: 1.35rem; }
+.ocr-header h1 small { display: inline-block; margin-left: 5px; color: rgba(255,255,255,.68); font-size: .58rem; font-weight: 700; vertical-align: middle; }
 .ocr-header p { margin: 0; color: rgba(255,255,255,.72); font-size: .8rem; }
 .ocr-back { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.25); border-radius: 50%; background: rgba(255,255,255,.12); color: white; }
 .ocr-back svg { width: 21px; }
