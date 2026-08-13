@@ -21,9 +21,14 @@ async function processNext() {
   try {
     const job = await getJob(id)
     if (!job || job.reviewStatus !== 'reviewed' || job.excelExport?.status === 'exported') return
-    await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt: new Date().toISOString(), error: null } })
-    const result = await appendReviewedDocumentToExcel(job)
-    await updateJob(id, { excelExport: { status: 'exported', startedAt: job.excelExport?.startedAt || new Date().toISOString(), completedAt: new Date().toISOString(), error: null, ...result } })
+    const startedAt = new Date().toISOString()
+    let rowLog = []
+    await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress: { stage: 'connecting', current: 0, total: job.data?.rows?.length || 0 }, rowLog } })
+    const result = await appendReviewedDocumentToExcel(job, async (progress) => {
+      if (progress.stage === 'preparing') rowLog = [...rowLog, { rowNumber: progress.rowNumber, center: progress.center, status: 'ready' }]
+      await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress, rowLog } })
+    })
+    await updateJob(id, { excelExport: { status: 'exported', startedAt, completedAt: new Date().toISOString(), error: null, progress: { stage: 'completed', current: result.rowCount, total: result.rowCount }, rowLog: rowLog.map((row) => ({ ...row, status: 'sent' })), ...result } })
   } catch (error) {
     const job = await getJob(id)
     await updateJob(id, { excelExport: { ...job?.excelExport, status: 'failed', completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Excel export failed.' } })

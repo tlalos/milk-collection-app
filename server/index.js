@@ -34,7 +34,7 @@ const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
-const appVersion = process.env.APP_VERSION || '2026.08.11.1'
+const appVersion = process.env.APP_VERSION || '2026.08.13.1'
 
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
@@ -290,6 +290,20 @@ app.post('/api/ocr/jobs/:id/centers/match', async (request, response, next) => {
   } catch (error) {
     const current = await getJob(request.params.id)
     if (current) await updateJob(current.id, { centerMatchError: error instanceof Error ? error.message : 'Reference-center lookup failed.' })
+    next(error)
+  }
+})
+
+app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    const rowNumber = Number(request.body.rowNumber)
+    const name = String(request.body.name || '').trim()
+    if (!Number.isFinite(rowNumber) || name.length < 3) return response.json({ match: null })
+    const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
+    response.json({ match: match ? { ...match, status: match.suggestions.length ? 'suggested' : 'unmatched', selectedCode: null, selectedName: null } : null })
+  } catch (error) {
     next(error)
   }
 })

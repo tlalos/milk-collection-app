@@ -140,6 +140,12 @@ export function toPublicJob(job, includeData = true) {
   const warningCount = job.data?.warnings?.length ?? 0
   return {
     ...publicJob,
+    summary: {
+      date: job.data?.date ?? null,
+      route: job.data?.route ?? null,
+      driverName: job.data?.driverName ?? null,
+      vehicleRegistration: job.data?.vehicleRegistration ?? null,
+    },
     attention: {
       warningCount,
       uncertainFieldCount,

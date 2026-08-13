@@ -43,7 +43,7 @@ async function loadConfig() {
   }
 }
 
-export async function appendReviewedDocumentToExcel(job) {
+export async function appendReviewedDocumentToExcel(job, onProgress = async () => {}) {
   const config = await loadConfig()
   if (!config.clientId || (!config.workbookUrl && !(config.driveId && config.itemId))) {
     throw new Error('Excel Online is not configured with the Azure client and workbook target.')
@@ -73,7 +73,9 @@ export async function appendReviewedDocumentToExcel(job) {
   const startIndex = lastUsedIndex + 1
   const dateSerial = toExcelSerial(job.data.date)
 
-  const values = job.data.rows.map((row) => {
+  const values = []
+  for (let index = 0; index < job.data.rows.length; index += 1) {
+    const row = job.data.rows[index]
     const confirmedCenter = job.centerMatches?.find((match) => match.rowNumber === row.rowNumber && match.selectedCode)
     const missing = [
       ['center', row.collectionCenter], ['liters', row.liters], ['notice number', row.noticeNumber],
@@ -99,8 +101,9 @@ export async function appendReviewedDocumentToExcel(job) {
       ERP_Status: '',
       Center_Code: confirmedCenter?.selectedCode || null,
     }
-    return columnNames.slice(0, 14).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null)
-  })
+    values.push(columnNames.slice(0, 14).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null))
+    await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: mapped.Center_Name })
+  }
 
   if (startIndex + values.length > rowIdValues.length) {
     throw new Error(`Excel table ${config.tableName} has no remaining preallocated rows.`)
@@ -113,6 +116,7 @@ export async function appendReviewedDocumentToExcel(job) {
   const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === config.sheetName.toLowerCase())
   if (!worksheet) throw new Error(`Excel worksheet ${config.sheetName} was not found.`)
   const targetAddress = `A${excelStartRow}:N${excelEndRow}`
+  await onProgress({ stage: 'sending', current: values.length, total: values.length, range: targetAddress })
   await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/range(address='${targetAddress}')`, token, {
     method: 'PATCH', headers, body: JSON.stringify({ values }),
   })
