@@ -7,6 +7,7 @@ import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
+import { OcrSettingsScreen } from './components/OcrSettingsScreen'
 import { OcrAuthGate } from './components/OcrAuthGate'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
@@ -39,10 +40,12 @@ type Screen =
   | 'entry'
   | 'ocrDocuments'
   | 'ocrReview'
+  | 'ocrSettings'
 
 function initialScreen(): Screen {
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/review') return 'ocrReview'
+  if (routePathname() === '/ocr/settings') return 'ocrSettings'
   return 'startup'
 }
 
@@ -213,6 +216,10 @@ export function App() {
 
       {screen === 'ocrReview' && (
         <OcrAuthGate><OcrReviewScreen /></OcrAuthGate>
+      )}
+
+      {screen === 'ocrSettings' && (
+        <OcrAuthGate><OcrSettingsScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (

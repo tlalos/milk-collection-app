@@ -143,7 +143,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
           <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>
           <p>{isRo ? 'Fotografiați sau selectați documente pentru extragerea datelor' : 'Capture or select documents to extract their data'}</p>
         </div>
-        <OcrLanguageSwitch language={language} onChange={setLanguage} />
+        <div className="ocr-header-actions"><button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=upload') }}>{isRo ? 'Setări' : 'Settings'}</button><OcrLanguageSwitch language={language} onChange={setLanguage} /></div>
       </header>
 
       <main className="ocr-body">

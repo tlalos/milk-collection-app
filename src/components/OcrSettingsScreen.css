@@ -1,0 +1,14 @@
+.ocr-settings-screen { min-height: 100vh; background: #edf1ee; color: #17231c; }
+.ocr-settings-screen header { min-height: 76px; display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 12px; padding: 12px 22px; box-sizing: border-box; background: #174f31; color: white; }
+.ocr-settings-screen header > button { width: 38px; height: 38px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; background: rgba(255,255,255,.12); color: white; font-size: 1.1rem; }
+.ocr-settings-screen h1 { margin: 0; font-size: 1.25rem; }.ocr-settings-screen header p { margin: 3px 0 0; color: rgba(255,255,255,.72); font-size: .74rem; }
+.ocr-settings-screen main { display: grid; place-items: start center; padding: 28px 16px; }
+.ocr-settings-screen section { width: min(720px, 100%); padding: 22px; box-sizing: border-box; border: 1px solid #d4ded7; border-radius: 14px; background: white; box-shadow: 0 8px 24px rgba(25,55,36,.08); }
+.ocr-settings-screen section h2 { margin: 0 0 5px; font-size: 1rem; }.ocr-settings-screen section > p { color: #69776e; font-size: .75rem; }
+.ocr-provider-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 18px 0; }
+.ocr-provider-grid button { display: grid; gap: 6px; padding: 13px 9px; border: 1px solid #d4dfd8; border-radius: 9px; background: #f8faf9; color: #26382d; text-align: left; }
+.ocr-provider-grid button.active { border-color: #1a6b3c; background: #e9f5ed; box-shadow: 0 0 0 1px #1a6b3c; }.ocr-provider-grid span { font-size: .58rem; font-weight: 800; }.ocr-provider-grid .ready { color: #17613a; }.ocr-provider-grid .missing { color: #9d342d; }
+.ocr-settings-screen label { display: grid; gap: 6px; color: #647168; font-size: .68rem; font-weight: 800; text-transform: uppercase; }.ocr-settings-screen select { height: 40px; padding: 0 10px; border: 1px solid #cfdad3; border-radius: 8px; background: white; color: #1f3026; font-weight: 700; }
+.ocr-settings-warning, .ocr-settings-screen .error, .ocr-settings-screen .success { margin: 12px 0 0; padding: 9px 11px; border-radius: 8px; font-size: .7rem; }.ocr-settings-warning { border: 1px solid #ead18a; background: #fff8e5; color: #745a18; }.ocr-settings-screen .error { background: #fff0ef; color: #94372f; }.ocr-settings-screen .success { background: #e9f6ee; color: #17613a; }
+.ocr-settings-screen .save { width: 100%; min-height: 42px; margin-top: 16px; border: 0; border-radius: 9px; background: #1a6b3c; color: white; font-weight: 800; }.ocr-settings-screen .save:disabled { opacity: .5; }
+@media (max-width: 620px) { .ocr-provider-grid { grid-template-columns: 1fr 1fr; }.ocr-settings-screen section { padding: 16px; } }

@@ -806,6 +806,7 @@ export function OcrReviewScreen() {
         <div><h1>{isRo ? 'Verificare OCR' : 'OCR Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Verificarea documentelor în back-office' : 'Back-office document verification'}</p></div>
         <div className="review-header-actions">
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR settings'}</button>
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
         </div>
       </header>

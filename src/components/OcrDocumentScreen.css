@@ -3,6 +3,9 @@
 .ocr-header h1 { margin: 0 0 3px; font-size: 1.35rem; }
 .ocr-header h1 small { display: inline-block; margin-left: 5px; color: rgba(255,255,255,.68); font-size: .58rem; font-weight: 700; vertical-align: middle; }
 .ocr-header p { margin: 0; color: rgba(255,255,255,.72); font-size: .8rem; }
+.ocr-header > div:nth-child(2) { flex: 1; min-width: 0; }
+.ocr-header-actions { display: flex; align-items: center; gap: 7px; }
+.ocr-header-actions > button { min-height: 34px; padding: 6px 9px; border: 1px solid rgba(255,255,255,.35); border-radius: 8px; background: rgba(255,255,255,.12); color: white; font-size: .67rem; font-weight: 800; }
 .ocr-back { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.25); border-radius: 50%; background: rgba(255,255,255,.12); color: white; }
 .ocr-back svg { width: 21px; }
 .ocr-body { width: min(100% - 32px, 720px); margin: 0 auto; padding: 24px 0 calc(env(safe-area-inset-bottom, 0px) + 32px); }

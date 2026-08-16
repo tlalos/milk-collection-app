@@ -18,6 +18,7 @@ import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
+import { getOcrSettings, initializeOcrSettingsStore, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
 import {
   clearReferenceCaches,
   enrichMissingRowValues,
@@ -120,11 +121,14 @@ app.post('/api/auth/logout', async (request, response, next) => {
   }
 })
 
-app.get('/api/ocr/health', (_request, response) => {
+app.get('/api/ocr/health', async (_request, response) => {
+  const settings = await getOcrSettings()
+  const provider = OCR_PROVIDERS[settings.provider]
   response.json({
     ok: true,
-    configured: Boolean(process.env.OPENAI_API_KEY),
-    model: process.env.OPENAI_OCR_MODEL || 'gpt-5.6-terra',
+    configured: Boolean(provider && process.env[provider.keyEnv]),
+    provider: settings.provider,
+    model: settings.model,
     version: appVersion,
   })
 })
@@ -140,11 +144,24 @@ app.use('/api/ocr', async (request, response, next) => {
   }
 })
 
+app.get('/api/ocr/settings', async (_request, response, next) => {
+  try { response.json({ settings: publicOcrSettings(await getOcrSettings()) }) } catch (error) { next(error) }
+})
+
+app.patch('/api/ocr/settings', async (request, response) => {
+  try {
+    const settings = await saveOcrSettings(String(request.body.provider || ''), String(request.body.model || ''))
+    response.json({ settings: publicOcrSettings(settings) })
+  } catch (error) {
+    response.status(400).json({ error: error instanceof Error ? error.message : 'Could not save OCR settings.' })
+  }
+})
+
 app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, response, next) => {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return response.status(503).json({ error: 'OCR is not configured. Set OPENAI_API_KEY on the server.' })
-    }
+    const settings = await getOcrSettings()
+    const provider = OCR_PROVIDERS[settings.provider]
+    if (!provider || !process.env[provider.keyEnv]) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
     if (!request.files?.length) {
       return response.status(400).json({ error: 'Add at least one document.' })
     }
@@ -417,9 +434,9 @@ app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next)
 
 app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return response.status(503).json({ error: 'OCR is not configured. Set OPENAI_API_KEY on the server.' })
-    }
+    const settings = await getOcrSettings()
+    const provider = OCR_PROVIDERS[settings.provider]
+    if (!provider || !process.env[provider.keyEnv]) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
 
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
@@ -455,9 +472,17 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
   }
 })
 
-app.use(express.static(path.join(rootDir, 'dist')))
+app.use(express.static(path.join(rootDir, 'dist'), {
+  setHeaders(response, filePath) {
+    const fileName = path.basename(filePath).toLowerCase()
+    if (fileName === 'index.html' || fileName === 'sw.js' || fileName === 'manifest.webmanifest') {
+      response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    }
+  },
+}))
 app.use((request, response, next) => {
   if (request.method === 'GET' && request.accepts('html')) {
+    response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     return response.sendFile(path.join(rootDir, 'dist', 'index.html'))
   }
   next()
@@ -470,6 +495,7 @@ app.use((error, _request, response, _next) => {
 
 await initializeAuthStore()
 await initializeJobStore()
+await initializeOcrSettingsStore()
 await resumePendingJobs()
 await resumeExcelExports()
 

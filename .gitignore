@@ -37,6 +37,8 @@ milk-collection-iis-*.zip
 # Runtime OCR uploads and job metadata
 data/ocr/
 data/auth/
+data/settings/
 
 # Local development/test artifacts
 work/
+.deploy-stage-*/
