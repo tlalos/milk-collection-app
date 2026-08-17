@@ -28,3 +28,25 @@ export const MilkCollectionDocumentSchema = z.object({
   warnings: z.array(z.string()),
   rawTranscription: z.string(),
 })
+
+export const MonthlySettlementRowSchema = z.object({
+  rowNumber: z.number().int().positive(),
+  producer: nullableText,
+  centerName: nullableText,
+  liters: nullableNumber,
+  ugPercent: nullableNumber,
+  gValue: nullableNumber,
+  confidence: z.number().min(0).max(1),
+  uncertainFields: z.array(z.string()),
+})
+
+export const MonthlySettlementDocumentSchema = z.object({
+  documentType: z.literal('journal_monthly_settlement'),
+  layoutType: z.enum(['detailed', 'overview']),
+  date: nullableText,
+  milkType: z.string(),
+  headerCenterName: nullableText,
+  rows: z.array(MonthlySettlementRowSchema),
+  warnings: z.array(z.string()),
+  rawTranscription: z.string(),
+})

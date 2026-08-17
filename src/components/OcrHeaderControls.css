@@ -1,0 +1,120 @@
+:root { --ocr-header-control-width: 124px; --ocr-header-control-height: 38px; }
+
+.ocr-header-actions,
+.review-header-actions,
+.monthly-review > header nav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-right: 140px;
+}
+
+.ocr-header-actions > button,
+.review-header-actions > button,
+.monthly-review > header nav > button,
+.ocr-auth-signout {
+  width: var(--ocr-header-control-width);
+  min-width: var(--ocr-header-control-width);
+  height: var(--ocr-header-control-height);
+  min-height: var(--ocr-header-control-height);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 9px;
+  background: rgba(255,255,255,.13);
+  color: white;
+  font-size: .68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ocr-header-actions .ocr-language-switch,
+.review-header-actions .ocr-language-switch,
+.monthly-review > header nav .ocr-language-switch {
+  width: var(--ocr-header-control-width);
+  min-width: var(--ocr-header-control-width);
+  height: var(--ocr-header-control-height);
+  box-sizing: border-box;
+  margin: 0;
+}
+
+.ocr-header-actions .ocr-language-switch button,
+.review-header-actions .ocr-language-switch button,
+.monthly-review > header nav .ocr-language-switch button { min-width: 0; height: 30px; flex: 1; }
+
+.ocr-auth-signout { top: 19px; right: 16px !important; z-index: 100; }
+
+@media (min-width: 761px) {
+  .ocr-auth-content:has(.ocr-screen) .ocr-header { position: relative; min-height: 76px; box-sizing: border-box; }
+  .ocr-auth-content:has(.ocr-screen) .ocr-header-actions {
+    position: absolute;
+    top: 19px;
+    right: 148px;
+    margin: 0;
+  }
+  .ocr-auth-content:has(.ocr-screen) .ocr-auth-signout { top: 19px; right: 16px !important; }
+}
+
+@media (max-width: 1250px) {
+  :root { --ocr-header-control-width: 108px; }
+  .ocr-header-actions, .review-header-actions, .monthly-review > header nav { gap: 5px; margin-right: 122px; }
+}
+
+@media (max-width: 760px) {
+  :root { --ocr-header-control-width: auto; --ocr-header-control-height: 36px; }
+
+  .ocr-header {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 10px;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px 12px;
+  }
+  .ocr-header > div:nth-child(2) { padding-right: 105px; }
+  .ocr-header h1, .review-header h1, .monthly-review > header h1 { overflow-wrap: normal; word-break: normal; }
+  .ocr-header p { max-width: 270px; line-height: 1.35; }
+
+  .review-header,
+  .monthly-review > header {
+    height: auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 13px 12px;
+  }
+  .review-header > div:first-child,
+  .monthly-review > header > div:first-child { min-width: 0; padding-right: 108px; }
+
+  .ocr-header-actions,
+  .review-header-actions,
+  .monthly-review > header nav {
+    width: 100%;
+    max-width: none;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin: 0;
+    overflow: visible;
+  }
+  .ocr-header-actions { grid-column: 1 / -1; }
+
+  .ocr-header-actions > button,
+  .review-header-actions > button,
+  .monthly-review > header nav > button,
+  .ocr-header-actions .ocr-language-switch,
+  .review-header-actions .ocr-language-switch,
+  .monthly-review > header nav .ocr-language-switch {
+    width: 100%;
+    min-width: 0;
+  }
+  .ocr-auth-signout { top: 14px; right: 12px !important; width: 100px; min-width: 100px; height: 36px; }
+
+  .review-screen { height: auto; min-height: 100vh; overflow: visible; }
+  .review-layout, .review-layout.queue-collapsed { min-height: 0; }
+}

@@ -14,6 +14,12 @@
 .ocr-upload-icon svg { width: 30px; height: 30px; }
 .ocr-upload-card h2, .ocr-queue h2 { margin: 0; font-size: 1.05rem; }
 .ocr-upload-card p { max-width: 480px; margin: 7px auto 20px; color: #69766e; font-size: .85rem; line-height: 1.45; }
+.ocr-document-type { max-width: 480px; display: grid; gap: 6px; margin: 0 auto 16px; text-align: left; }
+.ocr-document-type span { color: #47574d; font-size: .75rem; font-weight: 800; }
+.ocr-document-type select { width: 100%; height: 44px; padding: 0 12px; border: 1px solid #b8c9be; border-radius: 10px; background: #f9fcfa; color: #193624; font-weight: 750; }
+.ocr-document-type select:focus { outline: 3px solid rgba(26,107,60,.15); border-color: #1a6b3c; }
+.ocr-review-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.ocr-review-links button { min-height: 40px; border: 1px solid #a9c1b1; border-radius: 9px; background: white; color: #1a6b3c; font-weight: 800; }
 .ocr-hidden-input { display: none; }
 .ocr-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .ocr-action-button { min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; font: inherit; font-weight: 750; cursor: pointer; }

@@ -16,7 +16,7 @@ import {
 import { getSessionUser, initializeAuthStore, login, logout } from './authStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
-import { MilkCollectionDocumentSchema } from './ocrSchema.js'
+import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
 import {
@@ -25,6 +25,8 @@ import {
   listReferenceDrivers,
   listReferenceVehicles,
   matchCentersForRows,
+  listReferenceProducers,
+  matchMonthlyProducers,
   matchReferenceDriver,
   matchReferenceVehicle,
   resolveReferenceRoute,
@@ -35,7 +37,7 @@ const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
-const appVersion = process.env.APP_VERSION || '2026.08.13.1'
+const appVersion = process.env.APP_VERSION || '2026.08.17.1'
 
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
@@ -165,10 +167,14 @@ app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, respons
     if (!request.files?.length) {
       return response.status(400).json({ error: 'Add at least one document.' })
     }
+    const documentCategory = String(request.body?.documentCategory || '')
+    if (!['daily_routes', 'journal_monthly_settlement'].includes(documentCategory)) {
+      return response.status(400).json({ error: 'Select a valid document type.' })
+    }
 
     const jobs = []
     for (const file of request.files) {
-      const job = await createJob(file)
+      const job = await createJob(file, documentCategory)
       jobs.push(toPublicJob(job, false))
       enqueueOcrJob(job.id)
     }
@@ -184,6 +190,7 @@ app.get('/api/ocr/jobs', async (request, response, next) => {
     let jobs = await listJobs()
     if (request.query.reviewStatus) jobs = jobs.filter((job) => job.reviewStatus === request.query.reviewStatus)
     if (request.query.status) jobs = jobs.filter((job) => job.status === request.query.status)
+    if (request.query.documentCategory) jobs = jobs.filter((job) => (job.documentCategory || 'daily_routes') === request.query.documentCategory)
     response.json({ jobs: jobs.map((job) => toPublicJob(job, false)) })
   } catch (error) {
     next(error)
@@ -204,6 +211,40 @@ app.get('/api/ocr/vehicles', async (request, response, next) => {
     const vehicles = await listReferenceVehicles(request.query.q)
     response.json({ vehicles })
   } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/producers', async (request, response, next) => {
+  try {
+    const producers = await listReferenceProducers(request.query.q, request.query.kind === 'center' ? 'center' : 'producer')
+    response.json({ producers })
+  } catch (error) { next(error) }
+})
+
+app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) => {
+  try {
+    const current = await getJob(request.params.id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    if (current.documentCategory !== 'journal_monthly_settlement' || current.status !== 'completed' || !current.data) {
+      return response.status(409).json({ error: 'A completed Monthly Settlement document is required.' })
+    }
+    clearReferenceCaches()
+    const matches = await matchMonthlyProducers(current.data)
+    const data = {
+      ...current.data,
+      headerCenterName: matches.header.status === 'auto_replaced' ? matches.header.selectedName : current.data.headerCenterName,
+      rows: current.data.rows.map((row) => {
+        const match = matches.rows.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+        if (!match?.selectedName) return row
+        return current.data.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+      }),
+    }
+    const job = await updateJob(current.id, { data, producerMatches: matches.rows, headerCenterMatch: matches.header, producerMatchError: null })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) {
+    const current = await getJob(request.params.id)
+    if (current) await updateJob(current.id, { producerMatchError: error instanceof Error ? error.message : 'Ref_Producers lookup failed.' })
     next(error)
   }
 })
@@ -246,7 +287,8 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
 
-    const parsed = MilkCollectionDocumentSchema.safeParse(request.body.data)
+    const schema = current.documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+    const parsed = schema.safeParse(request.body.data)
     if (!parsed.success) {
       return response.status(400).json({
         error: 'Corrected document data is invalid.',
@@ -254,6 +296,28 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
       })
     }
 
+    if (current.documentCategory === 'journal_monthly_settlement') {
+      let data = parsed.data
+      let producerMatches = current.producerMatches || []
+      let headerCenterMatch = current.headerCenterMatch || null
+      let producerMatchError = null
+      try {
+        const matches = await matchMonthlyProducers(data)
+        producerMatches = matches.rows
+        headerCenterMatch = matches.header
+        data = {
+          ...data,
+          headerCenterName: headerCenterMatch.status === 'auto_replaced' ? headerCenterMatch.selectedName : data.headerCenterName,
+          rows: data.rows.map((row) => {
+            const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+            if (!match?.selectedName) return row
+            return data.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+          }),
+        }
+      } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
+      const job = await updateJob(current.id, { data, producerMatches, headerCenterMatch, producerMatchError })
+      return response.json({ job: toPublicJob(job, true) })
+    }
     const centerMatches = Array.isArray(request.body.centerMatches)
       ? request.body.centerMatches.map((match) => ({
         rowNumber: Number(match.rowNumber),

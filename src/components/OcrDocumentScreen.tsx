@@ -42,6 +42,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   const [notice, setNotice] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadedJobs, setUploadedJobs] = useState<UploadedJob[]>([])
+  const [documentCategory, setDocumentCategory] = useState('')
   const documentsRef = useRef<QueuedDocument[]>([])
   const documentInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
@@ -95,12 +96,17 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
 
   async function uploadDocuments() {
     if (!documents.length || isProcessing) return
+    if (!documentCategory) {
+      setNotice(isRo ? 'Selectarea tipului de document este obligatorie.' : 'Document type is required.')
+      return
+    }
 
     setIsProcessing(true)
     setNotice(isRo ? 'Documentele se încarcă în siguranță pe server…' : 'Uploading documents securely to the server…')
     setUploadedJobs([])
 
     const formData = new FormData()
+    formData.append('documentCategory', documentCategory)
     documents.forEach((document) => formData.append('documents', document.file, document.file.name))
 
     try {
@@ -143,7 +149,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
           <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>
           <p>{isRo ? 'Fotografiați sau selectați documente pentru extragerea datelor' : 'Capture or select documents to extract their data'}</p>
         </div>
-        <div className="ocr-header-actions"><button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=upload') }}>{isRo ? 'Setări' : 'Settings'}</button><OcrLanguageSwitch language={language} onChange={setLanguage} /></div>
+        <div className="ocr-header-actions"><OcrLanguageSwitch language={language} onChange={setLanguage} /></div>
       </header>
 
       <main className="ocr-body">
@@ -156,6 +162,15 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
           </div>
           <h2 id="ocr-add-title">{isRo ? 'Adăugați documente' : 'Add documents'}</h2>
           <p>{isRo ? 'Selectați imagini sau PDF-uri de pe dispozitiv ori fotografiați cu camera din spate a telefonului.' : "Select images or PDFs from this device, or take a photo using your phone's rear camera."}</p>
+
+          <label className="ocr-document-type">
+            <span>{isRo ? 'Tip document *' : 'Document type *'}</span>
+            <select value={documentCategory} onChange={(event) => setDocumentCategory(event.target.value)} required>
+              <option value="">{isRo ? 'Selectați tipul documentului…' : 'Select document type…'}</option>
+              <option value="daily_routes">{isRo ? 'RUTE ZILNICE' : 'DAILY ROUTES'}</option>
+              <option value="journal_monthly_settlement">{isRo ? 'JURNAL DECONT LUNAR' : 'JOURNAL MONTHLY SETTLEMENT'}</option>
+            </select>
+          </label>
 
           <input
             ref={documentInputRef}
@@ -224,7 +239,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
 
         {notice && <p className="ocr-notice" role="status">{notice}</p>}
 
-        <button className="ocr-process-button" type="button" disabled={documents.length === 0 || isProcessing} onClick={uploadDocuments}>
+        <button className="ocr-process-button" type="button" disabled={documents.length === 0 || !documentCategory || isProcessing} onClick={uploadDocuments}>
           {isProcessing ? (isRo ? 'Se încarcă documentele…' : 'Uploading documents…') : (isRo ? 'Încărcați documentele' : 'Upload documents')}
           <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6" /></svg>
         </button>
@@ -243,6 +258,10 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             </ul>
           </section>
         )}
+        <div className="ocr-review-links">
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/review') }}>{isRo ? 'Verificare rute zilnice' : 'Review Daily Routes'}</button>
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Verificare decont lunar' : 'Review Monthly Settlement'}</button>
+        </div>
       </main>
     </div>
   )

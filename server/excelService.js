@@ -9,6 +9,7 @@ let centerCache = { expiresAt: 0, centers: [] }
 let driverCache = { expiresAt: 0, drivers: [] }
 let vehicleCache = { expiresAt: 0, vehicles: [] }
 let vehicleRouteCache = { expiresAt: 0, routes: [] }
+let producerCache = { expiresAt: 0, producers: [] }
 const DRIVER_CACHE_MS = 30 * 60 * 1000
 let tokenRefreshPromise = null
 
@@ -17,6 +18,7 @@ export function clearReferenceCaches() {
   driverCache = { expiresAt: 0, drivers: [] }
   vehicleCache = { expiresAt: 0, vehicles: [] }
   vehicleRouteCache = { expiresAt: 0, routes: [] }
+  producerCache = { expiresAt: 0, producers: [] }
 }
 
 async function loadConfig() {
@@ -105,9 +107,7 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
     await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: mapped.Center_Name })
   }
 
-  if (startIndex + values.length > rowIdValues.length) {
-    throw new Error(`Excel table ${config.tableName} has no remaining preallocated rows.`)
-  }
+  await ensureTableCapacity(tablePath, token, rowIdValues.length, startIndex + values.length)
   const bodyStartRow = Number(rowIdRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
   if (!bodyStartRow) throw new Error('Could not determine the Daily_Routes table row address.')
   const excelStartRow = bodyStartRow + startIndex
@@ -121,6 +121,97 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
     method: 'PATCH', headers, body: JSON.stringify({ values }),
   })
   return { workbook: workbook.name, table: config.tableName, rowCount: values.length, range: targetAddress }
+}
+
+export async function appendMonthlySettlementToExcel(job, onProgress = async () => {}) {
+  if (!job.data?.rows?.length) throw new Error('The reviewed monthly settlement has no rows to export.')
+  if (!job.data.date) throw new Error('Cannot export: the monthly settlement date is missing.')
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const tableName = 'tblMonthlySettlement'
+  const tablePath = `${workbookPath}/tables/${encodeURIComponent(tableName)}`
+  const [columns, monthRange] = await Promise.all([
+    graphFetch(`${tablePath}/columns`, token),
+    graphFetch(`${tablePath}/columns/${encodeURIComponent('Month')}/dataBodyRange`, token),
+  ])
+  const columnNames = (columns.value || []).map((column) => column.name)
+  const monthValues = (monthRange.values || []).flat()
+  const lastUsedIndex = monthValues.reduce((last, value, index) => value !== null && value !== '' ? index : last, -1)
+  const startIndex = lastUsedIndex + 1
+  const monthSerial = toExcelSerial(job.data.date)
+  const milkCode = monthlyMilkCode(job.data.milkType)
+  const values = []
+  for (let index = 0; index < job.data.rows.length; index += 1) {
+    const row = job.data.rows[index]
+    const match = job.producerMatches?.find((item) => item.rowNumber === row.rowNumber)
+    const matchedRef = match?.suggestions?.find((item) => item.code === match.selectedCode) || null
+    const producerName = match?.selectedName || (job.data.layoutType === 'detailed' ? row.producer : row.centerName)
+    if (!producerName) throw new Error(`Cannot export monthly row ${row.rowNumber}: producer name is missing.`)
+    if (row.liters === null || row.liters === undefined) throw new Error(`Cannot export monthly row ${row.rowNumber}: liters are missing.`)
+    const centerName = job.headerCenterMatch?.selectedName || matchedRef?.centerName || job.data.headerCenterName || null
+    const centerCode = job.headerCenterMatch?.selectedCode || matchedRef?.centerCode || null
+    const mapped = {
+      Month: monthSerial,
+      Producer_Name: producerName,
+      Milk_Code: milkCode,
+      Qty_Month_L: row.liters,
+      Avg_Fat: job.data.layoutType === 'detailed' ? row.ugPercent : row.gValue,
+      Producer_Comments: `OCR ${job.data.layoutType}; source ${job.sourceFile}`,
+      jpg: job.sourceFile,
+      Column2: '',
+      'telikos elegxow ': '',
+      Producer_Code: match?.selectedCode || null,
+      Producer_TRN: matchedRef?.trn || null,
+      Center_Code: centerCode,
+      Center_Name: centerName,
+      'teliko kentro ': centerName,
+      Column3: producerName,
+    }
+    values.push(columnNames.slice(0, 15).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null))
+    await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: producerName })
+  }
+  await ensureTableCapacity(tablePath, token, monthValues.length, startIndex + values.length)
+  const bodyStartRow = Number(monthRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
+  if (!bodyStartRow) throw new Error('Could not determine the Monthly_Settlement table row address.')
+  const excelStartRow = bodyStartRow + startIndex
+  const excelEndRow = excelStartRow + values.length - 1
+  const targetAddress = `A${excelStartRow}:O${excelEndRow}`
+  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+  const worksheet = (worksheets.value || []).find((item) => normalizeValue(item.name) === 'MONTHLY SETTLEMENT')
+  if (!worksheet) throw new Error('Excel worksheet Monthly_Settlement was not found.')
+  await onProgress({ stage: 'sending', current: values.length, total: values.length, range: targetAddress })
+  await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/range(address='${targetAddress}')`, token, { method: 'PATCH', body: JSON.stringify({ values }) })
+  return { workbook: workbook.name, table: tableName, worksheet: worksheet.name, rowCount: values.length, range: targetAddress }
+}
+
+function monthlyMilkCode(value) {
+  const milk = normalizeValue(value)
+  if (milk.includes('BIVOL') || milk.includes('BUFF')) return 'MILK-BUFF'
+  if (milk.includes('OAIE') || milk.includes('SHEEP')) return 'MILK-SHEEP'
+  return 'MILK-COW'
+}
+
+async function ensureTableCapacity(tablePath, token, currentCapacity, requiredCapacity) {
+  if (requiredCapacity <= currentCapacity) return
+  const tableRange = await graphFetch(`${tablePath}/range`, token)
+  const normalizedAddress = String(tableRange.address || '').replace(/\$/gu, '')
+  const match = normalizedAddress.match(/(?:^|!)([A-Z]+)(\d+):([A-Z]+)(\d+)$/u)
+  if (!match) throw new Error('Could not determine the Excel table range for automatic expansion.')
+  const [, startColumn, , endColumn] = match
+  const missingRows = requiredCapacity - currentCapacity
+  const reserveRows = Math.max(missingRows, 50)
+  const columnCount = excelColumnNumber(endColumn) - excelColumnNumber(startColumn) + 1
+  const blankRows = Array.from({ length: reserveRows }, () => Array(columnCount).fill(null))
+  await graphFetch(`${tablePath}/rows/add`, token, {
+    method: 'POST',
+    body: JSON.stringify({ index: null, values: blankRows }),
+  })
+}
+
+function excelColumnNumber(column) {
+  return [...column].reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0)
 }
 
 export async function matchCentersForRows(rows) {
@@ -144,6 +235,43 @@ export async function matchCentersForRows(rows) {
       suggestions,
     }
   })
+}
+
+export async function listReferenceProducers(query = '', kind = 'producer') {
+  const producers = await loadReferenceProducers()
+  const search = String(query || '').trim()
+  const candidates = kind === 'center'
+    ? [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
+    : producers.map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn }))
+  if (!search) return candidates.slice(0, 50)
+  return candidates
+    .map((item) => ({ ...item, score: similarity(search, item.name) }))
+    .filter((item) => normalizeValue(item.name).includes(normalizeValue(search)) || item.score >= 0.32)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+    .slice(0, 20)
+    .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
+}
+
+export async function matchMonthlyProducers(data) {
+  const producers = await loadReferenceProducers()
+  const rows = data.rows.map((row) => {
+    const originalName = data.layoutType === 'detailed' ? row.producer : row.centerName
+    const suggestions = producers
+      .map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn, score: similarity(originalName, item.producerName) }))
+      .filter((item) => item.score >= 0.32)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5)
+      .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
+    const best = suggestions[0]
+    return { rowNumber: row.rowNumber, originalName: originalName || null, status: best?.score >= 0.6 ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched', selectedCode: best?.score >= 0.6 ? best.code : null, selectedName: best?.score >= 0.6 ? best.name : null, suggestions }
+  })
+  const centers = [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
+  const headerSuggestions = centers.map((item) => ({ ...item, score: similarity(data.headerCenterName, item.name) }))
+    .filter((item) => item.score >= 0.32).sort((left, right) => right.score - left.score).slice(0, 5)
+    .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
+  const headerBest = headerSuggestions[0]
+  const header = { originalName: data.headerCenterName || null, status: headerBest?.score >= 0.6 ? 'auto_replaced' : headerSuggestions.length ? 'suggested' : 'unmatched', selectedCode: headerBest?.score >= 0.6 ? headerBest.code : null, selectedName: headerBest?.score >= 0.6 ? headerBest.name : null, suggestions: headerSuggestions }
+  return { rows, header }
 }
 
 export async function listReferenceDrivers(query = '') {
@@ -338,6 +466,32 @@ async function loadReferenceCenters() {
     .filter((center) => center.code && center.name)
   centerCache = { expiresAt: Date.now() + 5 * 60 * 1000, centers }
   return centers
+}
+
+async function loadReferenceProducers() {
+  if (producerCache.expiresAt > Date.now()) return producerCache.producers
+  const config = await loadConfig()
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+  const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'ref_producers')
+  if (!worksheet) throw new Error('Excel worksheet Ref_Producers was not found.')
+  const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
+  const values = range.values || []
+  const headerRow = values.findIndex((row) => row.some((value) => normalizeValue(value) === 'PRODUCER NAME'))
+  if (headerRow < 0) throw new Error('Ref_Producers must contain a Producer_Name column.')
+  const headers = values[headerRow].map(normalizeValue)
+  const indexes = {
+    producerCode: headers.indexOf('PRODUCER CODE'), producerName: headers.indexOf('PRODUCER NAME'), trn: headers.indexOf('TRN'),
+    centerCode: headers.indexOf('CENTER CODE'), centerName: headers.indexOf('CENTER NAME'),
+  }
+  const producers = values.slice(headerRow + 1).map((row) => ({
+    producerCode: String(row[indexes.producerCode] ?? '').trim(), producerName: String(row[indexes.producerName] ?? '').trim(),
+    centerCode: String(row[indexes.centerCode] ?? '').trim(), centerName: String(row[indexes.centerName] ?? '').trim(), trn: String(row[indexes.trn] ?? '').trim(),
+  })).filter((item) => item.producerName)
+  producerCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, producers }
+  return producers
 }
 
 async function loadReferenceDrivers() {

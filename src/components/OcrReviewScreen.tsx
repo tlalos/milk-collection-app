@@ -316,7 +316,7 @@ export function OcrReviewScreen() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${queueView}`))
+      const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${queueView}&documentCategory=daily_routes`))
       const payload = await response.json() as { jobs?: OcrJob[]; error?: string }
       if (!response.ok) throw new Error(payload.error || 'Could not load OCR jobs.')
       const nextJobs = payload.jobs ?? []
@@ -803,11 +803,13 @@ export function OcrReviewScreen() {
   return (
     <div className="review-screen">
       <header className="review-header">
-        <div><h1>{isRo ? 'Verificare OCR' : 'OCR Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Verificarea documentelor în back-office' : 'Back-office document verification'}</p></div>
+        <div><h1>{isRo ? 'Verificare rute zilnice' : 'Daily Routes Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Verificarea documentelor de colectare zilnică' : 'Daily milk collection document verification'}</p></div>
         <div className="review-header-actions">
-          <OcrLanguageSwitch language={language} onChange={setLanguage} />
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/upload') }}>{isRo ? 'Încărcare' : 'Upload'}</button>
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Decont lunar' : 'Monthly Review'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR settings'}</button>
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
+          <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </div>
       </header>
 

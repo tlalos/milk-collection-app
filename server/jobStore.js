@@ -52,7 +52,7 @@ async function writeJob(job) {
   return job
 }
 
-export async function createJob(file) {
+export async function createJob(file, documentCategory = 'daily_routes') {
   const id = randomUUID()
   const extension = extensions.get(file.mimetype)
   if (!extension) throw new Error(`Unsupported file type: ${file.mimetype}`)
@@ -67,6 +67,7 @@ export async function createJob(file) {
     storedFilename,
     mimeType: file.mimetype,
     size: file.size,
+    documentCategory,
     status: 'queued',
     reviewStatus: 'pending',
     createdAt: now,
@@ -80,6 +81,9 @@ export async function createJob(file) {
     excelExport: { status: 'not_ready', error: null },
     centerMatches: [],
     centerMatchError: null,
+    producerMatches: [],
+    producerMatchError: null,
+    headerCenterMatch: null,
     driverMatch: null,
     driverMatchError: null,
     vehicleMatch: null,
@@ -143,6 +147,8 @@ export function toPublicJob(job, includeData = true) {
     summary: {
       date: job.data?.date ?? null,
       route: job.data?.route ?? null,
+      layoutType: job.data?.layoutType ?? null,
+      centerName: job.data?.headerCenterName ?? null,
       driverName: job.data?.driverName ?? null,
       vehicleRegistration: job.data?.vehicleRegistration ?? null,
     },

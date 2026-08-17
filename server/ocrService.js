@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
-import { MilkCollectionDocumentSchema } from './ocrSchema.js'
+import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { calculateOpenAiCost } from './openaiCost.js'
 import { getOcrSettings, OCR_PROVIDERS } from './ocrSettingsStore.js'
 
@@ -17,6 +17,21 @@ Rules:
 - totalLiters must be the handwritten total when clearly visible. Do not calculate it as a substitute. Mention disagreement with the row sum in warnings.
 - rawTranscription should contain a concise line-by-line transcription of all populated handwritten fields.
 - Signatures are not data fields and must not be identified.`
+
+const MONTHLY_SETTLEMENT_PROMPT = `Extract this Romanian milk collection JOURNAL MONTHLY SETTLEMENT document.
+
+First identify the layout:
+- detailed: a wide handwritten daily grid with producer names in the first column, day columns, and final TOTAL / U.G. columns.
+- overview: a printed summary grid with center/producer name, liters, G. and U.G. columns.
+
+Rules:
+- Preserve Romanian names as written and return dates as YYYY-MM-DD when they can be determined.
+- Detect the milk type from the header (for example VACA). If no milk type is visible, return VACA.
+- For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer, the LAST total column, and the U.G. percentage/value beside that final total. Do not extract intermediate daily cells.
+- For overview documents, extract each populated center name, liters, and G. value. Put G. in gValue.
+- Exclude TOTAL rows and exclude any data row whose relevant name (producer for detailed, centerName for overview) is empty.
+- Romanian decimal commas become JSON decimal points. Never invent illegible values; use null and record uncertainty.
+- rawTranscription is concise and warnings describe material ambiguity.`
 
 function contentForFile(file) {
   const encoded = file.buffer.toString('base64')
@@ -36,9 +51,28 @@ function contentForFile(file) {
   }
 }
 
-export async function extractMilkCollectionDocument(file) {
+function normalizeMonthlyData(data) {
+  if (data.documentType !== 'journal_monthly_settlement') return data
+  const missingDate = !data.date
+  return {
+    ...data,
+    date: data.date || new Date().toISOString().slice(0, 10),
+    milkType: data.milkType?.trim() || 'VACA',
+    rows: data.rows.filter((row) => data.layoutType === 'detailed'
+      ? Boolean(row.producer?.trim())
+      : Boolean(row.centerName?.trim())),
+    warnings: missingDate
+      ? [...data.warnings, 'Document date was not found; the current server date was applied.']
+      : data.warnings,
+  }
+}
+
+export async function extractMilkCollectionDocument(file, documentCategory = 'daily_routes') {
   const settings = await getOcrSettings()
-  if (settings.provider !== 'openai') return extractWithCompatibleProvider(file, settings)
+  if (settings.provider !== 'openai') return extractWithCompatibleProvider(file, settings, documentCategory)
+  const isMonthly = documentCategory === 'journal_monthly_settlement'
+  const schema = isMonthly ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const prompt = isMonthly ? MONTHLY_SETTLEMENT_PROMPT : EXTRACTION_PROMPT
   const model = settings.model
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const response = await client.responses.parse({
@@ -48,12 +82,12 @@ export async function extractMilkCollectionDocument(file) {
     input: [{
       role: 'user',
       content: [
-        { type: 'input_text', text: EXTRACTION_PROMPT },
+        { type: 'input_text', text: prompt },
         contentForFile(file),
       ],
     }],
     text: {
-      format: zodTextFormat(MilkCollectionDocumentSchema, 'milk_collection_document'),
+      format: zodTextFormat(schema, isMonthly ? 'monthly_settlement_document' : 'milk_collection_document'),
     },
   })
 
@@ -63,7 +97,7 @@ export async function extractMilkCollectionDocument(file) {
 
   const accounting = calculateOpenAiCost(model, response.usage)
   return {
-    data: MilkCollectionDocumentSchema.parse(response.output_parsed),
+    data: normalizeMonthlyData(schema.parse(response.output_parsed)),
     openai: {
       responseId: response.id,
       model,
@@ -78,11 +112,14 @@ const providerEndpoints = {
   mistral: 'https://api.mistral.ai/v1/chat/completions',
 }
 
-function jsonPrompt() {
+function jsonPrompt(documentCategory) {
+  if (documentCategory === 'journal_monthly_settlement') {
+    return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"milkType":string,"headerCenterName":string|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
+  }
   return `${EXTRACTION_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"daily_driver_statement","companyName":string|null,"date":string|null,"driverName":string|null,"vehicleRegistration":string|null,"route":string|null,"rows":[{"rowNumber":number,"collectionCenter":string|null,"liters":number|null,"fatPercent":number|null,"density":number|null,"water":number|null,"temperature":number|null,"noticeNumber":string|null,"confidence":number,"uncertainFields":string[]}],"totalLiters":number|null,"warnings":string[],"rawTranscription":string}`
 }
 
-async function extractWithCompatibleProvider(file, settings) {
+async function extractWithCompatibleProvider(file, settings, documentCategory) {
   const provider = OCR_PROVIDERS[settings.provider]
   const apiKey = provider && process.env[provider.keyEnv]
   if (!provider || !apiKey) throw new Error(`${provider?.label || settings.provider} OCR is not configured on the server.`)
@@ -98,7 +135,7 @@ async function extractWithCompatibleProvider(file, settings) {
       model: settings.model,
       temperature: 0,
       response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: [{ type: 'text', text: jsonPrompt() }, { type: 'image_url', image_url: imageUrl }] }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: jsonPrompt(documentCategory) }, { type: 'image_url', image_url: imageUrl }] }],
     }),
   })
   const payload = await apiResponse.json().catch(() => ({}))
@@ -106,7 +143,10 @@ async function extractWithCompatibleProvider(file, settings) {
   const text = payload.choices?.[0]?.message?.content
   if (!text) throw new Error(`${provider.label} did not return OCR data.`)
   const cleaned = String(text).replace(/^```(?:json)?\s*|\s*```$/gu, '').trim()
-  const data = MilkCollectionDocumentSchema.parse(JSON.parse(cleaned))
+  const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const rawData = JSON.parse(cleaned)
+  if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'VACA'
+  const data = normalizeMonthlyData(schema.parse(rawData))
   const usage = payload.usage ? {
     inputTokens: payload.usage.prompt_tokens || 0,
     cachedInputTokens: payload.usage.prompt_tokens_details?.cached_tokens || 0,

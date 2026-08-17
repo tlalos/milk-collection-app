@@ -1,4 +1,4 @@
-import { appendReviewedDocumentToExcel } from './excelService.js'
+import { appendMonthlySettlementToExcel, appendReviewedDocumentToExcel } from './excelService.js'
 import { getJob, listJobs, updateJob } from './jobStore.js'
 
 const pendingIds = []
@@ -24,7 +24,8 @@ async function processNext() {
     const startedAt = new Date().toISOString()
     let rowLog = []
     await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress: { stage: 'connecting', current: 0, total: job.data?.rows?.length || 0 }, rowLog } })
-    const result = await appendReviewedDocumentToExcel(job, async (progress) => {
+    const exportDocument = job.documentCategory === 'journal_monthly_settlement' ? appendMonthlySettlementToExcel : appendReviewedDocumentToExcel
+    const result = await exportDocument(job, async (progress) => {
       if (progress.stage === 'preparing') rowLog = [...rowLog, { rowNumber: progress.rowNumber, center: progress.center, status: 'ready' }]
       await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress, rowLog } })
     })

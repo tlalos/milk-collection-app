@@ -1,0 +1,24 @@
+.monthly-system-match {
+  display: block;
+  width: fit-content;
+  margin-top: 3px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #dceeff;
+  color: #285888 !important;
+  font-size: .55rem !important;
+  font-weight: 800;
+  text-transform: none;
+}
+.monthly-result-count { display: block; margin-top: 2px; color: #6c7b72 !important; font-size: .53rem !important; }
+.monthly-match-error { margin: 0 12px 8px; padding: 7px 9px; border-radius: 7px; background: #fce9e7; color: #9d342d; font-size: .65rem; }
+.monthly-reference-cell { vertical-align: top; }
+.monthly-bottom-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 12px 12px; }
+.monthly-bottom-actions button { min-height: 40px; border: 1px solid #a9c7b5; border-radius: 9px; background: #f4f8f5; color: #17613a; font-size: .72rem; font-weight: 850; }
+.monthly-bottom-actions button:hover { background: #e7f3eb; }
+.monthly-bottom-actions button:disabled { opacity: .55; }
+.monthly-excel-status { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #eef1ef; color: #526158 !important; font-size: .6rem !important; font-weight: 850; text-transform: none !important; }
+.monthly-excel-status.status-exported { background: #dceeff; color: #17608b !important; }
+.monthly-excel-status.status-failed { background: #fce9e7; color: #9d342d !important; }
+.monthly-excel-status.status-queued, .monthly-excel-status.status-exporting { background: #fff0b5; color: #725600 !important; }
+.monthly-data-title button.retry { border-color: #c85d54; background: #fff2f1; color: #9d342d; }

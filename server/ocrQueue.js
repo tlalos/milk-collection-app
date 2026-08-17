@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { extractMilkCollectionDocument } from './ocrService.js'
 import { getJob, getStoredFilePath, listJobs, updateJob } from './jobStore.js'
-import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matchReferenceDriver, matchReferenceVehicle, resolveReferenceRoute } from './excelService.js'
+import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matchMonthlyProducers, matchReferenceDriver, matchReferenceVehicle, resolveReferenceRoute } from './excelService.js'
 import { rebuildVerificationWarnings } from './verification.js'
 
 const pendingIds = []
@@ -32,7 +32,33 @@ async function processNext() {
       buffer,
       mimetype: job.mimeType,
       originalname: job.sourceFile,
-    })
+    }, job.documentCategory || 'daily_routes')
+    if (job.documentCategory === 'journal_monthly_settlement') {
+      clearReferenceCaches()
+      let data = extraction.data
+      let producerMatches = []
+      let headerCenterMatch = null
+      let producerMatchError = null
+      try {
+        const matches = await matchMonthlyProducers(data)
+        producerMatches = matches.rows
+        headerCenterMatch = matches.header
+        data = {
+          ...data,
+          headerCenterName: headerCenterMatch.status === 'auto_replaced' ? headerCenterMatch.selectedName : data.headerCenterName,
+          rows: data.rows.map((row) => {
+            const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+            if (!match?.selectedName) return row
+            return data.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+          }),
+        }
+      } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
+      await updateJob(id, {
+        status: 'completed', data, ocrOriginalData: extraction.data, producerMatches, headerCenterMatch, producerMatchError,
+        openai: extraction.openai, completedAt: new Date().toISOString(), error: null,
+      })
+      return
+    }
     // Every invoice must use the latest workbook reference values.
     clearReferenceCaches()
     let centerMatches = []

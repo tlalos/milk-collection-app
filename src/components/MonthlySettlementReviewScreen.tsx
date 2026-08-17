@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useState } from 'react'
+import { appPath } from '../ocrPaths'
+import { APP_VERSION } from '../appVersion'
+import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
+import './MonthlySettlementReviewScreen.css'
+import './MonthlySettlementReference.css'
+
+interface MonthlyRow { rowNumber: number; producer: string | null; centerName: string | null; liters: number | null; ugPercent: number | null; gValue: number | null; confidence: number; uncertainFields: string[] }
+interface MonthlyData { documentType: 'journal_monthly_settlement'; layoutType: 'detailed' | 'overview'; date: string | null; milkType: string; headerCenterName: string | null; rows: MonthlyRow[]; warnings: string[]; rawTranscription: string }
+interface ProducerSuggestion { code: string; name: string; centerCode?: string; centerName?: string; score?: number }
+interface ProducerMatch { rowNumber: number; originalName: string | null; status: string; selectedName: string | null; suggestions: ProducerSuggestion[] }
+interface MonthlyJob { id: string; sourceFile: string; mimeType: string; status: 'queued'|'processing'|'completed'|'failed'; reviewStatus: 'pending'|'reviewed'; createdAt: string; error?: string | null; fileUrl: string; data?: MonthlyData; summary?: { layoutType?: 'detailed'|'overview'|null; centerName?: string|null }; producerMatches?: ProducerMatch[]; headerCenterMatch?: Omit<ProducerMatch,'rowNumber'>; producerMatchError?: string | null; excelExport?: { status: string; error?: string|null; progress?: { current?: number; total?: number } } }
+
+function displayDate(value: string | null) {
+  if (!value) return ''
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
+}
+
+function storeDate(value: string) {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : value || null
+}
+
+function todayIso() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+export function MonthlySettlementReviewScreen() {
+  const { language, setLanguage, isRo } = useOcrLanguage()
+  const [view, setView] = useState<'pending'|'reviewed'>('pending')
+  const [jobs, setJobs] = useState<MonthlyJob[]>([])
+  const [selected, setSelected] = useState<MonthlyJob | null>(null)
+  const [draft, setDraft] = useState<MonthlyData | null>(null)
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [suggestions, setSuggestions] = useState<Record<string, ProducerSuggestion[]>>({})
+
+  const loadJobs = useCallback(async () => {
+    const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${view}&documentCategory=journal_monthly_settlement`))
+    const payload = await response.json() as { jobs?: MonthlyJob[]; error?: string }
+    if (!response.ok) throw new Error(payload.error || 'Could not load documents.')
+    setJobs(payload.jobs || [])
+  }, [view])
+
+  useEffect(() => { void loadJobs().catch((error) => setNotice(error.message)) }, [loadJobs])
+  useEffect(() => {
+    const timer = window.setInterval(() => void loadJobs().catch(() => undefined), 5000)
+    return () => window.clearInterval(timer)
+  }, [loadJobs])
+
+  async function openJob(job: MonthlyJob) {
+    setSelected(job); setDraft(null); setNotice('')
+    if (job.status !== 'completed') return
+    const response = await fetch(appPath(`/api/ocr/jobs/${job.id}`))
+    const payload = await response.json() as { job?: MonthlyJob; error?: string }
+    if (!response.ok || !payload.job?.data) return setNotice(payload.error || 'Could not load OCR data.')
+    const data = structuredClone(payload.job.data)
+    if (!data.date) data.date = todayIso()
+    setSelected(payload.job); setDraft(data)
+  }
+
+  function updateRow(index: number, field: keyof MonthlyRow, value: string) {
+    if (!draft) return
+    const numeric = ['liters', 'ugPercent', 'gValue'].includes(field)
+    const rows = draft.rows.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: numeric ? (value === '' ? null : Number(value)) : value } : row)
+    setDraft({ ...draft, rows })
+  }
+
+  async function searchProducers(key: string, value: string, kind: 'producer'|'center' = 'producer') {
+    if (value.trim().length < 2) return setSuggestions((current) => ({ ...current, [key]: [] }))
+    try {
+      const response = await fetch(appPath(`/api/ocr/producers?q=${encodeURIComponent(value)}&kind=${kind}`))
+      const payload = await response.json() as { producers?: ProducerSuggestion[] }
+      setSuggestions((current) => ({ ...current, [key]: payload.producers || [] }))
+    } catch { setSuggestions((current) => ({ ...current, [key]: [] })) }
+  }
+
+  function referenceNameCell(row: MonthlyRow, index: number, field: 'producer'|'centerName') {
+    const key = `row-${row.rowNumber}`
+    const match = selected?.producerMatches?.find((item) => item.rowNumber === row.rowNumber)
+    const value = row[field] || ''
+    const options = suggestions[key] || match?.suggestions || []
+    return <td className="monthly-reference-cell">
+      <input list={`${key}-options`} value={value} onChange={(event) => { updateRow(index, field, event.target.value); void searchProducers(key, event.target.value) }}/>
+      <datalist id={`${key}-options`}>{options.map((item) => <option key={`${item.code}-${item.name}`} value={item.name}>{Math.round((item.score || 0) * 100)}% · {item.code} · {item.centerName || ''}</option>)}</datalist>
+      {match?.status === 'auto_replaced' && value === match.selectedName && <small className="monthly-system-match">{isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers'}</small>}
+      {value.length >= 2 && suggestions[key] && <small className="monthly-result-count">{options.length} {isRo ? 'rezultate' : 'results'}</small>}
+    </td>
+  }
+
+  async function redoOcr() {
+    if (!selected || busy || !window.confirm(isRo ? 'Rulați din nou OCR pentru acest document?' : 'Run OCR again for this document?')) return
+    setBusy(true); setNotice(isRo ? 'Documentul este adăugat din nou în coada OCR…' : 'Re-queuing document for OCR…')
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/reprocess`), { method: 'POST' })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not redo OCR.')
+      setSelected(null); setDraft(null); setView('pending'); await loadJobs()
+      setNotice(isRo ? 'OCR a fost repornit în fundal.' : 'OCR was restarted in the background.')
+    } catch (error) { setNotice((error as Error).message) } finally { setBusy(false) }
+  }
+
+  async function redoExcelMatching() {
+    if (!selected || !draft || busy) return
+    setBusy(true); setNotice(isRo ? 'Se actualizează Ref_Producers și potrivirile…' : 'Refreshing Ref_Producers and matches…')
+    try {
+      const saveResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: draft }) })
+      if (!saveResponse.ok) throw new Error(((await saveResponse.json()) as { error?: string }).error || 'Could not save changes.')
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/producers/rematch`), { method: 'POST' })
+      const payload = await response.json() as { job?: MonthlyJob; error?: string }
+      if (!response.ok || !payload.job?.data) throw new Error(payload.error || 'Could not redo Excel matching.')
+      setSelected(payload.job); setDraft(structuredClone(payload.job.data))
+      setNotice(isRo ? 'Potrivirile din Ref_Producers au fost actualizate.' : 'Ref_Producers matching was refreshed.')
+    } catch (error) { setNotice((error as Error).message) } finally { setBusy(false) }
+  }
+
+  async function retryExcelExport() {
+    if (!selected || busy) return
+    setBusy(true); setNotice(isRo ? 'Retrimitere în Monthly_Settlement…' : 'Retrying Monthly_Settlement export…')
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/excel/retry`), { method: 'POST' })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not retry Excel export.')
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000))
+        const statusResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}`))
+        const statusPayload = await statusResponse.json() as { job?: MonthlyJob }
+        const job = statusPayload.job
+        if (job?.excelExport?.status === 'exporting') setNotice(isRo ? `Se retrimit rândurile în Excel (${job.excelExport.progress?.current || 0}/${job.excelExport.progress?.total || draft?.rows.length || 0})…` : `Resending rows to Excel (${job.excelExport.progress?.current || 0}/${job.excelExport.progress?.total || draft?.rows.length || 0})…`)
+        if (job?.excelExport?.status === 'exported') { setSelected(job); await loadJobs(); setNotice(isRo ? 'Exportul în Monthly_Settlement a reușit.' : 'Monthly_Settlement export succeeded.'); return }
+        if (job?.excelExport?.status === 'failed') throw new Error(job.excelExport.error || 'Monthly_Settlement export failed.')
+      }
+      throw new Error(isRo ? 'Exportul durează prea mult; verificați din nou starea.' : 'Export is taking too long; check its status again.')
+    } catch (error) { setNotice((error as Error).message) } finally { setBusy(false) }
+  }
+
+  async function save(markReviewed = false) {
+    if (!selected || !draft || busy) return
+    setBusy(true); setNotice(isRo ? 'Se salvează…' : 'Saving…')
+    try {
+      const saveResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: draft }) })
+      const savePayload = await saveResponse.json() as { job?: MonthlyJob; error?: string }
+      if (!saveResponse.ok) throw new Error(savePayload.error || 'Could not save changes.')
+      if (markReviewed) {
+        const reviewResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}/review`), { method: 'PATCH' })
+        const reviewPayload = await reviewResponse.json() as { job?: MonthlyJob; error?: string }
+        if (!reviewResponse.ok) throw new Error(reviewPayload.error || 'Could not mark as reviewed.')
+        setNotice(isRo ? 'Trimitere în Monthly_Settlement…' : 'Sending rows to Monthly_Settlement…')
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1000))
+          const statusResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}`))
+          const statusPayload = await statusResponse.json() as { job?: MonthlyJob }
+          const exportStatus = statusPayload.job?.excelExport?.status
+          const progress = statusPayload.job?.excelExport?.progress
+          if (exportStatus === 'exporting') setNotice(isRo ? `Se trimit rândurile în Excel (${progress?.current || 0}/${progress?.total || draft.rows.length})…` : `Sending rows to Excel (${progress?.current || 0}/${progress?.total || draft.rows.length})…`)
+          if (exportStatus === 'exported') { setSelected(null); setDraft(null); await loadJobs(); setNotice(isRo ? `${draft.rows.length} rânduri au fost trimise cu succes în Monthly_Settlement.` : `${draft.rows.length} rows were successfully sent to Monthly_Settlement.`); break }
+          if (exportStatus === 'failed') throw new Error(statusPayload.job?.excelExport?.error || 'Monthly_Settlement export failed.')
+        }
+      } else {
+        setNotice(isRo ? 'Modificările au fost salvate pe server.' : 'Changes saved on the server.')
+      }
+    } catch (error) { setNotice((error as Error).message) } finally { setBusy(false) }
+  }
+
+  return <div className="monthly-review">
+    <header><div><h1>{isRo ? 'Verificare decont lunar' : 'Monthly Settlement Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Jurnale detaliate și centralizatoare' : 'Detailed journals and overview statements'}</p></div><nav><button onClick={() => { window.location.href = appPath('/ocr/upload') }}>{isRo ? 'Încărcare' : 'Upload'}</button><button onClick={() => { window.location.href = appPath('/ocr/review') }}>{isRo ? 'Rute zilnice' : 'Daily Routes'}</button><button onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR Settings'}</button><OcrLanguageSwitch language={language} onChange={setLanguage}/></nav></header>
+    {notice && <div className="monthly-notice">{notice}<button onClick={() => setNotice('')}>×</button></div>}
+    <main>
+      <aside><div className="monthly-tabs"><button className={view === 'pending' ? 'active' : ''} onClick={() => { setView('pending'); setSelected(null); setDraft(null) }}>{isRo ? 'În așteptare' : 'Pending'}</button><button className={view === 'reviewed' ? 'active' : ''} onClick={() => { setView('reviewed'); setSelected(null); setDraft(null) }}>{isRo ? 'Verificate' : 'Reviewed'}</button></div><h2>{isRo ? 'Documente' : 'Documents'} <b>{jobs.length}</b></h2><div className="monthly-list">{jobs.map((job) => <button className={selected?.id === job.id ? 'active' : ''} key={job.id} onClick={() => void openJob(job)}><strong>{job.summary?.centerName || job.sourceFile}</strong><span>{job.status === 'completed' ? (job.summary?.layoutType === 'detailed' ? (isRo ? 'Jurnal detaliat' : 'Detailed journal') : job.summary?.layoutType === 'overview' ? (isRo ? 'Centralizator' : 'Overview') : (isRo ? 'OCR finalizat' : 'OCR complete')) : job.status}</span>{job.reviewStatus === 'reviewed' && <span className={`monthly-excel-status status-${job.excelExport?.status || 'not_ready'}`}>{job.excelExport?.status === 'exported' ? (isRo ? 'Excel: Exportat' : 'Excel: Exported') : job.excelExport?.status === 'failed' ? (isRo ? 'Excel: Eroare' : 'Excel: Failed') : ['queued','exporting'].includes(job.excelExport?.status || '') ? (isRo ? 'Excel: Se trimite' : 'Excel: Sending') : (isRo ? 'Excel: Netrimis' : 'Excel: Not sent')}</span>}<small>{new Date(job.createdAt).toLocaleString()}</small>{job.status === 'failed' && <em>{job.error}</em>}</button>)}</div></aside>
+      <section className="monthly-workspace">
+        {!selected ? <div className="monthly-empty">{isRo ? 'Selectați un document pentru verificare.' : 'Select a document to review.'}</div> : <>
+          <article className="monthly-source"><h2>{isRo ? 'Document sursă' : 'Source document'}</h2>{selected.mimeType === 'application/pdf' ? <iframe src={selected.fileUrl}/> : <div><img src={selected.fileUrl} alt={selected.sourceFile}/></div>}</article>
+          <article className="monthly-data"><div className="monthly-data-title"><div><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><span>{draft?.layoutType === 'detailed' ? (isRo ? 'Jurnal detaliat' : 'Detailed journal') : (isRo ? 'Centralizator' : 'Overview')}</span></div>{draft && <div>{selected.excelExport?.status === 'failed' && <button className="retry" onClick={() => void retryExcelExport()} disabled={busy}>{isRo ? 'Retrimiteți în Excel' : 'Send to Excel again'}</button>}<button onClick={() => void save(false)} disabled={busy}>{isRo ? 'Salvați' : 'Save changes'}</button><button className="primary" onClick={() => void save(true)} disabled={busy}>{isRo ? 'Salvați, verificați și trimiteți în Excel' : 'Save, mark reviewed and send to Excel'}</button></div>}</div>
+            {!draft ? <div className="monthly-empty">{selected.status === 'failed' ? selected.error : (isRo ? 'OCR este în curs…' : 'OCR is processing…')}</div> : <div className="monthly-form">
+              <div className="monthly-fields"><label>{isRo ? 'Data' : 'Date'}<input value={displayDate(draft.date)} onChange={(e) => setDraft({...draft, date:storeDate(e.target.value)})} placeholder="dd/MM/yyyy"/></label><label>{isRo ? 'Tip lapte' : 'Milk type'}<input value={draft.milkType} onChange={(e) => setDraft({...draft, milkType:e.target.value})}/></label><label>{isRo ? 'Centru antet' : 'Header center'}<input list="monthly-header-centers" value={draft.headerCenterName || ''} onChange={(e) => { setDraft({...draft, headerCenterName:e.target.value}); void searchProducers('header',e.target.value,'center') }}/><datalist id="monthly-header-centers">{(suggestions.header || selected.headerCenterMatch?.suggestions || []).map((item)=><option key={`${item.code}-${item.name}`} value={item.name}>{Math.round((item.score||0)*100)}% · {item.code}</option>)}</datalist>{selected.headerCenterMatch?.status === 'auto_replaced' && draft.headerCenterName === selected.headerCenterMatch.selectedName && <small className="monthly-system-match">{isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers'}</small>}</label></div>
+              {draft.warnings.length > 0 && <div className="monthly-warnings"><strong>{isRo ? 'De verificat' : 'Items to verify'}</strong><ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
+              {selected.producerMatchError && <div className="monthly-match-error">{selected.producerMatchError}</div>}
+              <div className="monthly-table"><table><thead><tr><th>#</th>{draft.layoutType === 'detailed' ? <><th>{isRo ? 'Producător' : 'Producer'}</th><th>{isRo ? 'Ultimul total' : 'Last total'}</th><th>U.G. %</th></> : <><th>{isRo ? 'Centru / producător' : 'Center / producer'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>G</th></>}</tr></thead><tbody>{draft.rows.map((row,index) => <tr key={`${row.rowNumber}-${index}`}><td>{row.rowNumber}<small>{Math.round(row.confidence*100)}%</small></td>{draft.layoutType === 'detailed' ? <>{referenceNameCell(row,index,'producer')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.ugPercent ?? ''} onChange={(e)=>updateRow(index,'ugPercent',e.target.value)}/></td></> : <>{referenceNameCell(row,index,'centerName')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.gValue ?? ''} onChange={(e)=>updateRow(index,'gValue',e.target.value)}/></td></>}</tr>)}</tbody></table></div>
+              <div className="monthly-bottom-actions"><button type="button" onClick={() => void redoOcr()} disabled={busy}>{isRo ? 'Refaceți OCR' : 'Redo OCR'}</button><button type="button" onClick={() => void redoExcelMatching()} disabled={busy}>{isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching'}</button></div>
+            </div>}
+          </article>
+        </>}
+      </section>
+    </main>
+  </div>
+}

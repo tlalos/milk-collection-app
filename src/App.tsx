@@ -8,6 +8,7 @@ import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScree
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
 import { OcrSettingsScreen } from './components/OcrSettingsScreen'
+import { MonthlySettlementReviewScreen } from './components/MonthlySettlementReviewScreen'
 import { OcrAuthGate } from './components/OcrAuthGate'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
@@ -24,6 +25,7 @@ import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
 import './App.css'
+import './components/OcrHeaderControls.css'
 import { appPath, routePathname } from './ocrPaths'
 
 type Screen =
@@ -41,11 +43,13 @@ type Screen =
   | 'ocrDocuments'
   | 'ocrReview'
   | 'ocrSettings'
+  | 'monthlySettlementReview'
 
 function initialScreen(): Screen {
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
+  if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   return 'startup'
 }
 
@@ -220,6 +224,10 @@ export function App() {
 
       {screen === 'ocrSettings' && (
         <OcrAuthGate><OcrSettingsScreen /></OcrAuthGate>
+      )}
+
+      {screen === 'monthlySettlementReview' && (
+        <OcrAuthGate><MonthlySettlementReviewScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (
