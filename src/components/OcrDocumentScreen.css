@@ -26,6 +26,8 @@
 .ocr-action-button svg { width: 19px; height: 19px; }
 .ocr-action-button.secondary { border: 1px solid #b9c9bf; background: #f7faf8; color: #28533b; }
 .ocr-action-button.primary { border: 1px solid #1a6b3c; background: #1a6b3c; color: white; }
+.ocr-action-button:disabled { cursor: not-allowed; opacity: .48; box-shadow: none; }
+.ocr-action-button.primary:disabled { border-color: #aebbb3; background: #b9c4bd; }
 .ocr-queue { margin-top: 24px; }
 .ocr-queue-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 10px; }
 .ocr-queue-heading span { display: block; margin-top: 3px; color: #748078; font-size: .78rem; }

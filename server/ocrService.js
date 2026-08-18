@@ -27,9 +27,12 @@ First identify the layout:
 Rules:
 - Preserve Romanian names as written and return dates as YYYY-MM-DD when they can be determined.
 - Detect the milk type from the header (for example VACA). If no milk type is visible, return VACA.
-- For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer, the LAST total column, and the U.G. percentage/value beside that final total. Do not extract intermediate daily cells.
+- For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer name, the nearer TOTAL L column if visible, the final far-right TOTAL L column if visible, and the U.G. percentage/value beside that final total. Do not extract intermediate daily cells.
+- For detailed documents, keep a row if either the producer name, final total, or U.G. value is visible. If the producer name is hard to read, return the best partial transcription or null, include producer in uncertainFields, and still return the row so a human can review it.
+- The printed detailed layout can contain two right-side TOTAL / UG groups. Put the final far-right TOTAL L value into liters when it is visible. If only the nearer TOTAL L beside the day columns is legible, put that value into liters and warn that the far-right total was not confirmed.
+- For detailed documents, do not return an empty rows array when populated handwritten rows are visible. Return every visible producer row even when U.G. is blank or null.
 - For overview documents, extract each populated center name, liters, and G. value. Put G. in gValue.
-- Exclude TOTAL rows and exclude any data row whose relevant name (producer for detailed, centerName for overview) is empty.
+- Exclude TOTAL summary rows. For overview documents, exclude rows whose center/producer name and numeric values are all empty.
 - Romanian decimal commas become JSON decimal points. Never invent illegible values; use null and record uncertainty.
 - rawTranscription is concise and warnings describe material ambiguity.`
 
@@ -47,7 +50,7 @@ function contentForFile(file) {
   return {
     type: 'input_image',
     image_url: `data:${file.mimetype};base64,${encoded}`,
-    detail: 'original',
+    detail: 'high',
   }
 }
 
@@ -59,8 +62,8 @@ function normalizeMonthlyData(data) {
     date: data.date || new Date().toISOString().slice(0, 10),
     milkType: data.milkType?.trim() || 'VACA',
     rows: data.rows.filter((row) => data.layoutType === 'detailed'
-      ? Boolean(row.producer?.trim())
-      : Boolean(row.centerName?.trim())),
+      ? Boolean(row.producer?.trim() || row.liters !== null || row.ugPercent !== null)
+      : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null)),
     warnings: missingDate
       ? [...data.warnings, 'Document date was not found; the current server date was applied.']
       : data.warnings,

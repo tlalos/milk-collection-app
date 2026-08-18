@@ -57,6 +57,10 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
 
   function addFiles(files: FileList | null) {
     if (!files?.length) return
+    if (!documentCategory) {
+      setNotice(isRo ? 'Selectarea tipului de document este obligatorie.' : 'Select a document type before adding files.')
+      return
+    }
 
     const supportedFiles = Array.from(files).filter((file) =>
       file.type.startsWith('image/') || file.type === 'application/pdf',
@@ -165,7 +169,14 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
 
           <label className="ocr-document-type">
             <span>{isRo ? 'Tip document *' : 'Document type *'}</span>
-            <select value={documentCategory} onChange={(event) => setDocumentCategory(event.target.value)} required>
+            <select
+              value={documentCategory}
+              onChange={(event) => {
+                setDocumentCategory(event.target.value)
+                setNotice('')
+              }}
+              required
+            >
               <option value="">{isRo ? 'Selectați tipul documentului…' : 'Select document type…'}</option>
               <option value="daily_routes">{isRo ? 'RUTE ZILNICE' : 'DAILY ROUTES'}</option>
               <option value="journal_monthly_settlement">{isRo ? 'JURNAL DECONT LUNAR' : 'JOURNAL MONTHLY SETTLEMENT'}</option>
@@ -178,6 +189,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             type="file"
             accept="image/*,application/pdf"
             multiple
+            disabled={!documentCategory}
             onChange={handleInputChange}
           />
           <input
@@ -186,15 +198,28 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             type="file"
             accept="image/*"
             capture="environment"
+            disabled={!documentCategory}
             onChange={handleInputChange}
           />
 
           <div className="ocr-actions">
-            <button className="ocr-action-button secondary" type="button" onClick={() => documentInputRef.current?.click()}>
+            <button
+              className="ocr-action-button secondary"
+              type="button"
+              onClick={() => documentInputRef.current?.click()}
+              disabled={!documentCategory}
+              title={!documentCategory ? (isRo ? 'Selectați mai întâi tipul documentului' : 'Select a document type first') : undefined}
+            >
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h4l2 2h4a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V4z" /></svg>
               {isRo ? 'Alegeți documente' : 'Choose documents'}
             </button>
-            <button className="ocr-action-button primary" type="button" onClick={() => cameraInputRef.current?.click()}>
+            <button
+              className="ocr-action-button primary"
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={!documentCategory}
+              title={!documentCategory ? (isRo ? 'Selectați mai întâi tipul documentului' : 'Select a document type first') : undefined}
+            >
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 5a2 2 0 00-2 2v7a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.3l-1.4-2H8.7L7.3 5H4zm6 9a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" /></svg>
               {isRo ? 'Fotografiați' : 'Take photo'}
             </button>

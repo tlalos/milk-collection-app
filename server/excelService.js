@@ -4,7 +4,7 @@ import path from 'node:path'
 import { parse as parseEnv } from 'dotenv'
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
-const defaultExcelProject = 'C:\\Users\\tlalos\\Documents\\Codex\\2026-07-31\\excel-to-erp-soft1-codex-text\\excel-to-erp-soft1'
+const defaultExcelProject = process.cwd()
 let centerCache = { expiresAt: 0, centers: [] }
 let driverCache = { expiresAt: 0, drivers: [] }
 let vehicleCache = { expiresAt: 0, vehicles: [] }
@@ -45,11 +45,18 @@ async function loadConfig() {
   }
 }
 
+function assertExcelOnlineConfigured(config, feature = 'Excel Online') {
+  const missing = []
+  if (!config.clientId) missing.push('AZURE_CLIENT_ID')
+  if (!config.workbookUrl && !(config.driveId && config.itemId)) missing.push('GRAPH_WORKBOOK_URL or GRAPH_DRIVE_ID/GRAPH_ITEM_ID')
+  if (missing.length) {
+    throw new Error(`${feature} is not configured on this PC. Add ${missing.join(', ')} to .env before using Excel reference matching or export.`)
+  }
+}
+
 export async function appendReviewedDocumentToExcel(job, onProgress = async () => {}) {
   const config = await loadConfig()
-  if (!config.clientId || (!config.workbookUrl && !(config.driveId && config.itemId))) {
-    throw new Error('Excel Online is not configured with the Azure client and workbook target.')
-  }
+  assertExcelOnlineConfigured(config, 'Excel export')
   if (!job.data?.rows?.length) throw new Error('The reviewed document has no collection rows to export.')
 
   const missingHeader = [
@@ -127,6 +134,7 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
   if (!job.data?.rows?.length) throw new Error('The reviewed monthly settlement has no rows to export.')
   if (!job.data.date) throw new Error('Cannot export: the monthly settlement date is missing.')
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Monthly settlement Excel export')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -338,6 +346,7 @@ export async function resolveReferenceRoute(date, vehicleRegistration) {
   if (!vehicleRoutes) return { status: 'unmatched', selectedRoute: null, date, vehicle, existingRoutes: [] }
 
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Route reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -415,6 +424,7 @@ export async function enrichMissingRowValues(data) {
 
 async function loadPreviousDayRowValues(date, requestedFields) {
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Previous-day reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -449,6 +459,7 @@ async function loadPreviousDayRowValues(date, requestedFields) {
 async function loadReferenceCenters() {
   if (centerCache.expiresAt > Date.now()) return centerCache.centers
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Center reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -471,6 +482,7 @@ async function loadReferenceCenters() {
 async function loadReferenceProducers() {
   if (producerCache.expiresAt > Date.now()) return producerCache.producers
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Ref_Producers lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -497,6 +509,7 @@ async function loadReferenceProducers() {
 async function loadReferenceDrivers() {
   if (driverCache.expiresAt > Date.now()) return driverCache.drivers
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Driver reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -520,6 +533,7 @@ async function loadReferenceDrivers() {
 async function loadReferenceVehicles() {
   if (vehicleCache.expiresAt > Date.now()) return vehicleCache.vehicles
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Vehicle reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -551,6 +565,7 @@ async function loadReferenceVehicles() {
 async function loadVehicleRouteOptions() {
   if (vehicleRouteCache.expiresAt > Date.now()) return vehicleRouteCache.routes
   const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Vehicle route reference lookup')
   const token = await refreshAccessToken(config)
   const workbook = await resolveWorkbook(config, token)
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
@@ -674,7 +689,15 @@ async function refreshAccessToken(config) {
 }
 
 async function performTokenRefresh(config) {
-  const cached = JSON.parse(await readFile(config.tokenCachePath, 'utf8'))
+  let cached
+  try {
+    cached = JSON.parse(await readFile(config.tokenCachePath, 'utf8'))
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('Excel Online token cache was not found on this PC. Set EXCEL_GRAPH_TOKEN_CACHE in .env and sign in to the Excel integration before using Excel reference matching or export.')
+    }
+    throw error
+  }
   if (!cached.refresh_token) throw new Error('The Excel Graph token cache has no refresh token. Sign in from the Excel integration project first.')
   const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`, {
     method: 'POST',

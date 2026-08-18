@@ -11,12 +11,14 @@ export default defineConfig(({ mode }) => {
     base: basePath,
     server: {
       proxy: {
+        '/api/auth': ocrTarget,
         '/api/ocr': ocrTarget,
       },
     },
     preview: {
       allowedHosts: true,
       proxy: {
+        '/api/auth': ocrTarget,
         '/api/ocr': ocrTarget,
       },
     },
