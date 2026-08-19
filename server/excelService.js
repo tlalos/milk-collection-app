@@ -245,41 +245,59 @@ export async function matchCentersForRows(rows) {
   })
 }
 
-export async function listReferenceProducers(query = '', kind = 'producer') {
+export async function listReferenceProducers(query = '', kind = 'producer', headerCenterName = '') {
   const producers = await loadReferenceProducers()
   const search = String(query || '').trim()
+  const centerSearch = String(headerCenterName || '').trim()
   const candidates = kind === 'center'
     ? [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
     : producers.map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn }))
   if (!search) return candidates.slice(0, 50)
   return candidates
-    .map((item) => ({ ...item, score: similarity(search, item.name) }))
+    .map((item) => ({ ...item, score: similarity(search, item.name), headerCenterHistory: kind === 'producer' && centerSearch ? centersAreRelated(centerSearch, item.centerName) : false }))
     .filter((item) => normalizeValue(item.name).includes(normalizeValue(search)) || item.score >= 0.32)
-    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+    .sort((left, right) => (right.score + (right.headerCenterHistory ? 0.08 : 0)) - (left.score + (left.headerCenterHistory ? 0.08 : 0)) || left.name.localeCompare(right.name))
     .slice(0, 20)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
 }
 
 export async function matchMonthlyProducers(data) {
   const producers = await loadReferenceProducers()
-  const rows = data.rows.map((row) => {
-    const originalName = data.layoutType === 'detailed' ? row.producer : row.centerName
-    const suggestions = producers
-      .map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn, score: similarity(originalName, item.producerName) }))
-      .filter((item) => item.score >= 0.32)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, 5)
-      .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
-    const best = suggestions[0]
-    return { rowNumber: row.rowNumber, originalName: originalName || null, status: best?.score >= 0.6 ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched', selectedCode: best?.score >= 0.6 ? best.code : null, selectedName: best?.score >= 0.6 ? best.name : null, suggestions }
-  })
+  const hasProducerRows = data.rows.some((row) => String(row.producer || '').trim())
+  const hasCenterRows = data.rows.some((row) => String(row.centerName || '').trim())
+  // Some payment-border documents contain producer rows but are labelled "overview" by OCR.
+  // Normalize from the populated row fields so matching never discards extracted producer names.
+  const layoutType = data.layoutType === 'overview' && hasProducerRows && !hasCenterRows ? 'detailed' : data.layoutType
   const centers = [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
   const headerSuggestions = centers.map((item) => ({ ...item, score: similarity(data.headerCenterName, item.name) }))
     .filter((item) => item.score >= 0.32).sort((left, right) => right.score - left.score).slice(0, 5)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
   const headerBest = headerSuggestions[0]
-  const header = { originalName: data.headerCenterName || null, status: headerBest?.score >= 0.6 ? 'auto_replaced' : headerSuggestions.length ? 'suggested' : 'unmatched', selectedCode: headerBest?.score >= 0.6 ? headerBest.code : null, selectedName: headerBest?.score >= 0.6 ? headerBest.name : null, suggestions: headerSuggestions }
-  return { rows, header }
+  const headerIdentified = headerBest?.score >= 0.6
+  const header = { originalName: data.headerCenterName || null, status: headerIdentified ? 'auto_replaced' : headerSuggestions.length ? 'suggested' : 'unmatched', selectedCode: headerIdentified ? headerBest.code : null, selectedName: headerIdentified ? headerBest.name : null, suggestions: headerSuggestions }
+  const headerCenterAffinity = (item) => {
+    if (layoutType !== 'detailed' || !headerIdentified) return 0
+    if ((headerBest.code && normalizeValue(item.centerCode) === normalizeValue(headerBest.code)) || normalizeValue(item.centerName) === normalizeValue(headerBest.name)) return 2
+    return centersAreRelated(headerBest.name, item.centerName) ? 1 : 0
+  }
+  const rows = data.rows.map((row) => {
+    const originalName = layoutType === 'detailed' ? row.producer : row.centerName
+    const suggestions = producers
+      .map((item) => {
+        const score = similarity(originalName, item.producerName)
+        const affinity = headerCenterAffinity(item)
+        const historyBoost = affinity === 2 ? 0.08 : affinity === 1 ? 0.15 : 0
+        return { code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn, score, matchSource: affinity ? 'header_center_history' : 'all_producers', rankScore: score + historyBoost }
+      })
+      .filter((item) => item.score >= 0.32)
+      .sort((left, right) => right.rankScore - left.rankScore)
+      .slice(0, 5)
+      .map(({ rankScore: _rankScore, ...item }) => ({ ...item, score: Number(item.score.toFixed(3)) }))
+    const best = suggestions[0]
+    const autoReplace = best?.score >= 0.6 && (best.matchSource === 'header_center_history' || best.score >= 0.75)
+    return { rowNumber: row.rowNumber, originalName: originalName || null, status: autoReplace ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched', selectedCode: autoReplace ? best.code : null, selectedName: autoReplace ? best.name : null, suggestions, matchSource: best?.matchSource || 'all_producers' }
+  })
+  return { rows, header, layoutType }
 }
 
 export async function listReferenceDrivers(query = '') {
@@ -598,6 +616,16 @@ function normalizeValue(value) {
   return String(value || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
     .toUpperCase().replace(/[^A-Z0-9]+/gu, ' ').trim().replace(/\s+/gu, ' ')
+}
+
+function centersAreRelated(leftValue, rightValue) {
+  const left = normalizeValue(leftValue)
+  const right = normalizeValue(rightValue)
+  if (!left || !right) return false
+  if (similarity(left, right) >= 0.6) return true
+  const leftFamily = left.replace(/\s+\d+$/u, '')
+  const rightFamily = right.replace(/\s+\d+$/u, '')
+  return Boolean(leftFamily && rightFamily && leftFamily === rightFamily)
 }
 
 function similarity(leftValue, rightValue) {

@@ -6,9 +6,9 @@ import './MonthlySettlementReviewScreen.css'
 import './MonthlySettlementReference.css'
 
 interface MonthlyRow { rowNumber: number; producer: string | null; centerName: string | null; liters: number | null; ugPercent: number | null; gValue: number | null; confidence: number; uncertainFields: string[] }
-interface MonthlyData { documentType: 'journal_monthly_settlement'; layoutType: 'detailed' | 'overview'; date: string | null; milkType: string; headerCenterName: string | null; rows: MonthlyRow[]; warnings: string[]; rawTranscription: string }
+interface MonthlyData { documentType: 'journal_monthly_settlement'; layoutType: 'detailed' | 'overview'; date: string | null; documentMonth?: number | null; milkType: string; headerCenterName: string | null; totalLiters?: number | null; rows: MonthlyRow[]; warnings: string[]; rawTranscription: string }
 interface ProducerSuggestion { code: string; name: string; centerCode?: string; centerName?: string; score?: number }
-interface ProducerMatch { rowNumber: number; originalName: string | null; status: string; selectedName: string | null; suggestions: ProducerSuggestion[] }
+interface ProducerMatch { rowNumber: number; originalName: string | null; status: string; selectedName: string | null; suggestions: ProducerSuggestion[]; matchSource?: 'header_center_history'|'all_producers' }
 interface MonthlyJob { id: string; sourceFile: string; mimeType: string; status: 'queued'|'processing'|'completed'|'failed'; reviewStatus: 'pending'|'reviewed'; createdAt: string; error?: string | null; fileUrl: string; data?: MonthlyData; summary?: { layoutType?: 'detailed'|'overview'|null; centerName?: string|null }; producerMatches?: ProducerMatch[]; headerCenterMatch?: Omit<ProducerMatch,'rowNumber'>; producerMatchError?: string | null; excelExport?: { status: string; error?: string|null; progress?: { current?: number; total?: number } } }
 
 function displayDate(value: string | null) {
@@ -36,6 +36,13 @@ export function MonthlySettlementReviewScreen() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [suggestions, setSuggestions] = useState<Record<string, ProducerSuggestion[]>>({})
+  const [zoom, setZoom] = useState(100)
+
+  const rowLitersTotal = draft?.rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0) ?? 0
+  const documentLitersTotal = typeof draft?.totalLiters === 'number' && Number.isFinite(draft.totalLiters) ? draft.totalLiters : null
+  const litersDifference = documentLitersTotal === null ? null : rowLitersTotal - documentLitersTotal
+  const litersMatch = litersDifference !== null && Math.abs(litersDifference) < 0.01
+  const formatLiters = (value: number) => new Intl.NumberFormat(language === 'ro' ? 'ro-RO' : 'en-GB', { maximumFractionDigits: 2 }).format(value)
 
   const loadJobs = useCallback(async () => {
     const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${view}&documentCategory=journal_monthly_settlement`))
@@ -51,7 +58,7 @@ export function MonthlySettlementReviewScreen() {
   }, [loadJobs])
 
   async function openJob(job: MonthlyJob) {
-    setSelected(job); setDraft(null); setNotice('')
+    setSelected(job); setDraft(null); setNotice(''); setZoom(100)
     if (job.status !== 'completed') return
     const response = await fetch(appPath(`/api/ocr/jobs/${job.id}`))
     const payload = await response.json() as { job?: MonthlyJob; error?: string }
@@ -71,7 +78,8 @@ export function MonthlySettlementReviewScreen() {
   async function searchProducers(key: string, value: string, kind: 'producer'|'center' = 'producer') {
     if (value.trim().length < 2) return setSuggestions((current) => ({ ...current, [key]: [] }))
     try {
-      const response = await fetch(appPath(`/api/ocr/producers?q=${encodeURIComponent(value)}&kind=${kind}`))
+      const headerCenter = kind === 'producer' && draft?.layoutType === 'detailed' ? draft.headerCenterName || '' : ''
+      const response = await fetch(appPath(`/api/ocr/producers?q=${encodeURIComponent(value)}&kind=${kind}&headerCenter=${encodeURIComponent(headerCenter)}`))
       const payload = await response.json() as { producers?: ProducerSuggestion[] }
       setSuggestions((current) => ({ ...current, [key]: payload.producers || [] }))
     } catch { setSuggestions((current) => ({ ...current, [key]: [] })) }
@@ -85,8 +93,8 @@ export function MonthlySettlementReviewScreen() {
     return <td className="monthly-reference-cell">
       <input list={`${key}-options`} value={value} onChange={(event) => { updateRow(index, field, event.target.value); void searchProducers(key, event.target.value) }}/>
       <datalist id={`${key}-options`}>{options.map((item) => <option key={`${item.code}-${item.name}`} value={item.name}>{Math.round((item.score || 0) * 100)}% · {item.code} · {item.centerName || ''}</option>)}</datalist>
-      {match?.status === 'auto_replaced' && value === match.selectedName && <small className="monthly-system-match">{isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers'}</small>}
-      {value.length >= 2 && suggestions[key] && <small className="monthly-result-count">{options.length} {isRo ? 'rezultate' : 'results'}</small>}
+      {match?.status === 'auto_replaced' && value === match.selectedName && <small className="monthly-system-match">{match.matchSource === 'header_center_history' ? (isRo ? 'Înlocuit folosind istoricul centrului din antet' : 'Replaced using header-center history') : (isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers')}</small>}
+      {value.length >= 2 && suggestions[key] && <small className="monthly-result-count">{options.length} {match?.matchSource === 'header_center_history' ? (isRo ? 'rezultate pentru centrul din antet' : 'results for header center') : (isRo ? 'rezultate' : 'results')}</small>}
     </td>
   }
 
@@ -171,13 +179,33 @@ export function MonthlySettlementReviewScreen() {
       <aside><div className="monthly-tabs"><button className={view === 'pending' ? 'active' : ''} onClick={() => { setView('pending'); setSelected(null); setDraft(null) }}>{isRo ? 'În așteptare' : 'Pending'}</button><button className={view === 'reviewed' ? 'active' : ''} onClick={() => { setView('reviewed'); setSelected(null); setDraft(null) }}>{isRo ? 'Verificate' : 'Reviewed'}</button></div><h2>{isRo ? 'Documente' : 'Documents'} <b>{jobs.length}</b></h2><div className="monthly-list">{jobs.map((job) => <button className={selected?.id === job.id ? 'active' : ''} key={job.id} onClick={() => void openJob(job)}><strong>{job.summary?.centerName || job.sourceFile}</strong><span>{job.status === 'completed' ? (job.summary?.layoutType === 'detailed' ? (isRo ? 'Jurnal detaliat' : 'Detailed journal') : job.summary?.layoutType === 'overview' ? (isRo ? 'Centralizator' : 'Overview') : (isRo ? 'OCR finalizat' : 'OCR complete')) : job.status}</span>{job.reviewStatus === 'reviewed' && <span className={`monthly-excel-status status-${job.excelExport?.status || 'not_ready'}`}>{job.excelExport?.status === 'exported' ? (isRo ? 'Excel: Exportat' : 'Excel: Exported') : job.excelExport?.status === 'failed' ? (isRo ? 'Excel: Eroare' : 'Excel: Failed') : ['queued','exporting'].includes(job.excelExport?.status || '') ? (isRo ? 'Excel: Se trimite' : 'Excel: Sending') : (isRo ? 'Excel: Netrimis' : 'Excel: Not sent')}</span>}<small>{new Date(job.createdAt).toLocaleString()}</small>{job.status === 'failed' && <em>{job.error}</em>}</button>)}</div></aside>
       <section className="monthly-workspace">
         {!selected ? <div className="monthly-empty">{isRo ? 'Selectați un document pentru verificare.' : 'Select a document to review.'}</div> : <>
-          <article className="monthly-source"><h2>{isRo ? 'Document sursă' : 'Source document'}</h2>{selected.mimeType === 'application/pdf' ? <iframe src={selected.fileUrl}/> : <div><img src={selected.fileUrl} alt={selected.sourceFile}/></div>}</article>
+          <article className="monthly-source">
+            <div className="monthly-source-title">
+              <div><h2>{isRo ? 'Document sursă' : 'Source document'}</h2><span>{selected.sourceFile}</span></div>
+              <div className="monthly-zoom-controls" aria-label="Document zoom controls">
+                <button type="button" onClick={() => setZoom((current) => Math.max(50, current - 25))} aria-label={isRo ? 'Micșorare' : 'Zoom out'}>−</button>
+                <span>{zoom}%</span>
+                <button type="button" onClick={() => setZoom((current) => Math.min(250, current + 25))} aria-label={isRo ? 'Mărire' : 'Zoom in'}>+</button>
+                <button type="button" onClick={() => setZoom(100)}>{isRo ? 'Potrivire' : 'Fit'}</button>
+              </div>
+            </div>
+            {selected.mimeType === 'application/pdf' ? <iframe key={`${selected.id}-${zoom}`} src={`${selected.fileUrl}#zoom=${zoom}`}/> : <div className="monthly-source-document"><img style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none' }} src={selected.fileUrl} alt={selected.sourceFile}/></div>}
+          </article>
           <article className="monthly-data"><div className="monthly-data-title"><div><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><span>{draft?.layoutType === 'detailed' ? (isRo ? 'Jurnal detaliat' : 'Detailed journal') : (isRo ? 'Centralizator' : 'Overview')}</span></div>{draft && <div>{selected.excelExport?.status === 'failed' && <button className="retry" onClick={() => void retryExcelExport()} disabled={busy}>{isRo ? 'Retrimiteți în Excel' : 'Send to Excel again'}</button>}<button onClick={() => void save(false)} disabled={busy}>{isRo ? 'Salvați' : 'Save changes'}</button><button className="primary" onClick={() => void save(true)} disabled={busy}>{isRo ? 'Salvați, verificați și trimiteți în Excel' : 'Save, mark reviewed and send to Excel'}</button></div>}</div>
             {!draft ? <div className="monthly-empty">{selected.status === 'failed' ? selected.error : (isRo ? 'OCR este în curs…' : 'OCR is processing…')}</div> : <div className="monthly-form">
-              <div className="monthly-fields"><label>{isRo ? 'Data' : 'Date'}<input value={displayDate(draft.date)} onChange={(e) => setDraft({...draft, date:storeDate(e.target.value)})} placeholder="dd/MM/yyyy"/></label><label>{isRo ? 'Tip lapte' : 'Milk type'}<input value={draft.milkType} onChange={(e) => setDraft({...draft, milkType:e.target.value})}/></label><label>{isRo ? 'Centru antet' : 'Header center'}<input list="monthly-header-centers" value={draft.headerCenterName || ''} onChange={(e) => { setDraft({...draft, headerCenterName:e.target.value}); void searchProducers('header',e.target.value,'center') }}/><datalist id="monthly-header-centers">{(suggestions.header || selected.headerCenterMatch?.suggestions || []).map((item)=><option key={`${item.code}-${item.name}`} value={item.name}>{Math.round((item.score||0)*100)}% · {item.code}</option>)}</datalist>{selected.headerCenterMatch?.status === 'auto_replaced' && draft.headerCenterName === selected.headerCenterMatch.selectedName && <small className="monthly-system-match">{isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers'}</small>}</label></div>
+              <div className="monthly-fields"><label>{isRo ? 'Data' : 'Date'}<input value={displayDate(draft.date)} onChange={(e) => setDraft({...draft, date:storeDate(e.target.value), documentMonth:null})} placeholder="dd/MM/yyyy"/>{draft.documentMonth && <small className="monthly-derived-date">{isRo ? 'Ultima zi a lunii identificate, anul curent' : 'Last day of identified month, current year'}</small>}</label><label>{isRo ? 'Tip lapte' : 'Milk type'}<input value={draft.milkType} onChange={(e) => setDraft({...draft, milkType:e.target.value})}/></label><label>{isRo ? 'Centru antet' : 'Header center'}<input list="monthly-header-centers" value={draft.headerCenterName || ''} onChange={(e) => { setDraft({...draft, headerCenterName:e.target.value}); void searchProducers('header',e.target.value,'center') }}/><datalist id="monthly-header-centers">{(suggestions.header || selected.headerCenterMatch?.suggestions || []).map((item)=><option key={`${item.code}-${item.name}`} value={item.name}>{Math.round((item.score||0)*100)}% · {item.code}</option>)}</datalist>{selected.headerCenterMatch?.status === 'auto_replaced' && draft.headerCenterName === selected.headerCenterMatch.selectedName && <small className="monthly-system-match">{isRo ? 'Înlocuit din Ref_Producers' : 'Replaced from Ref_Producers'}</small>}</label></div>
+              <div className={`monthly-liters-summary ${documentLitersTotal === null ? 'unknown' : litersMatch ? 'matches' : 'mismatch'}`} aria-live="polite">
+                <div><span>{isRo ? 'Total rânduri' : 'Rows total'}</span><strong>{formatLiters(rowLitersTotal)} L</strong></div>
+                <label><span>{isRo ? 'Total OCR document' : 'Document OCR total'}</span><input type="number" inputMode="decimal" value={draft.totalLiters ?? ''} placeholder={isRo ? 'Nedetectat' : 'Not detected'} onChange={(event) => setDraft({ ...draft, totalLiters: event.target.value === '' ? null : Number(event.target.value) })}/></label>
+                <b>{documentLitersTotal === null
+                  ? (isRo ? '! Fără total OCR pentru comparație' : '! No OCR total to compare')
+                  : litersMatch
+                    ? (isRo ? '✓ Totalurile corespund' : '✓ Totals match')
+                    : `! ${isRo ? 'Diferență' : 'Difference'}: ${litersDifference! > 0 ? '+' : ''}${formatLiters(litersDifference!)} L`}</b>
+              </div>
               {draft.warnings.length > 0 && <div className="monthly-warnings"><strong>{isRo ? 'De verificat' : 'Items to verify'}</strong><ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
               {selected.producerMatchError && <div className="monthly-match-error">{selected.producerMatchError}</div>}
-              <div className="monthly-table"><table><thead><tr><th>#</th>{draft.layoutType === 'detailed' ? <><th>{isRo ? 'Producător' : 'Producer'}</th><th>{isRo ? 'Ultimul total' : 'Last total'}</th><th>U.G. %</th></> : <><th>{isRo ? 'Centru / producător' : 'Center / producer'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>G</th></>}</tr></thead><tbody>{draft.rows.map((row,index) => <tr key={`${row.rowNumber}-${index}`}><td>{row.rowNumber}<small>{Math.round(row.confidence*100)}%</small></td>{draft.layoutType === 'detailed' ? <>{referenceNameCell(row,index,'producer')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.ugPercent ?? ''} onChange={(e)=>updateRow(index,'ugPercent',e.target.value)}/></td></> : <>{referenceNameCell(row,index,'centerName')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.gValue ?? ''} onChange={(e)=>updateRow(index,'gValue',e.target.value)}/></td></>}</tr>)}</tbody></table></div>
+              <div className="monthly-table"><table><thead><tr><th>#</th>{draft.layoutType === 'detailed' ? <><th>{isRo ? 'Producător' : 'Producer'}</th><th>{isRo ? 'Ultimul total' : 'Last total'}</th><th>U.G. %</th></> : <><th>{isRo ? 'Centru / producător' : 'Center / producer'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>G</th></>}</tr></thead><tbody>{draft.rows.map((row,index) => <tr key={`${row.rowNumber}-${index}`}><td>{row.rowNumber}<small>{Math.round(row.confidence*100)}%</small></td>{draft.layoutType === 'detailed' ? <>{referenceNameCell(row,index,'producer')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.ugPercent ?? ''} onChange={(e)=>updateRow(index,'ugPercent',e.target.value)}/>{row.gValue !== null && row.liters !== null && row.liters > 0 && row.ugPercent !== null && Math.abs(row.ugPercent - row.gValue / row.liters) < 0.001 && <small className="monthly-calculated-value">{isRo ? 'Calculat' : 'Calculated'}: {row.gValue} ÷ {row.liters}</small>}</td></> : <>{referenceNameCell(row,index,'centerName')}<td><input type="number" value={row.liters ?? ''} onChange={(e)=>updateRow(index,'liters',e.target.value)}/></td><td><input type="number" step="any" value={row.gValue ?? ''} onChange={(e)=>updateRow(index,'gValue',e.target.value)}/></td></>}</tr>)}</tbody></table></div>
               <div className="monthly-bottom-actions"><button type="button" onClick={() => void redoOcr()} disabled={busy}>{isRo ? 'Refaceți OCR' : 'Redo OCR'}</button><button type="button" onClick={() => void redoExcelMatching()} disabled={busy}>{isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching'}</button></div>
             </div>}
           </article>

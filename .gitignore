@@ -14,6 +14,7 @@ node_modules/.vite/
 .env
 .env.local
 .env.*.local
+.graph-token-cache.json
 
 # Editor
 .vscode/*

@@ -25,9 +25,11 @@ First identify the layout:
 - overview: a printed summary grid with center/producer name, liters, G. and U.G. columns.
 
 Rules:
-- Preserve Romanian names as written and return dates as YYYY-MM-DD when they can be determined.
+- Preserve Romanian names as written. Return date as YYYY-MM-DD only when an exact calendar day is visible. When only a month is identifiable, return date as null and put its month number (1-12) in documentMonth. Otherwise documentMonth is null. The server will use the last day of that month in the current year.
 - Detect the milk type from the header (for example VACA). If no milk type is visible, return VACA.
-- For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer name, the nearer TOTAL L column if visible, the final far-right TOTAL L column if visible, and the U.G. percentage/value beside that final total. Do not extract intermediate daily cells.
+- For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer name and the final far-right TOTAL L column into liters. Extract a true U.G. percentage into ugPercent. Extract the accumulated U.G. Total into gValue. Do not extract intermediate daily cells.
+- Some detailed forms have no handwritten U.G. percentage but do have U.G. Total. In that case leave ugPercent null and put the U.G. Total in gValue; never copy a large accumulated U.G. Total such as 1812 into ugPercent. The server will calculate U.G. % as U.G. Total divided by TOTAL L for that row.
+- Extract the document's explicitly printed or handwritten grand total liters into totalLiters for both layouts. Do not calculate totalLiters from the extracted rows as a substitute. Use null if the document total is not legible.
 - For detailed documents, keep a row if either the producer name, final total, or U.G. value is visible. If the producer name is hard to read, return the best partial transcription or null, include producer in uncertainFields, and still return the row so a human can review it.
 - The printed detailed layout can contain two right-side TOTAL / UG groups. Put the final far-right TOTAL L value into liters when it is visible. If only the nearer TOTAL L beside the day columns is legible, put that value into liters and warn that the far-right total was not confirmed.
 - For detailed documents, do not return an empty rows array when populated handwritten rows are visible. Return every visible producer row even when U.G. is blank or null.
@@ -54,19 +56,47 @@ function contentForFile(file) {
   }
 }
 
-function normalizeMonthlyData(data) {
+export function normalizeMonthlyData(data) {
   if (data.documentType !== 'journal_monthly_settlement') return data
-  const missingDate = !data.date
+  const currentYear = new Date().getFullYear()
+  const identifiedMonth = Number.isInteger(data.documentMonth) && data.documentMonth >= 1 && data.documentMonth <= 12 ? data.documentMonth : null
+  const derivedMonthDate = !data.date && identifiedMonth
+    ? `${currentYear}-${String(identifiedMonth).padStart(2, '0')}-${String(new Date(currentYear, identifiedMonth, 0).getDate()).padStart(2, '0')}`
+    : null
+  const missingDate = !data.date && !derivedMonthDate
+  let calculatedUgRows = 0
+  const rows = data.rows.map((row) => {
+    if (data.layoutType !== 'detailed') return row
+    let ugPercent = row.ugPercent
+    let ugTotal = row.gValue
+    if (ugPercent !== null && ugPercent > 20 && ugTotal === null) {
+      ugTotal = ugPercent
+      ugPercent = null
+    }
+    if ((ugPercent === null || ugPercent > 20) && row.liters !== null && row.liters > 0 && ugTotal !== null) {
+      ugPercent = Number((ugTotal / row.liters).toFixed(3))
+      calculatedUgRows += 1
+    }
+    return { ...row, ugPercent, gValue: ugTotal }
+  })
+  const calculationWarning = calculatedUgRows
+    ? [`U.G. % was calculated as U.G. Total divided by TOTAL L for ${calculatedUgRows} row${calculatedUgRows === 1 ? '' : 's'}.`]
+    : []
   return {
     ...data,
-    date: data.date || new Date().toISOString().slice(0, 10),
+    date: data.date || derivedMonthDate || new Date().toISOString().slice(0, 10),
+    documentMonth: derivedMonthDate ? identifiedMonth : null,
     milkType: data.milkType?.trim() || 'VACA',
-    rows: data.rows.filter((row) => data.layoutType === 'detailed'
+    totalLiters: data.totalLiters ?? null,
+    rows: rows.filter((row) => data.layoutType === 'detailed'
       ? Boolean(row.producer?.trim() || row.liters !== null || row.ugPercent !== null)
       : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null)),
-    warnings: missingDate
-      ? [...data.warnings, 'Document date was not found; the current server date was applied.']
-      : data.warnings,
+    warnings: [
+      ...data.warnings.filter((warning) => !warning.startsWith('U.G. % was calculated as U.G. Total divided by TOTAL L')),
+      ...calculationWarning,
+      ...(derivedMonthDate ? [`Document month was identified; date was set to the last day of that month in the current year (${derivedMonthDate}).`] : []),
+      ...(missingDate ? ['Document date was not found; the current server date was applied.'] : []),
+    ],
   }
 }
 
@@ -117,7 +147,7 @@ const providerEndpoints = {
 
 function jsonPrompt(documentCategory) {
   if (documentCategory === 'journal_monthly_settlement') {
-    return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"milkType":string,"headerCenterName":string|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
+    return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"documentMonth":number|null,"milkType":string,"headerCenterName":string|null,"totalLiters":number|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
   }
   return `${EXTRACTION_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"daily_driver_statement","companyName":string|null,"date":string|null,"driverName":string|null,"vehicleRegistration":string|null,"route":string|null,"rows":[{"rowNumber":number,"collectionCenter":string|null,"liters":number|null,"fatPercent":number|null,"density":number|null,"water":number|null,"temperature":number|null,"noticeNumber":string|null,"confidence":number,"uncertainFields":string[]}],"totalLiters":number|null,"warnings":string[],"rawTranscription":string}`
 }
@@ -149,6 +179,8 @@ async function extractWithCompatibleProvider(file, settings, documentCategory) {
   const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
   const rawData = JSON.parse(cleaned)
   if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'VACA'
+  if (documentCategory === 'journal_monthly_settlement' && rawData.documentMonth === undefined) rawData.documentMonth = null
+  if (documentCategory === 'journal_monthly_settlement' && rawData.totalLiters === undefined) rawData.totalLiters = null
   const data = normalizeMonthlyData(schema.parse(rawData))
   const usage = payload.usage ? {
     inputTokens: payload.usage.prompt_tokens || 0,

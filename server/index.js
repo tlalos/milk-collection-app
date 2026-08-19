@@ -19,6 +19,7 @@ import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
+import { normalizeMonthlyData } from './ocrService.js'
 import {
   clearReferenceCaches,
   enrichMissingRowValues,
@@ -37,7 +38,7 @@ const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
-const appVersion = process.env.APP_VERSION || '2026.08.17.1'
+const appVersion = process.env.APP_VERSION || '2026.08.19.1'
 
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
@@ -217,7 +218,7 @@ app.get('/api/ocr/vehicles', async (request, response, next) => {
 
 app.get('/api/ocr/producers', async (request, response, next) => {
   try {
-    const producers = await listReferenceProducers(request.query.q, request.query.kind === 'center' ? 'center' : 'producer')
+    const producers = await listReferenceProducers(request.query.q, request.query.kind === 'center' ? 'center' : 'producer', request.query.headerCenter)
     response.json({ producers })
   } catch (error) { next(error) }
 })
@@ -230,14 +231,16 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
       return response.status(409).json({ error: 'A completed Monthly Settlement document is required.' })
     }
     clearReferenceCaches()
-    const matches = await matchMonthlyProducers(current.data)
+    const normalizedData = normalizeMonthlyData(current.data)
+    const matches = await matchMonthlyProducers(normalizedData)
     const data = {
-      ...current.data,
+      ...normalizedData,
+      layoutType: matches.layoutType,
       headerCenterName: matches.header.status === 'auto_replaced' ? matches.header.selectedName : current.data.headerCenterName,
-      rows: current.data.rows.map((row) => {
+      rows: normalizedData.rows.map((row) => {
         const match = matches.rows.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
         if (!match?.selectedName) return row
-        return current.data.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+        return matches.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
       }),
     }
     const job = await updateJob(current.id, { data, producerMatches: matches.rows, headerCenterMatch: matches.header, producerMatchError: null })
@@ -287,8 +290,12 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
 
-    const schema = current.documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
-    const parsed = schema.safeParse(request.body.data)
+    const isMonthlySettlement = current.documentCategory === 'journal_monthly_settlement'
+    const schema = isMonthlySettlement ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+    const submittedData = isMonthlySettlement
+      ? { ...request.body.data, documentMonth: request.body.data?.documentMonth ?? null, totalLiters: request.body.data?.totalLiters ?? null }
+      : request.body.data
+    const parsed = schema.safeParse(submittedData)
     if (!parsed.success) {
       return response.status(400).json({
         error: 'Corrected document data is invalid.',
@@ -297,7 +304,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     }
 
     if (current.documentCategory === 'journal_monthly_settlement') {
-      let data = parsed.data
+      let data = normalizeMonthlyData(parsed.data)
       let producerMatches = current.producerMatches || []
       let headerCenterMatch = current.headerCenterMatch || null
       let producerMatchError = null
@@ -307,11 +314,12 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         headerCenterMatch = matches.header
         data = {
           ...data,
+          layoutType: matches.layoutType,
           headerCenterName: headerCenterMatch.status === 'auto_replaced' ? headerCenterMatch.selectedName : data.headerCenterName,
           rows: data.rows.map((row) => {
             const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
             if (!match?.selectedName) return row
-            return data.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+            return matches.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
           }),
         }
       } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
