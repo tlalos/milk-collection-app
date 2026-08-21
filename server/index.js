@@ -18,7 +18,7 @@ import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
-import { getOcrSettings, initializeOcrSettingsStore, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
+import { getOcrSettings, initializeOcrSettingsStore, isOcrProviderConfigured, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
 import { normalizeMonthlyData } from './ocrService.js'
 import {
   clearReferenceCaches,
@@ -129,7 +129,7 @@ app.get('/api/ocr/health', async (_request, response) => {
   const provider = OCR_PROVIDERS[settings.provider]
   response.json({
     ok: true,
-    configured: Boolean(provider && process.env[provider.keyEnv]),
+    configured: isOcrProviderConfigured(provider),
     provider: settings.provider,
     model: settings.model,
     version: appVersion,
@@ -164,7 +164,7 @@ app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, respons
   try {
     const settings = await getOcrSettings()
     const provider = OCR_PROVIDERS[settings.provider]
-    if (!provider || !process.env[provider.keyEnv]) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
+    if (!isOcrProviderConfigured(provider)) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
     if (!request.files?.length) {
       return response.status(400).json({ error: 'Add at least one document.' })
     }
@@ -508,7 +508,7 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
   try {
     const settings = await getOcrSettings()
     const provider = OCR_PROVIDERS[settings.provider]
-    if (!provider || !process.env[provider.keyEnv]) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
+    if (!isOcrProviderConfigured(provider)) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
 
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })

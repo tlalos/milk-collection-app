@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "node server/index.js",
+    "local-ocr:start": "python local-ocr/service.py",
     "graph:login": "node scripts/createGraphTokenCache.mjs",
     "start": "node server/index.js"
   },

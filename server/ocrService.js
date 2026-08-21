@@ -102,6 +102,7 @@ export function normalizeMonthlyData(data) {
 
 export async function extractMilkCollectionDocument(file, documentCategory = 'daily_routes') {
   const settings = await getOcrSettings()
+  if (settings.provider === 'local') return extractWithLocalProvider(file, settings, documentCategory)
   if (settings.provider !== 'openai') return extractWithCompatibleProvider(file, settings, documentCategory)
   const isMonthly = documentCategory === 'journal_monthly_settlement'
   const schema = isMonthly ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
@@ -135,6 +136,52 @@ export async function extractMilkCollectionDocument(file, documentCategory = 'da
       responseId: response.id,
       model,
       ...accounting,
+    },
+  }
+}
+
+async function extractWithLocalProvider(file, settings, documentCategory) {
+  const baseUrl = String(process.env.LOCAL_OCR_URL || '').trim().replace(/\/+$/u, '')
+  if (!baseUrl) throw new Error('Local Open Source OCR is not configured. Set LOCAL_OCR_URL and start the local OCR service.')
+  const timeoutMs = Math.max(30_000, Number(process.env.LOCAL_OCR_TIMEOUT_MS || 300_000))
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  let apiResponse
+  try {
+    apiResponse = await fetch(`${baseUrl}/ocr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        documentCategory,
+        model: settings.model,
+        fileBase64: file.buffer.toString('base64'),
+      }),
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`Local Open Source OCR timed out after ${Math.round(timeoutMs / 1000)} seconds.`)
+    throw new Error(`Local Open Source OCR service is unavailable at ${baseUrl}. Start the service and try again.`)
+  } finally {
+    clearTimeout(timeout)
+  }
+  const payload = await apiResponse.json().catch(() => ({}))
+  if (!apiResponse.ok) throw new Error(`Local Open Source OCR error: ${payload.error || apiResponse.statusText}`)
+  const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const data = normalizeMonthlyData(schema.parse(payload.document))
+  return {
+    data,
+    openai: {
+      responseId: payload.requestId || null,
+      provider: 'local',
+      model: payload.engine || settings.model,
+      usage: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0 },
+      cost: {
+        currency: 'USD', estimatedUsd: 0, model: payload.engine || settings.model,
+        pricingDate: null, ratesPerMillionTokens: { input: 0, cachedInput: 0, output: 0 }, local: true,
+      },
+      durationMs: payload.durationMs ?? null,
     },
   }
 }

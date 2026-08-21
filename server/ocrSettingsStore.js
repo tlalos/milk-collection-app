@@ -8,9 +8,23 @@ const settingsPath = path.join(settingsDir, 'ocr.json')
 
 export const OCR_PROVIDERS = {
   openai: { label: 'OpenAI', defaultModel: 'gpt-5.6-terra', models: ['gpt-5.6-terra'], keyEnv: 'OPENAI_API_KEY', supportsDocuments: true },
+  local: {
+    label: 'Local Open Source',
+    defaultModel: 'paddleocr-latin-template-v1',
+    models: ['paddleocr-latin-template-v1'],
+    supportsDocuments: true,
+    configurationEnv: 'LOCAL_OCR_URL',
+    compatibilityNote: 'Runs PaddleOCR locally without API-token charges. Start the optional Python OCR service before selecting this provider.',
+  },
   kimi: { label: 'Kimi', defaultModel: 'kimi-k2.5', models: ['kimi-k2.5'], keyEnv: 'KIMI_API_KEY', supportsDocuments: false },
   deepseek: { label: 'DeepSeek', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], keyEnv: 'DEEPSEEK_API_KEY', supportsDocuments: false, compatibilityNote: 'The official API does not document image/PDF input for this OCR workflow.' },
   mistral: { label: 'Mistral', defaultModel: 'mistral-medium-2508', models: ['mistral-medium-2508', 'mistral-small-2506'], keyEnv: 'MISTRAL_API_KEY', supportsDocuments: false },
+}
+
+export function isOcrProviderConfigured(provider) {
+  if (!provider) return false
+  if (provider.configurationEnv) return Boolean(process.env[provider.configurationEnv])
+  return Boolean(provider.keyEnv && process.env[provider.keyEnv])
 }
 
 function defaults() {
@@ -55,9 +69,10 @@ export function publicOcrSettings(settings) {
     ...settings,
     providers: Object.entries(OCR_PROVIDERS).map(([id, provider]) => ({
       id, label: provider.label, models: provider.models,
-      configured: Boolean(process.env[provider.keyEnv]),
+      configured: isOcrProviderConfigured(provider),
       supportsDocuments: provider.supportsDocuments,
       compatibilityNote: provider.compatibilityNote || null,
+      local: id === 'local',
     })),
   }
 }

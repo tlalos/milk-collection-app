@@ -43,3 +43,4 @@ data/settings/
 # Local development/test artifacts
 work/
 .deploy-stage-*/
+.venv-local-ocr/

@@ -102,6 +102,7 @@ interface OcrJob {
   error?: string | null
   openai?: {
     responseId: string
+    provider?: string
     model: string
     usage: {
       inputTokens: number
@@ -980,7 +981,7 @@ export function OcrReviewScreen() {
                 </div>
 
                 <div className="review-openai-usage">
-                  <strong>{isRo ? 'Utilizare OpenAI' : 'OpenAI usage'}</strong>
+                  <strong>{selected.openai?.provider === 'local' ? (isRo ? 'OCR local' : 'Local OCR') : (isRo ? 'Utilizare OpenAI' : 'OpenAI usage')}</strong>
                   {selected.openai?.usage && selected.openai.cost ? (
                     <span>
                       {isRo ? 'Estimat' : 'Estimated'} {formatCost(selected)} · {selected.openai.usage.inputTokens.toLocaleString()} input · {selected.openai.usage.outputTokens.toLocaleString()} output · {selected.openai.usage.totalTokens.toLocaleString()} total · {selected.openai.model}
