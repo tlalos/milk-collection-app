@@ -44,3 +44,5 @@ data/settings/
 work/
 .deploy-stage-*/
 .venv-local-ocr/
+__pycache__/
+*.py[cod]
