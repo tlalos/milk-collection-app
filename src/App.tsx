@@ -9,6 +9,7 @@ import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
 import { OcrSettingsScreen } from './components/OcrSettingsScreen'
 import { MonthlySettlementReviewScreen } from './components/MonthlySettlementReviewScreen'
+import { OcrComparisonScreen } from './components/OcrComparisonScreen'
 import { OcrAuthGate } from './components/OcrAuthGate'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
@@ -44,12 +45,14 @@ type Screen =
   | 'ocrReview'
   | 'ocrSettings'
   | 'monthlySettlementReview'
+  | 'ocrComparison'
 
 function initialScreen(): Screen {
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
+  if (routePathname() === '/ocr/compare') return 'ocrComparison'
   return 'startup'
 }
 
@@ -228,6 +231,10 @@ export function App() {
 
       {screen === 'monthlySettlementReview' && (
         <OcrAuthGate><MonthlySettlementReviewScreen /></OcrAuthGate>
+      )}
+
+      {screen === 'ocrComparison' && (
+        <OcrAuthGate><OcrComparisonScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (

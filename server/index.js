@@ -19,7 +19,7 @@ import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, isOcrProviderConfigured, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
-import { normalizeMonthlyData } from './ocrService.js'
+import { extractMilkCollectionDocument, normalizeMonthlyData } from './ocrService.js'
 import {
   clearReferenceCaches,
   enrichMissingRowValues,
@@ -157,6 +157,35 @@ app.patch('/api/ocr/settings', async (request, response) => {
     response.json({ settings: publicOcrSettings(settings) })
   } catch (error) {
     response.status(400).json({ error: error instanceof Error ? error.message : 'Could not save OCR settings.' })
+  }
+})
+
+app.post('/api/ocr/compare', upload.single('document'), async (request, response, next) => {
+  try {
+    if (!request.file) return response.status(400).json({ error: 'Select an image or PDF to compare.' })
+    const documentCategory = String(request.body?.documentCategory || '')
+    if (!['daily_routes', 'journal_monthly_settlement'].includes(documentCategory)) {
+      return response.status(400).json({ error: 'Select a valid document type.' })
+    }
+    const providerId = String(request.body?.provider || '')
+    const model = String(request.body?.model || '')
+    const provider = OCR_PROVIDERS[providerId]
+    if (!provider || !provider.models.includes(model)) return response.status(400).json({ error: 'Select a valid OCR provider and model.' })
+    if (!isOcrProviderConfigured(provider)) return response.status(503).json({ error: `${provider.label} OCR is not configured on the server.` })
+    const started = Date.now()
+    const extraction = await extractMilkCollectionDocument(request.file, documentCategory, { provider: providerId, model })
+    response.json({
+      result: {
+        provider: providerId,
+        providerLabel: provider.label,
+        model,
+        durationMs: extraction.openai?.durationMs ?? Date.now() - started,
+        accounting: extraction.openai || null,
+        data: extraction.data,
+      },
+    })
+  } catch (error) {
+    next(error)
   }
 })
 

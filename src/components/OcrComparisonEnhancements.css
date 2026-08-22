@@ -1,0 +1,83 @@
+.ocr-compare-screen > header nav {
+  margin-right: 140px;
+}
+
+.ocr-compare-screen > header nav > button {
+  width: var(--ocr-header-control-width, 124px);
+  min-width: var(--ocr-header-control-width, 124px);
+  height: var(--ocr-header-control-height, 38px);
+  min-height: var(--ocr-header-control-height, 38px);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: .68rem;
+  white-space: nowrap;
+}
+
+.ocr-compare-screen > header nav .ocr-language-switch {
+  width: var(--ocr-header-control-width, 124px);
+  min-width: var(--ocr-header-control-width, 124px);
+  height: var(--ocr-header-control-height, 38px);
+  box-sizing: border-box;
+  margin: 0;
+}
+
+.ocr-compare-screen > header nav .ocr-language-switch button {
+  min-width: 0;
+  min-height: 0;
+  height: 30px;
+  flex: 1;
+}
+
+.compare-side {
+  grid-template-rows: auto auto auto 1fr;
+}
+
+.compare-ocr-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #dce5df;
+  background: #f4f8f5;
+  font-size: .64rem;
+}
+
+.compare-ocr-timer span { color: #68786e; font-weight: 800; text-transform: uppercase; }
+.compare-ocr-timer strong { color: #174e31; font-size: .78rem; }
+.compare-ocr-timer em { margin-left: auto; color: #77867d; font-style: normal; }
+.compare-ocr-timer.running { background: #fff6dc; }
+.compare-ocr-timer.running strong,
+.compare-ocr-timer.running em { color: #8a6000; }
+
+.compare-preview-header {
+  display: flex !important;
+  min-height: auto !important;
+  align-items: center;
+  justify-content: space-between;
+  place-content: normal !important;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #dce5df;
+  color: inherit !important;
+}
+
+.compare-preview-header h2 { font-size: .95rem; text-align: left; }
+.compare-zoom-controls { display: flex; align-items: center; gap: 5px; }
+.compare-zoom-controls button { width: 36px; min-height: 34px; }
+.compare-zoom-controls button:last-child { width: auto; padding: 0 10px; }
+.compare-zoom-controls span { min-width: 42px; color: #617168; font-size: .65rem; text-align: center; }
+
+@media (max-width: 1250px) {
+  .ocr-compare-screen > header nav > button { width: 108px; }
+  .ocr-compare-screen > header nav .ocr-language-switch { width: 108px; min-width: 108px; }
+}
+
+@media (max-width: 720px) {
+  .ocr-compare-screen > header { padding-right: 124px; }
+  .ocr-compare-screen > header nav { display: grid; grid-template-columns: 1fr 1fr; margin-right: 0; }
+  .ocr-compare-screen > header nav > button,
+  .ocr-compare-screen > header nav .ocr-language-switch { width: 100%; min-width: 0; }
+}

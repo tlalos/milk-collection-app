@@ -3,6 +3,7 @@ import { extractMilkCollectionDocument } from './ocrService.js'
 import { getJob, getStoredFilePath, listJobs, updateJob } from './jobStore.js'
 import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matchMonthlyProducers, matchReferenceDriver, matchReferenceVehicle, resolveReferenceRoute } from './excelService.js'
 import { rebuildVerificationWarnings } from './verification.js'
+import { getOcrSettings } from './ocrSettingsStore.js'
 
 const pendingIds = []
 const queuedIds = new Set()
@@ -22,11 +23,15 @@ async function processNext() {
 
   processing = true
   queuedIds.delete(id)
+  let attemptStartedAt = 0
+  let attemptSettings = null
   try {
     const job = await getJob(id)
     if (!job || job.reviewStatus === 'reviewed') return
 
-    await updateJob(id, { status: 'processing', startedAt: new Date().toISOString(), error: null })
+    attemptSettings = await getOcrSettings()
+    attemptStartedAt = Date.now()
+    await updateJob(id, { status: 'processing', startedAt: new Date(attemptStartedAt).toISOString(), error: null, openai: { provider: attemptSettings.provider, model: attemptSettings.model, usage: null, cost: null, durationMs: null } })
     const buffer = await readFile(getStoredFilePath(job))
     const extraction = await extractMilkCollectionDocument({
       buffer,
@@ -56,7 +61,7 @@ async function processNext() {
       } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
       await updateJob(id, {
         status: 'completed', data, ocrOriginalData: extraction.data, producerMatches, headerCenterMatch, producerMatchError,
-        openai: extraction.openai, completedAt: new Date().toISOString(), error: null,
+        openai: { ...extraction.openai, durationMs: extraction.openai?.durationMs ?? Date.now() - attemptStartedAt }, completedAt: new Date().toISOString(), error: null,
       })
       return
     }
@@ -124,7 +129,7 @@ async function processNext() {
       status: 'completed',
       data: enrichedData,
       ocrOriginalData: extraction.data,
-      openai: extraction.openai,
+      openai: { ...extraction.openai, durationMs: extraction.openai?.durationMs ?? Date.now() - attemptStartedAt },
       centerMatches,
       centerMatchError,
       driverMatch,
@@ -142,6 +147,7 @@ async function processNext() {
     await updateJob(id, {
       status: 'failed',
       completedAt: new Date().toISOString(),
+      ...(attemptSettings ? { openai: { provider: attemptSettings.provider, model: attemptSettings.model, usage: null, cost: null, durationMs: attemptStartedAt ? Date.now() - attemptStartedAt : null } } : {}),
       error: error instanceof Error ? error.message : 'OCR extraction failed.',
     })
   } finally {

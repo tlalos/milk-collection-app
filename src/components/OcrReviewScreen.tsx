@@ -88,6 +88,7 @@ interface OcrJob {
   status: 'queued' | 'processing' | 'completed' | 'failed'
   reviewStatus: 'pending' | 'reviewed'
   createdAt: string
+  startedAt?: string | null
   completedAt: string | null
   reviewedAt?: string | null
   fileUrl: string
@@ -117,6 +118,7 @@ interface OcrJob {
       pricingDate: string
       ratesPerMillionTokens: { input: number; cachedInput: number; output: number }
     } | null
+    durationMs?: number | null
   } | null
   excelExport?: {
     status: 'not_ready' | 'queued' | 'exporting' | 'exported' | 'failed'
@@ -214,6 +216,13 @@ function formatCost(job: OcrJob) {
     minimumFractionDigits: euros < 0.01 ? 4 : 3,
     maximumFractionDigits: euros < 0.01 ? 4 : 3,
   }).format(euros)
+}
+
+function formatOcrDuration(job: OcrJob) {
+  const elapsed = job.openai?.durationMs ?? (job.startedAt && job.completedAt ? new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime() : null)
+  if (elapsed == null || !Number.isFinite(elapsed) || elapsed < 0) return null
+  const seconds = Math.round(elapsed / 1000)
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`
 }
 
 function applyAutomaticCenterReplacements(job: OcrJob) {
@@ -808,6 +817,7 @@ export function OcrReviewScreen() {
         <div className="review-header-actions">
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/upload') }}>{isRo ? 'Încărcare' : 'Upload'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Decont lunar' : 'Monthly Review'}</button>
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/compare') }}>{isRo ? 'Comparare OCR' : 'OCR Compare'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR settings'}</button>
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
@@ -864,6 +874,7 @@ export function OcrReviewScreen() {
                   <span className="review-job-title"><strong>{(() => { const values = job.id === selectedId && draft ? draft : job.summary; const route = values?.route?.trim() || (isRo ? 'Rută necunoscută' : 'Unknown route'); const date = displayDate(values?.date ?? null) || (isRo ? 'Dată necunoscută' : 'Unknown date'); return `${route} · ${date}` })()}</strong>{job.attention?.needsAttention && <b title="OCR values need verification">!</b>}</span>
                   <span className="review-job-status"><i aria-hidden="true" />{loadingId === job.id ? (isRo ? 'Se deschide…' : 'Opening…') : statusLabel(job, language)}</span>
                   {job.attention?.needsAttention && <span className="review-attention-text">{isRo ? 'Necesită verificare' : 'Needs verification'}</span>}
+                  {job.openai?.model && <span className="review-job-model">OCR: {job.openai.provider || 'openai'} · {job.openai.model}{formatOcrDuration(job) ? ` · ${formatOcrDuration(job)}` : ''}</span>}
                   {formatCost(job) && <span className="review-job-cost">OpenAI est. {formatCost(job)}</span>}
                   {job.excelExport?.status && job.excelExport.status !== 'not_ready' && <span className={`review-excel-status excel-${job.excelExport.status}`}>Excel: {job.excelExport.status}</span>}
                   <small>{new Date(job.createdAt).toLocaleString()}</small>

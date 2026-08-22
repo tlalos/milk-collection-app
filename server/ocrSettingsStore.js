@@ -16,9 +16,23 @@ export const OCR_PROVIDERS = {
     configurationEnv: 'LOCAL_OCR_URL',
     compatibilityNote: 'Runs PaddleOCR locally without API-token charges. Start the optional Python OCR service before selecting this provider.',
   },
-  kimi: { label: 'Kimi', defaultModel: 'kimi-k2.5', models: ['kimi-k2.5'], keyEnv: 'KIMI_API_KEY', supportsDocuments: false },
-  deepseek: { label: 'DeepSeek', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro'], keyEnv: 'DEEPSEEK_API_KEY', supportsDocuments: false, compatibilityNote: 'The official API does not document image/PDF input for this OCR workflow.' },
-  mistral: { label: 'Mistral', defaultModel: 'mistral-medium-2508', models: ['mistral-medium-2508', 'mistral-small-2506'], keyEnv: 'MISTRAL_API_KEY', supportsDocuments: false },
+  kimi: { label: 'Kimi', defaultModel: 'kimi-k2.6', models: ['kimi-k2.6', 'kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed'], keyEnv: 'KIMI_API_KEY', supportsDocuments: false },
+  deepseek: {
+    label: 'DeepSeek',
+    defaultModel: 'deepseek-v4-flash-vision-exp',
+    models: ['deepseek-v4-flash-vision-exp'],
+    keyEnv: 'DEEPSEEK_API_KEY',
+    supportsDocuments: false,
+    compatibilityNote: 'Uses the experimental DeepSeek vision model for images. PDF uploads are not supported by this integration.',
+  },
+  mistral: {
+    label: 'Mistral Document AI',
+    defaultModel: 'mistral-ocr-latest',
+    models: ['mistral-ocr-latest', 'mistral-ocr-4-1', 'mistral-ocr-4-0', 'mistral-ocr-2512'],
+    keyEnv: 'MISTRAL_API_KEY',
+    supportsDocuments: true,
+    compatibilityNote: 'Uses Mistral Document AI OCR for images/PDFs, then converts the recognised document into the application review schema.',
+  },
 }
 
 export function isOcrProviderConfigured(provider) {
@@ -42,7 +56,12 @@ export async function initializeOcrSettingsStore() {
 export async function getOcrSettings() {
   try {
     const saved = JSON.parse(await readFile(settingsPath, 'utf8'))
-    return OCR_PROVIDERS[saved.provider] ? { ...defaults(), ...saved } : defaults()
+    const definition = OCR_PROVIDERS[saved.provider]
+    if (!definition) return defaults()
+    return {
+      ...defaults(), ...saved,
+      model: definition.models.includes(saved.model) ? saved.model : definition.defaultModel,
+    }
   } catch { return defaults() }
 }
 

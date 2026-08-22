@@ -77,6 +77,7 @@
 .review-attention-text { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #fff1bd; color: #775a00 !important; font-size: .62rem !important; font-weight: 800; }
 .review-job-list small { color: #929c95; font-size: .67rem; }
 .review-job-cost { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #e8f1ff; color: #285888; font-size: .62rem; font-weight: 800; }
+.review-job-model { width: fit-content; max-width: 100%; overflow: hidden; padding: 3px 6px; border-radius: 5px; background: #eee9f8; color: #59427d; font-size: .58rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .review-excel-status { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #eef1ef; color: #526158; font-size: .62rem; font-weight: 800; text-transform: capitalize; }
 .review-excel-status.excel-exported { background: #dff1e6; color: #17613a; }
 .review-excel-status.excel-failed { background: #fce9e7; color: #9d342d; }
