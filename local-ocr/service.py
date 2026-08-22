@@ -42,10 +42,20 @@ def engine():
                 "PaddleOCR is not installed. Run: python -m pip install -r local-ocr/requirements.txt"
             ) from exc
         _engine = PaddleOCR(
-            lang=os.getenv("LOCAL_OCR_LANGUAGE", "latin"),
-            use_doc_orientation_classify=True,
-            use_doc_unwarping=True,
-            use_textline_orientation=True,
+            # PaddleOCR 3.x exposes Latin-script recognition through the
+            # supported `en` model identifier. `latin` without an explicitly
+            # paired OCR version fails during model discovery in 3.7.
+            lang=os.getenv("LOCAL_OCR_LANGUAGE", "en"),
+            # PaddlePaddle 3.3 on Windows can fail in oneDNN while converting
+            # array attributes for the OCR models. The plain CPU executor is
+            # slower but stable on the IIS/local Windows deployment target.
+            enable_mkldnn=False,
+            text_detection_model_name=os.getenv("LOCAL_OCR_DETECTION_MODEL", "PP-OCRv5_mobile_det"),
+            text_recognition_model_name=os.getenv("LOCAL_OCR_RECOGNITION_MODEL", "en_PP-OCRv5_mobile_rec"),
+            text_det_limit_side_len=int(os.getenv("LOCAL_OCR_MAX_SIDE", "2200")),
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
         )
     return _engine
 
@@ -99,7 +109,7 @@ def recognize(path: Path) -> list[dict[str, Any]]:
             if not text:
                 continue
             x1, y1, x2, y2 = bounds(box)
-            tokens.append({"text": text, "score": score, "x": (x1 + x2) / 2, "y": (y1 + y2) / 2, "x1": x1, "x2": x2})
+            tokens.append({"text": text, "score": score, "x": (x1 + x2) / 2, "y": (y1 + y2) / 2, "x1": x1, "x2": x2, "y1": y1, "y2": y2})
     return sorted(tokens, key=lambda item: (item["y"], item["x"]))
 
 
@@ -119,8 +129,9 @@ def integer_like(value: str) -> float | None:
 def grouped_rows(tokens: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     if not tokens:
         return []
-    typical_height = max(12.0, sum(max(8.0, token.get("x2", 0) - token.get("x1", 0)) for token in tokens) / len(tokens) * 0.12)
-    tolerance = min(32.0, typical_height)
+    heights = sorted(max(8.0, token.get("y2", token["y"]) - token.get("y1", token["y"])) for token in tokens)
+    typical_height = heights[len(heights) // 2]
+    tolerance = min(40.0, max(12.0, typical_height * 0.75))
     rows: list[list[dict[str, Any]]] = []
     for token in tokens:
         if not rows or abs(sum(item["y"] for item in rows[-1]) / len(rows[-1]) - token["y"]) > tolerance:
@@ -138,6 +149,13 @@ def date_and_month(all_text: str) -> tuple[str | None, int | None]:
     match = re.search(r"\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b", all_text)
     if match:
         day, month, year = map(int, match.groups())
+        if 1 <= day <= 31 and 1 <= month <= 12:
+            return f"{year:04d}-{month:02d}-{day:02d}", month
+    compact = re.search(r"\b(\d{3,4})[./-](20\d{2})\b", all_text)
+    if compact:
+        digits, year_text = compact.groups()
+        digits = digits.zfill(4)
+        day, month, year = int(digits[:2]), int(digits[2:]), int(year_text)
         if 1 <= day <= 31 and 1 <= month <= 12:
             return f"{year:04d}-{month:02d}-{day:02d}", month
     upper = all_text.upper()
@@ -165,18 +183,31 @@ def parse_daily(tokens: list[dict[str, Any]]) -> dict[str, Any]:
     all_text = "\n".join(text(row) for row in rows)
     date, _ = date_and_month(all_text)
     data_rows = []
+    table_started = False
     for row in rows:
+        line = text(row)
+        upper = line.upper()
+        if "CENTRU" in upper and "COLECTARE" in upper:
+            table_started = True
+            continue
+        if table_started and any(marker in upper for marker in ("CENTRALIZATOR", "SEMNATURA", "TOTAL")):
+            break
+        if not table_started:
+            continue
         values = [integer_like(item["text"]) for item in row]
         row_number = next((int(value) for value in values if value is not None and 1 <= value <= 60), None)
-        if row_number is None or len(row) < 2:
-            continue
         numeric = [(item, integer_like(item["text"])) for item in row if integer_like(item["text"]) is not None]
         words = [item for item in row if integer_like(item["text"]) is None and len(item["text"].strip()) > 1]
         if not words or not numeric:
             continue
         center = max((item["text"] for item in words), key=len, default=None)
-        numeric_values = [value for _, value in numeric if value != row_number]
+        if center:
+            center = re.sub(r"^[^A-Za-zĂÂÎȘȚăâîșț]*\d[\d./-]*", "", center).strip(" ._-") or center
+        numeric_values = [value for _, value in numeric if row_number is None or value != row_number]
         liters = numeric_values[0] if numeric_values else None
+        if liters is None or liters > 100_000:
+            continue
+        row_number = row_number or len(data_rows) + 1
         tail = numeric_values[1:]
         data_rows.append({
             "rowNumber": row_number, "collectionCenter": center, "liters": liters,
