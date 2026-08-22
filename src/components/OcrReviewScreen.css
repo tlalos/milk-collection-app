@@ -48,6 +48,8 @@
 .review-queue-stats strong { font-size: .86rem; }
 .review-queue-stats span { overflow: hidden; color: #78837c; font-size: .57rem; white-space: nowrap; text-overflow: ellipsis; }
 .review-queue-stats .processing { background: #fff5df; color: #936300; }
+.review-queue-stats .processing span { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.review-queue-stats .processing span i { width: 9px; height: 9px; box-sizing: border-box; border: 2px solid #e8c36b; border-top-color: #956300; border-radius: 50%; animation: review-spin .7s linear infinite; }
 .review-queue-stats .complete { background: #e7f4ec; color: #17613a; }
 .review-queue-stats .failed { background: #fce9e7; color: #a23b32; }
 .review-reviewed-count { margin-bottom: 13px; padding: 9px; border-radius: 8px; background: #e8f4ec; color: #286342; font-size: .72rem; text-align: center; }
@@ -74,6 +76,7 @@
 .review-job-list .status-completed .review-job-status i { background: #1a7a45; box-shadow: 0 0 0 3px #dcefe4; }
 .review-job-list .status-failed .review-job-status { color: #a23b32; }
 .review-job-list .status-failed .review-job-status i { background: #b7443b; }
+.review-ocr-time-badge { padding: 4px 8px; border-radius: 999px; background: #eee8fb; color: #563a88; font-size: .66rem; white-space: nowrap; }
 .review-attention-text { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #fff1bd; color: #775a00 !important; font-size: .62rem !important; font-weight: 800; }
 .review-job-list small { color: #929c95; font-size: .67rem; }
 .review-job-cost { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #e8f1ff; color: #285888; font-size: .62rem; font-weight: 800; }

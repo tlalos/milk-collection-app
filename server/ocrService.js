@@ -71,7 +71,11 @@ export function normalizeMonthlyData(data) {
     : null
   const missingDate = !data.date && !derivedMonthDate
   let calculatedUgRows = 0
-  const normalizedHeaderCenter = String(data.headerCenterName || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
+  const headerCenterName = String(data.headerCenterName || '')
+    .split(/\b(?:TIP\s*(?:DE\s*)?LAPTE|MILK\s*TYPE)\b/iu, 1)[0]
+    .trim()
+    .replace(/[\s:;,_-]+$/u, '') || null
+  const normalizedHeaderCenter = String(headerCenterName || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
   const sourceRows = data.rows.filter((row) => {
     if (data.layoutType !== 'detailed') return true
     const producer = String(row.producer || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
@@ -100,6 +104,7 @@ export function normalizeMonthlyData(data) {
     : []
   return {
     ...data,
+    headerCenterName,
     date: data.date || derivedMonthDate || new Date().toISOString().slice(0, 10),
     documentMonth: derivedMonthDate ? identifiedMonth : null,
     milkType: data.milkType?.trim() || 'VACA',
@@ -165,18 +170,27 @@ async function extractWithLocalProvider(file, settings, documentCategory) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   let apiResponse
   try {
-    apiResponse = await fetch(`${baseUrl}/ocr`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        documentCategory,
-        model: settings.model,
-        fileBase64: file.buffer.toString('base64'),
-      }),
+    const body = JSON.stringify({
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      documentCategory,
+      model: settings.model,
+      fileBase64: file.buffer.toString('base64'),
     })
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        apiResponse = await fetch(`${baseUrl}/ocr`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body,
+        })
+        break
+      } catch (error) {
+        if (error?.name === 'AbortError' || attempt === 3) throw error
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1_500))
+      }
+    }
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error(`Local Open Source OCR timed out after ${Math.round(timeoutMs / 1000)} seconds.`)
     throw new Error(`Local Open Source OCR service is unavailable at ${baseUrl}. Start the service and try again.`)

@@ -239,6 +239,16 @@ def parse_monthly(tokens: list[dict[str, Any]]) -> dict[str, Any]:
     date, month = date_and_month(all_text)
     milk_type = "OAIE" if "OAIE" in upper else "VACA"
     header_center = header_value(rows, ("CENTRU", "CL.", "PUNCT"))
+    if header_center:
+        # Header labels commonly share one OCR line, for example:
+        # "CENTRU: VALEA LUNGA  TIP LAPTE: VACA". Keep only the value
+        # belonging to CENTRU and never append the neighboring milk label.
+        header_center = re.split(
+            r"\b(?:TIP\s*(?:DE\s*)?LAPTE|MILK\s*TYPE)\b",
+            header_center,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip(" ._:-") or None
     output_rows = []
     for row in rows:
         line = text(row).upper()

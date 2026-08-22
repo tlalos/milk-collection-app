@@ -634,7 +634,8 @@ export function MonthlySettlementReviewScreen() {
                 }}
               >
                 <strong>{job.summary?.centerName || job.sourceFile}</strong>
-                <span>
+                <span className={`monthly-job-status status-${job.status}`}>
+                  {job.status === "processing" && <i aria-hidden="true" />}
                   {job.status === "completed"
                     ? job.summary?.layoutType === "detailed"
                       ? isRo
@@ -781,6 +782,11 @@ export function MonthlySettlementReviewScreen() {
                           ? "Centralizator"
                           : "Overview"}
                     </span>
+                    {formatOcrDuration(selected) && (
+                      <b className="monthly-selected-ocr-time">
+                        {isRo ? "Durată OCR" : "OCR time"}: {formatOcrDuration(selected)}
+                      </b>
+                    )}
                   </div>
                   {draft && (
                     <div>

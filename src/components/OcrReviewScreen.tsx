@@ -858,7 +858,7 @@ export function OcrReviewScreen() {
           {queueView === 'pending' ? (
             <div className="review-queue-stats" aria-live="polite">
               <div className="queued"><strong>{queuedCount}</strong><span>{isRo ? 'În coadă' : 'Queued'}</span></div>
-              <div className="processing"><strong>{processingCount}</strong><span>{isRo ? 'Procesare' : 'Processing'}</span></div>
+              <div className="processing"><strong>{processingCount}</strong><span><i aria-hidden="true" />{isRo ? 'Procesare' : 'Processing'}</span></div>
               <div className="complete"><strong>{completedCount}</strong><span>{isRo ? 'OCR finalizat' : 'OCR complete'}</span></div>
               {failedCount > 0 && <div className="failed"><strong>{failedCount}</strong><span>{isRo ? 'Eșuat' : 'Failed'}</span></div>}
             </div>
@@ -929,6 +929,7 @@ export function OcrReviewScreen() {
                 <div className="review-panel-heading review-data-heading">
                   <div className="review-data-title"><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><span>{isRo ? 'Editați câmpurile și salvați-le pe server' : 'Edit fields and save them to the server'}</span><button className={`review-fit-columns ${columnsFit ? 'active' : ''}`} type="button" onClick={toggleColumnsFit} title={columnsFit ? (isRo ? 'Restabiliți aspectul anterior' : 'Restore previous layout') : (isRo ? 'Afișați toate coloanele' : 'Fit all columns')} aria-pressed={columnsFit}><span aria-hidden="true">↔</span>{columnsFit ? (isRo ? 'Restabiliți' : 'Restore') : (isRo ? 'Potriviți coloanele' : 'Fit columns')}</button></div>
                   <div className="review-heading-badges">
+                    {formatOcrDuration(selected) && <b className="review-ocr-time-badge">{isRo ? 'Durată OCR' : 'OCR time'}: {formatOcrDuration(selected)}</b>}
                     <b className={`review-autosave-status status-${autoSaveStatus}`}>{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>
                     {selected.reviewStatus === 'reviewed' ? <b className="reviewed-badge">{isRo ? 'Verificat' : 'Reviewed'}</b> : selected.attention?.needsAttention ? <b className="attention-badge">! {isRo ? 'Necesită verificare' : 'Needs verification'}</b> : <b className="clear-badge">{isRo ? 'Fără avertizări OCR' : 'No OCR warnings'}</b>}
                   </div>

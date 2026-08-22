@@ -129,6 +129,24 @@
   font-weight: 800;
   text-transform: capitalize;
 }
+.monthly-list .monthly-job-status.status-processing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #956300;
+}
+.monthly-list .monthly-job-status.status-processing i {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 2px solid #e8c36b;
+  border-top-color: #956300;
+  border-radius: 50%;
+  animation: monthly-spin 0.7s linear infinite;
+}
+@keyframes monthly-spin {
+  to { transform: rotate(360deg); }
+}
 .monthly-list small {
   color: #869189;
   font-size: 0.65rem;
@@ -193,6 +211,16 @@
 .monthly-data-title h2 {
   margin: 0;
   font-size: 0.95rem;
+}
+.monthly-selected-ocr-time {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eee8fb;
+  color: #563a88;
+  font-size: 0.62rem;
+  white-space: nowrap;
 }
 .monthly-data-title span {
   font-size: 0.68rem;
