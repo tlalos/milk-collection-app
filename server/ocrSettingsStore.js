@@ -8,14 +8,6 @@ const settingsPath = path.join(settingsDir, 'ocr.json')
 
 export const OCR_PROVIDERS = {
   openai: { label: 'OpenAI', defaultModel: 'gpt-5.6-terra', models: ['gpt-5.6-terra'], keyEnv: 'OPENAI_API_KEY', supportsDocuments: true },
-  local: {
-    label: 'Local Open Source',
-    defaultModel: 'paddleocr-latin-template-v1',
-    models: ['paddleocr-latin-template-v1'],
-    supportsDocuments: true,
-    configurationEnv: 'LOCAL_OCR_URL',
-    compatibilityNote: 'Runs PaddleOCR locally without API-token charges. Start the optional Python OCR service before selecting this provider.',
-  },
   kimi: { label: 'Kimi', defaultModel: 'kimi-k2.6', models: ['kimi-k2.6', 'kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed'], keyEnv: 'KIMI_API_KEY', supportsDocuments: false },
   deepseek: {
     label: 'DeepSeek',
@@ -91,7 +83,6 @@ export function publicOcrSettings(settings) {
       configured: isOcrProviderConfigured(provider),
       supportsDocuments: provider.supportsDocuments,
       compatibilityNote: provider.compatibilityNote || null,
-      local: id === 'local',
     })),
   }
 }

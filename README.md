@@ -27,7 +27,6 @@ For frontend development, run `npm run server` and `npm run dev` in separate ter
 
 - `OPENAI_API_KEY`: required server-side API key.
 - `OPENAI_OCR_MODEL`: optional model override; defaults to `gpt-5.6-terra`.
-- `LOCAL_OCR_URL`: optional URL for the experimental self-hosted PaddleOCR sidecar (normally `http://127.0.0.1:8790`). Install and start it using `local-ocr/README.md`, then select **Local Open Source** in OCR Settings. OpenAI remains the default and can be selected again at any time.
 - `PORT`: optional server port; defaults to `8787`.
 
 Extracted values must be reviewed before import into another system. Illegible values are returned as `null`, with warnings and uncertain-field markers in the structured JSON.
