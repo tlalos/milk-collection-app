@@ -369,6 +369,24 @@ export function App() {
                 <span className="home-tile-label">Transport</span>
               </button>
 
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/ocr/upload') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M8 13h8" />
+                    <path d="M8 17h5" />
+                    <circle cx="9" cy="9" r="1" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">OCR documents</span>
+              </button>
+
             </div>
           </main>
         </div>

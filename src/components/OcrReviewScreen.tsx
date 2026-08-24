@@ -141,7 +141,7 @@ interface OcrJob {
   rowValueSourceError?: string | null
 }
 
-type QueueView = 'pending' | 'reviewed'
+type QueueView = 'pending' | 'reviewed' | 'failed'
 type TextField = 'companyName' | 'date' | 'driverName' | 'vehicleRegistration' | 'route'
 type RowTextField = 'collectionCenter' | 'noticeNumber'
 type RowNumberField = 'liters' | 'fatPercent' | 'density' | 'water' | 'temperature'
@@ -187,6 +187,10 @@ function statusLabel(job: OcrJob, language: OcrLanguage) {
   if (job.status === 'processing') return ro ? 'Procesare OCR' : 'OCR processing'
   if (job.status === 'failed') return ro ? 'OCR eșuat' : 'OCR failed'
   return job.reviewStatus === 'reviewed' ? (ro ? 'Verificat' : 'Reviewed') : (ro ? 'Pregătit pentru verificare' : 'Ready for review')
+}
+
+function isFailedQueueJob(job: OcrJob) {
+  return job.status === 'failed' || job.excelExport?.status === 'failed'
 }
 
 function nullableNumber(input: string) {
@@ -326,10 +330,17 @@ export function OcrReviewScreen() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const response = await fetch(appPath(`/api/ocr/jobs?reviewStatus=${queueView}&documentCategory=daily_routes`))
+      const query = queueView === 'failed'
+        ? 'documentCategory=daily_routes'
+        : `reviewStatus=${queueView}&documentCategory=daily_routes`
+      const response = await fetch(appPath(`/api/ocr/jobs?${query}`))
       const payload = await response.json() as { jobs?: OcrJob[]; error?: string }
       if (!response.ok) throw new Error(payload.error || 'Could not load OCR jobs.')
-      const nextJobs = payload.jobs ?? []
+      const nextJobs = queueView === 'pending'
+        ? (payload.jobs ?? []).filter((job) => job.status !== 'failed')
+        : queueView === 'failed'
+          ? (payload.jobs ?? []).filter(isFailedQueueJob)
+        : payload.jobs ?? []
       setJobs(nextJobs)
       setSelectedSummary((current) => current ? nextJobs.find((job) => job.id === current.id) ?? current : current)
       setSelected((current) => {
@@ -763,7 +774,17 @@ export function OcrReviewScreen() {
   const queuedCount = jobs.filter((job) => job.status === 'queued').length
   const processingCount = jobs.filter((job) => job.status === 'processing').length
   const completedCount = jobs.filter((job) => job.status === 'completed').length
-  const failedCount = jobs.filter((job) => job.status === 'failed').length
+  const failedCount = jobs.filter(isFailedQueueJob).length
+  const queueTitle = queueView === 'pending'
+    ? (isRo ? 'În așteptarea verificării' : 'Pending review')
+    : queueView === 'reviewed'
+      ? (isRo ? 'Documente verificate' : 'Reviewed documents')
+      : (isRo ? 'Documente eșuate' : 'Failed documents')
+  const emptyQueueName = queueView === 'pending'
+    ? (isRo ? 'în așteptare' : 'pending')
+    : queueView === 'reviewed'
+      ? (isRo ? 'verificate' : 'reviewed')
+      : (isRo ? 'eșuate' : 'failed')
   const normalizedSearch = jobSearch.trim().toLocaleLowerCase()
   const filteredJobs = normalizedSearch ? jobs.filter((job) => {
     const liveData = job.id === selectedId ? draft : null
@@ -796,6 +817,15 @@ export function OcrReviewScreen() {
     if (source.source === 'previous_day') return isRo ? `Din ziua precedentă: ${displayDate(source.sourceDate ?? null)}` : `From previous day: ${displayDate(source.sourceDate ?? null)}`
     if (source.source === 'not_found') return isRo ? `Nicio valoare înainte de ${displayDate(source.sourceDate ?? null)}` : `No fallback before ${displayDate(source.sourceDate ?? null)}`
     return isRo ? 'Generat din data documentului' : 'Generated from document date'
+  }
+
+  function jobListSummary(job: OcrJob) {
+    const values = job.id === selectedId && draft ? draft : job.summary
+    const route = values?.route?.trim() || (isRo ? 'Rută necunoscută' : 'Unknown route')
+    const date = displayDate(values?.date ?? null) || (isRo ? 'Dată necunoscută' : 'Unknown date')
+    const driver = values?.driverName?.trim()
+    const vehicle = values?.vehicleRegistration?.trim()
+    return { route, date, driver, vehicle }
   }
 
   useEffect(() => {
@@ -848,30 +878,43 @@ export function OcrReviewScreen() {
           <div className="review-queue-tabs">
             <button className={queueView === 'pending' ? 'active' : ''} type="button" onClick={() => setQueueView('pending')}>{isRo ? 'În așteptare' : 'Pending'}</button>
             <button className={queueView === 'reviewed' ? 'active' : ''} type="button" onClick={() => setQueueView('reviewed')}>{isRo ? 'Verificate' : 'Reviewed'}</button>
+            <button className={queueView === 'failed' ? 'active' : ''} type="button" onClick={() => setQueueView('failed')}>{isRo ? 'Eșuate' : 'Failed'}</button>
           </div>
           <label className="review-job-search">
             <span aria-hidden="true">⌕</span>
             <input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…'} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
             {jobSearch && <button type="button" onClick={() => setJobSearch('')} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
           </label>
-          <div className="review-queue-title"><h2>{queueView === 'pending' ? (isRo ? 'În așteptarea verificării' : 'Pending review') : (isRo ? 'Documente verificate' : 'Reviewed documents')}</h2><span>{filteredJobs.length}</span></div>
+          <div className="review-queue-title"><h2>{queueTitle}</h2><span>{filteredJobs.length}</span></div>
           {queueView === 'pending' ? (
             <div className="review-queue-stats" aria-live="polite">
               <div className="queued"><strong>{queuedCount}</strong><span>{isRo ? 'În coadă' : 'Queued'}</span></div>
-              <div className="processing"><strong>{processingCount}</strong><span><i aria-hidden="true" />{isRo ? 'Procesare' : 'Processing'}</span></div>
+              <div className={processingCount > 0 ? 'processing active' : 'processing'}><strong>{processingCount}</strong><span>{processingCount > 0 && <i aria-hidden="true" />}{isRo ? 'Procesare' : 'Processing'}</span></div>
               <div className="complete"><strong>{completedCount}</strong><span>{isRo ? 'OCR finalizat' : 'OCR complete'}</span></div>
-              {failedCount > 0 && <div className="failed"><strong>{failedCount}</strong><span>{isRo ? 'Eșuat' : 'Failed'}</span></div>}
             </div>
+          ) : queueView === 'failed' ? (
+            <div className="review-failed-count"><strong>{failedCount}</strong> {isRo ? 'documente eșuate OCR sau Excel' : 'failed OCR or Excel documents'}</div>
           ) : (
             <div className="review-reviewed-count"><strong>{completedCount}</strong> {isRo ? 'documente verificate' : 'reviewed documents'}</div>
           )}
 
-          {filteredJobs.length === 0 ? <p className="review-empty">{jobSearch ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${queueView} documents.`)}</p> : (
+          {filteredJobs.length === 0 ? <p className="review-empty">{jobSearch ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${emptyQueueName} documents.`)}</p> : (
             <div className="review-job-list">
               {visibleJobs.map((job) => (
                 <article className={`review-job-item ${selectedId === job.id ? 'selected' : ''} status-${job.status}`} key={job.id}>
                 <button className="review-job-open" type="button" onClick={() => void openJob(job)} disabled={loadingId === job.id || deletingId === job.id}>
-                  <span className="review-job-title"><strong>{(() => { const values = job.id === selectedId && draft ? draft : job.summary; const route = values?.route?.trim() || (isRo ? 'Rută necunoscută' : 'Unknown route'); const date = displayDate(values?.date ?? null) || (isRo ? 'Dată necunoscută' : 'Unknown date'); return `${route} · ${date}` })()}</strong>{job.attention?.needsAttention && <b title="OCR values need verification">!</b>}</span>
+                  {(() => {
+                    const summary = jobListSummary(job)
+                    return <>
+                      <span className="review-job-title"><strong>{`${summary.route} · ${summary.date}`}</strong>{job.attention?.needsAttention && <b title="OCR values need verification">!</b>}</span>
+                      {(summary.driver || summary.vehicle) && (
+                        <span className="review-job-meta">
+                          {summary.driver && <em><b>{isRo ? 'Șofer' : 'Driver'}</b><span>{summary.driver}</span></em>}
+                          {summary.vehicle && <em><b>{isRo ? 'Camion' : 'Truck'}</b><span>{summary.vehicle}</span></em>}
+                        </span>
+                      )}
+                    </>
+                  })()}
                   <span className="review-job-status"><i aria-hidden="true" />{loadingId === job.id ? (isRo ? 'Se deschide…' : 'Opening…') : statusLabel(job, language)}</span>
                   {job.attention?.needsAttention && <span className="review-attention-text">{isRo ? 'Necesită verificare' : 'Needs verification'}</span>}
                   {job.openai?.model && <span className="review-job-model">OCR: {job.openai.provider || 'openai'} · {job.openai.model}{formatOcrDuration(job) ? ` · ${formatOcrDuration(job)}` : ''}</span>}
