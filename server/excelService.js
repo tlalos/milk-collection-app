@@ -12,6 +12,24 @@ let vehicleRouteCache = { expiresAt: 0, routes: [] }
 let producerCache = { expiresAt: 0, producers: [] }
 const DRIVER_CACHE_MS = 30 * 60 * 1000
 let tokenRefreshPromise = null
+const DAILY_ROUTES_USED_ROW_COLUMNS = [
+  'Row_ID',
+  'Date',
+  'Driver',
+  'Truck',
+  'Route_ID',
+  'Aviz_No',
+  'Center_Name',
+  'Qty_Collected_L',
+  'Fat/Densitate',
+  'Temperature_C',
+  'Antibiotics_Status',
+  'Water_Percent',
+  'Comments',
+  'ERP_Action',
+  'ERP_Status',
+  'Center_Code',
+]
 
 export function clearReferenceCaches() {
   centerCache = { expiresAt: 0, centers: [] }
@@ -74,11 +92,15 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
   const columnNames = (columns.value || []).map((column) => column.name)
   if (!columnNames.length) throw new Error(`Excel table ${config.tableName} has no columns.`)
 
-  const rowIdRange = await graphFetch(`${tablePath}/columns/${encodeURIComponent('Row_ID')}/dataBodyRange`, token, { headers })
+  const [rowIdRange, tableBodyRange] = await Promise.all([
+    graphFetch(`${tablePath}/columns/${encodeURIComponent('Row_ID')}/dataBodyRange`, token, { headers }),
+    graphFetch(`${tablePath}/dataBodyRange`, token, { headers }),
+  ])
   const rowIdValues = (rowIdRange.values || []).flat()
+  const tableBodyValues = Array.isArray(tableBodyRange.values) ? tableBodyRange.values : []
   const existingIds = rowIdValues.map(Number).filter(Number.isFinite)
   let nextRowId = (existingIds.length ? Math.max(...existingIds) : 0) + 1
-  const lastUsedIndex = rowIdValues.reduce((last, value, index) => value !== null && value !== '' ? index : last, -1)
+  const lastUsedIndex = findLastUsedTableRowIndex(tableBodyValues, columnNames, DAILY_ROUTES_USED_ROW_COLUMNS)
   const startIndex = lastUsedIndex + 1
   const dateSerial = toExcelSerial(job.data.date)
 
@@ -114,7 +136,7 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
     await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: mapped.Center_Name })
   }
 
-  await ensureTableCapacity(tablePath, token, rowIdValues.length, startIndex + values.length)
+  await ensureTableCapacity(tablePath, token, Math.max(rowIdValues.length, tableBodyValues.length), startIndex + values.length)
   const bodyStartRow = Number(rowIdRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
   if (!bodyStartRow) throw new Error('Could not determine the Daily_Routes table row address.')
   const excelStartRow = bodyStartRow + startIndex
@@ -220,6 +242,22 @@ async function ensureTableCapacity(tablePath, token, currentCapacity, requiredCa
 
 function excelColumnNumber(column) {
   return [...column].reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0)
+}
+
+function findLastUsedTableRowIndex(rows, columnNames, importantColumns) {
+  const indexes = importantColumns
+    .map((name) => columnNames.findIndex((columnName) => normalizeValue(columnName) === normalizeValue(name)))
+    .filter((index) => index >= 0)
+  if (!indexes.length) return -1
+  return rows.reduce((last, row, rowIndex) =>
+    indexes.some((columnIndex) => isUsedExcelValue(row?.[columnIndex])) ? rowIndex : last,
+  -1)
+}
+
+function isUsedExcelValue(value) {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  return true
 }
 
 export async function matchCentersForRows(rows) {

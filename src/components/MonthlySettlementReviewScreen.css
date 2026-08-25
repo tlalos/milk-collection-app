@@ -114,14 +114,41 @@
   background: #e4f1e9;
   color: #17613a;
 }
+.monthly-search {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.monthly-search span {
+  color: #617168;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.monthly-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 11px;
+  border: 1px solid #d3dfd8;
+  border-radius: 8px;
+  background: #fff;
+  color: #17251d;
+  font: inherit;
+  font-size: 0.78rem;
+}
+.monthly-search input:focus {
+  border-color: #1f7a49;
+  outline: 2px solid rgba(31, 122, 73, 0.16);
+}
 .monthly-list {
   display: grid;
   gap: 7px;
 }
 .monthly-list-card {
+  position: relative;
   display: grid;
   gap: 3px;
-  padding: 10px;
+  padding: 10px 38px 10px 10px;
   border: 1px solid #d6e0da;
   border-radius: 9px;
   background: #fafcfb;
@@ -147,6 +174,35 @@
 .monthly-card-redo:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+.monthly-document-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: #ffecea;
+  color: #a83832;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+.monthly-document-delete:hover {
+  background: #f8d6d2;
+}
+.monthly-document-delete:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.monthly-document-delete:focus-visible {
+  outline: 2px solid rgba(168, 56, 50, 0.22);
+  outline-offset: 2px;
 }
 .monthly-list strong {
   overflow: hidden;
@@ -193,6 +249,15 @@
 .monthly-list em {
   color: #a23b32;
   font-size: 0.62rem;
+}
+.monthly-list-empty {
+  padding: 14px 10px;
+  border: 1px dashed #cbd8d0;
+  border-radius: 8px;
+  color: #708078;
+  font-size: 0.74rem;
+  font-weight: 750;
+  text-align: center;
 }
 .monthly-workspace {
   min-width: 0;
@@ -349,6 +414,10 @@
 .monthly-table th:first-child {
   width: 42px;
 }
+.monthly-table th.monthly-row-actions {
+  width: 58px;
+  text-align: center;
+}
 .monthly-table td {
   padding: 6px 5px;
   border-bottom: 1px solid #dce5df;
@@ -361,6 +430,29 @@
   color: #39709e;
   font-size: 0.55rem;
   font-weight: 800;
+}
+.monthly-row-delete {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #efc5c1;
+  border-radius: 8px;
+  background: #fff0ef;
+  color: #9d342d;
+  font-size: 1.15rem;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+}
+.monthly-row-delete:hover {
+  background: #f9d9d6;
+}
+.monthly-row-delete:focus-visible {
+  outline: 2px solid rgba(157, 52, 45, 0.22);
+  outline-offset: 2px;
 }
 .monthly-empty {
   display: grid;

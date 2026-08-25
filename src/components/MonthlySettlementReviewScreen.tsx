@@ -125,12 +125,14 @@ export function MonthlySettlementReviewScreen() {
   const { language, setLanguage, isRo } = useOcrLanguage();
   const [view, setView] = useState<"pending" | "reviewed">("pending");
   const [listCollapsed, setListCollapsed] = useState(false);
+  const [centerSearch, setCenterSearch] = useState("");
   const [jobs, setJobs] = useState<MonthlyJob[]>([]);
   const [selected, setSelected] = useState<MonthlyJob | null>(null);
   const [draft, setDraft] = useState<MonthlyData | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<
     Record<string, ProducerSuggestion[]>
   >({});
@@ -157,6 +159,14 @@ export function MonthlySettlementReviewScreen() {
     new Intl.NumberFormat(language === "ro" ? "ro-RO" : "en-GB", {
       maximumFractionDigits: 2,
     }).format(value);
+  const normalizedCenterSearch = centerSearch.trim().toLocaleLowerCase();
+  const filteredJobs = normalizedCenterSearch
+    ? jobs.filter((job) =>
+        (job.summary?.centerName || job.sourceFile)
+          .toLocaleLowerCase()
+          .includes(normalizedCenterSearch),
+      )
+    : jobs;
 
   const loadJobs = useCallback(async () => {
     const response = await fetch(
@@ -203,6 +213,46 @@ export function MonthlySettlementReviewScreen() {
     setDraft(data);
   }
 
+  async function deleteDocument(job: MonthlyJob) {
+    const exported = job.excelExport?.status === "exported";
+    const prompt = exported
+      ? isRo
+        ? `Ștergeți definitiv „${job.sourceFile}”, fișierul încărcat și procesul OCR?\n\nAcest document a fost deja exportat în Excel. Ștergerea de aici nu îl elimină din Excel.`
+        : `Permanently delete "${job.sourceFile}", its uploaded file, and OCR process?\n\nThis document was already exported to Excel. Deleting it here will not remove it from Excel.`
+      : isRo
+        ? `Ștergeți definitiv „${job.sourceFile}”, fișierul încărcat și procesul OCR?`
+        : `Permanently delete "${job.sourceFile}", its uploaded file, and OCR process?`;
+    if (!window.confirm(prompt)) return;
+    setDeletingId(job.id);
+    setNotice("");
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${job.id}`), {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as {
+        deleted?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !payload.deleted)
+        throw new Error(payload.error || "Could not delete the document.");
+      if (selected?.id === job.id) {
+        setSelected(null);
+        setDraft(null);
+      }
+      setJobs((current) => current.filter((item) => item.id !== job.id));
+      setNotice(
+        isRo
+          ? "Documentul și procesul OCR au fost șterse."
+          : "Document and OCR process deleted.",
+      );
+      await loadJobs();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function updateRow(index: number, field: keyof MonthlyRow, value: string) {
     if (!draft) return;
     const numeric = ["liters", "ugPercent", "gValue"].includes(field);
@@ -215,6 +265,42 @@ export function MonthlySettlementReviewScreen() {
         : row,
     );
     setDraft({ ...draft, rows });
+  }
+
+  function deleteRow(rowNumber: number) {
+    const prompt = isRo
+      ? `Ștergeți rândul ${rowNumber} din acest document?`
+      : `Delete row ${rowNumber} from this document?`;
+    if (!window.confirm(prompt)) return;
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            rows: current.rows.filter((row) => row.rowNumber !== rowNumber),
+            warnings: current.warnings.filter(
+              (warning) =>
+                !warning.includes(`row ${rowNumber}`) &&
+                !warning.includes(`rândul ${rowNumber}`) &&
+                !warning.includes(`randul ${rowNumber}`),
+            ),
+          }
+        : current,
+    );
+    setSelected((current) =>
+      current
+        ? {
+            ...current,
+            producerMatches: current.producerMatches?.filter(
+              (match) => match.rowNumber !== rowNumber,
+            ),
+          }
+        : current,
+    );
+    setSuggestions((current) => {
+      const next = { ...current };
+      delete next[`row-${rowNumber}`];
+      return next;
+    });
   }
 
   async function searchProducers(
@@ -649,10 +735,23 @@ export function MonthlySettlementReviewScreen() {
             </button>
           </div>
           <h2>
-            {isRo ? "Documente" : "Documents"} <b>{jobs.length}</b>
+            {isRo ? "Documente" : "Documents"} <b>{filteredJobs.length}</b>
           </h2>
+          <label className="monthly-search">
+            <span>{isRo ? "Căutare centru" : "Search center"}</span>
+            <input
+              type="search"
+              value={centerSearch}
+              onChange={(event) => setCenterSearch(event.target.value)}
+              placeholder={
+                isRo
+                  ? "Căutați numele centrului..."
+                  : "Search collection center..."
+              }
+            />
+          </label>
           <div className="monthly-list">
-            {jobs.map((job) => (
+            {filteredJobs.map((job) => (
               <div
                 className={`monthly-list-card ${selected?.id === job.id ? "active" : ""}`}
                 key={job.id}
@@ -664,6 +763,27 @@ export function MonthlySettlementReviewScreen() {
                     void openJob(job);
                 }}
               >
+                <button
+                  className="monthly-document-delete"
+                  type="button"
+                  disabled={deletingId === job.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void deleteDocument(job);
+                  }}
+                  title={
+                    isRo
+                      ? "Șterge documentul și procesul"
+                      : "Delete document and process"
+                  }
+                  aria-label={
+                    isRo
+                      ? `Ștergeți ${job.sourceFile}`
+                      : `Delete ${job.sourceFile}`
+                  }
+                >
+                  {deletingId === job.id ? "…" : "×"}
+                </button>
                 <strong>{job.summary?.centerName || job.sourceFile}</strong>
                 {displayMonth(job, isRo) && (
                   <span className="monthly-card-month">
@@ -742,6 +862,13 @@ export function MonthlySettlementReviewScreen() {
                 )}
               </div>
             ))}
+            {filteredJobs.length === 0 && (
+              <div className="monthly-list-empty">
+                {isRo
+                  ? "Nu s-au găsit documente pentru acest centru."
+                  : "No documents found for this center."}
+              </div>
+            )}
           </div>
           </div>
         </aside>
@@ -1017,6 +1144,9 @@ export function MonthlySettlementReviewScreen() {
                                 <th>G</th>
                               </>
                             )}
+                            <th className="monthly-row-actions">
+                              {isRo ? "Acțiuni" : "Actions"}
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1100,9 +1230,28 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
-                                  </td>
-                                </>
-                              )}
+                                   </td>
+                                 </>
+                               )}
+                              <td>
+                                <button
+                                  className="monthly-row-delete"
+                                  type="button"
+                                  onClick={() => deleteRow(row.rowNumber)}
+                                  title={
+                                    isRo
+                                      ? `Ștergeți rândul ${row.rowNumber}`
+                                      : `Delete row ${row.rowNumber}`
+                                  }
+                                  aria-label={
+                                    isRo
+                                      ? `Ștergeți rândul ${row.rowNumber}`
+                                      : `Delete row ${row.rowNumber}`
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
