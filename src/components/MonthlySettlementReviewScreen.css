@@ -45,11 +45,41 @@
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
 }
+.monthly-review > main.monthly-list-collapsed {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
 .monthly-review aside {
   overflow: auto;
   padding: 12px;
   border-right: 1px solid #d4ddd7;
   background: #fff;
+}
+.monthly-review > main.monthly-list-collapsed aside {
+  overflow: hidden;
+  padding: 10px 7px;
+}
+.monthly-list-toggle {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  border: 1px solid #cdd9d1;
+  border-radius: 8px;
+  background: #f7faf8;
+  color: #1a6b3c;
+  font-size: 0.67rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.monthly-list-toggle span {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.monthly-review > main.monthly-list-collapsed .monthly-list-content {
+  display: none;
 }
 .monthly-tabs {
   display: grid;
@@ -128,6 +158,15 @@
   font-size: 0.7rem;
   font-weight: 800;
   text-transform: capitalize;
+}
+.monthly-list .monthly-card-month {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: #e8f1ff;
+  color: #285888;
+  font-size: 0.62rem;
+  text-transform: none;
 }
 .monthly-list .monthly-job-status.status-processing {
   display: inline-flex;
@@ -374,8 +413,16 @@
     height: auto;
     grid-template-columns: 1fr;
   }
+  .monthly-review > main.monthly-list-collapsed {
+    grid-template-columns: 1fr;
+  }
   .monthly-review aside {
     max-height: 260px;
+  }
+  .monthly-review > main.monthly-list-collapsed aside {
+    min-height: 48px;
+    max-height: 48px;
+    box-sizing: border-box;
   }
   .monthly-workspace {
     grid-template-columns: 1fr;

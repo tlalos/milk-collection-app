@@ -146,6 +146,7 @@ export function toPublicJob(job, includeData = true) {
     ...publicJob,
     summary: {
       date: job.data?.date ?? null,
+      documentMonth: job.data?.documentMonth ?? null,
       route: job.data?.route ?? null,
       layoutType: job.data?.layoutType ?? null,
       centerName: job.data?.headerCenterName ?? null,

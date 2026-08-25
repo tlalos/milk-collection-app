@@ -593,6 +593,20 @@ export function OcrReviewScreen() {
     })
   }
 
+  function deleteRow(rowNumber: number) {
+    const prompt = isRo
+      ? `Ștergeți rândul ${rowNumber} din acest document?`
+      : `Delete row ${rowNumber} from this document?`
+    if (!window.confirm(prompt)) return
+    setDraft((current) => current ? {
+      ...current,
+      rows: current.rows.filter((row) => row.rowNumber !== rowNumber),
+      warnings: current.warnings.filter((warning) => !warning.includes(`row ${rowNumber}`) && !warning.includes(`rândul ${rowNumber}`)),
+    } : current)
+    setCenterMatches((current) => current.filter((match) => match.rowNumber !== rowNumber))
+    if (openCenterSuggestions === rowNumber) setOpenCenterSuggestions(null)
+  }
+
   async function saveDocument(markReviewed: boolean) {
     if (!selected || !draft || saving) return
     setSaving(true)
@@ -1065,8 +1079,8 @@ export function OcrReviewScreen() {
 
                 <div className="review-table-wrap">
                   <table>
-                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-liters" /><col className="col-fat" /><col className="col-ug" /><col className="col-water" /><col className="col-temp" /><col className="col-aviz" /></colgroup>
-                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>U.G.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Temp.</th><th>Aviz</th></tr></thead>
+                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-liters" /><col className="col-fat" /><col className="col-ug" /><col className="col-water" /><col className="col-temp" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
+                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>U.G.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Temp.</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small></span></td>
@@ -1102,6 +1116,7 @@ export function OcrReviewScreen() {
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.temperature ?? ''} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
                     ))}</tbody>
                   </table>

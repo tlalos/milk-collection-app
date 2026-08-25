@@ -56,6 +56,8 @@ interface MonthlyJob {
   fileUrl: string;
   data?: MonthlyData;
   summary?: {
+    date?: string | null;
+    documentMonth?: number | null;
     layoutType?: "detailed" | "overview" | null;
     centerName?: string | null;
   };
@@ -78,6 +80,22 @@ function displayDate(value: string | null) {
   if (!value) return "";
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function displayMonth(job: MonthlyJob, ro: boolean) {
+  const monthFromField = job.summary?.documentMonth;
+  if (Number.isInteger(monthFromField) && monthFromField! >= 1 && monthFromField! <= 12) {
+    const year = String(job.summary?.date || "").match(/^(\d{4})-/u)?.[1];
+    const monthName = new Intl.DateTimeFormat(ro ? "ro-RO" : "en-GB", { month: "long" }).format(new Date(2026, monthFromField! - 1, 1));
+    return year ? `${monthName} ${year}` : monthName;
+  }
+  const dateMatch = String(job.summary?.date || "").match(/^(\d{4})-(\d{2})-/u);
+  if (dateMatch) {
+    const month = Number(dateMatch[2]);
+    const monthName = new Intl.DateTimeFormat(ro ? "ro-RO" : "en-GB", { month: "long" }).format(new Date(Number(dateMatch[1]), month - 1, 1));
+    return `${monthName} ${dateMatch[1]}`;
+  }
+  return "";
 }
 
 function storeDate(value: string) {
@@ -106,6 +124,7 @@ function formatOcrDuration(job: MonthlyJob) {
 export function MonthlySettlementReviewScreen() {
   const { language, setLanguage, isRo } = useOcrLanguage();
   const [view, setView] = useState<"pending" | "reviewed">("pending");
+  const [listCollapsed, setListCollapsed] = useState(false);
   const [jobs, setJobs] = useState<MonthlyJob[]>([]);
   const [selected, setSelected] = useState<MonthlyJob | null>(null);
   const [draft, setDraft] = useState<MonthlyData | null>(null);
@@ -593,8 +612,20 @@ export function MonthlySettlementReviewScreen() {
           <button onClick={() => setNotice("")}>×</button>
         </div>
       )}
-      <main>
+      <main className={listCollapsed ? "monthly-list-collapsed" : ""}>
         <aside>
+          <button
+            className="monthly-list-toggle"
+            type="button"
+            onClick={() => setListCollapsed((current) => !current)}
+            title={listCollapsed ? (isRo ? "Extindeți lista documentelor" : "Expand document list") : (isRo ? "Restrângeți lista documentelor" : "Collapse document list")}
+            aria-label={listCollapsed ? (isRo ? "Extindeți lista documentelor" : "Expand document list") : (isRo ? "Restrângeți lista documentelor" : "Collapse document list")}
+            aria-expanded={!listCollapsed}
+          >
+            <span aria-hidden="true">{listCollapsed ? "›" : "‹"}</span>
+            {!listCollapsed && <b>{isRo ? "Restrângeți" : "Collapse"}</b>}
+          </button>
+          <div className="monthly-list-content">
           <div className="monthly-tabs">
             <button
               className={view === "pending" ? "active" : ""}
@@ -634,6 +665,11 @@ export function MonthlySettlementReviewScreen() {
                 }}
               >
                 <strong>{job.summary?.centerName || job.sourceFile}</strong>
+                {displayMonth(job, isRo) && (
+                  <span className="monthly-card-month">
+                    {isRo ? "Luna" : "Month"}: {displayMonth(job, isRo)}
+                  </span>
+                )}
                 <span className={`monthly-job-status status-${job.status}`}>
                   {job.status === "processing" && <i aria-hidden="true" />}
                   {job.status === "completed"
@@ -706,6 +742,7 @@ export function MonthlySettlementReviewScreen() {
                 )}
               </div>
             ))}
+          </div>
           </div>
         </aside>
         <section className="monthly-workspace">
