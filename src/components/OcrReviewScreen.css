@@ -203,6 +203,15 @@
 .review-table-wrap td:nth-child(5) input, .review-table-wrap td:nth-child(6) input, .review-table-wrap td:nth-child(7) input { min-width: 44px; padding-inline: 4px; }
 .review-center-cell { position: relative; display: grid; gap: 4px; min-width: 190px; }
 .review-center-cell:has(.review-center-suggestion-menu) { z-index: 20; }
+.review-center-cell.review-center-unmatched input {
+  border-color: #e2b05b;
+  background: #fff6df;
+  box-shadow: inset 3px 0 0 #e2a238;
+}
+.review-center-cell.review-center-unmatched input:focus {
+  border-color: #c98518;
+  outline-color: rgba(201, 133, 24, 0.2);
+}
 .review-derived-cell { min-width: 0; display: grid; align-content: start; gap: 5px; }
 .review-derived-cell small { width: 100%; max-width: 100%; box-sizing: border-box; padding: 3px 4px; border-radius: 5px; background: #e8f1ff; color: #285888; font-size: .5rem; font-weight: 800; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
 .review-derived-cell small.source-previous_day { background: #fff0b5; color: #725600; }
@@ -221,6 +230,14 @@
 .review-center-cell small.confirmed { color: #17613a; }
 .review-center-cell small.system-replaced { padding: 3px 5px; border-radius: 4px; background: #e8f1ff; color: #285888; white-space: normal; }
 .review-center-cell small.neutral { color: #7c8880; }
+.review-center-cell small.review-center-warning {
+  width: fit-content;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: #fff0b5;
+  color: #725600;
+  white-space: normal;
+}
 .review-table-wrap input:focus { outline: 2px solid rgba(26,107,60,.18); border-color: #1a6b3c; }
 .review-row-delete { width: 32px; height: 32px; display: grid; place-items: center; margin: 0 auto; padding: 0; border: 1px solid #efc5c1; border-radius: 8px; background: #fff0ef; color: #9d342d; font-size: 1.15rem; font-weight: 850; line-height: 1; cursor: pointer; }
 .review-row-delete:hover { background: #f9d9d6; }

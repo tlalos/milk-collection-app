@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
 import { OcrLanguageSwitch, useOcrLanguage } from "./OcrLanguage";
@@ -98,6 +98,15 @@ function displayMonth(job: MonthlyJob, ro: boolean) {
   return "";
 }
 
+function normalizeReferenceName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
 function storeDate(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u);
   return match ? `${match[3]}-${match[2]}-${match[1]}` : value || null;
@@ -131,12 +140,16 @@ export function MonthlySettlementReviewScreen() {
   const [draft, setDraft] = useState<MonthlyData | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<
     Record<string, ProducerSuggestion[]>
   >({});
   const [zoom, setZoom] = useState(100);
+  const lastSavedRef = useRef("");
 
   const rowLitersTotal =
     draft?.rows.reduce(
@@ -198,8 +211,12 @@ export function MonthlySettlementReviewScreen() {
     setSelected(job);
     setDraft(null);
     setNotice("");
+    setAutoSaveStatus("idle");
     setZoom(100);
-    if (job.status !== "completed") return;
+    if (job.status !== "completed") {
+      lastSavedRef.current = "";
+      return;
+    }
     const response = await fetch(appPath(`/api/ocr/jobs/${job.id}`));
     const payload = (await response.json()) as {
       job?: MonthlyJob;
@@ -211,7 +228,52 @@ export function MonthlySettlementReviewScreen() {
     if (!data.date) data.date = todayIso();
     setSelected(payload.job);
     setDraft(data);
+    lastSavedRef.current = JSON.stringify({ data });
   }
+
+  useEffect(() => {
+    if (!selected || !draft || selected.status !== "completed" || busy) return;
+    const signature = JSON.stringify({ data: draft });
+    if (signature === lastSavedRef.current) return;
+    setAutoSaveStatus("saving");
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: draft }),
+        });
+        const payload = (await response.json()) as {
+          job?: MonthlyJob;
+          error?: string;
+        };
+        if (!response.ok || !payload.job)
+          throw new Error(
+            payload.error || "Could not automatically save changes.",
+          );
+        lastSavedRef.current = signature;
+        setSelected((current) =>
+          current?.id === payload.job!.id
+            ? { ...payload.job!, data: draft }
+            : current,
+        );
+        setJobs((current) =>
+          current.map((job) =>
+            job.id === payload.job!.id
+              ? { ...job, ...payload.job, data: undefined }
+              : job,
+          ),
+        );
+        setAutoSaveStatus("saved");
+      } catch (error) {
+        setAutoSaveStatus("error");
+        setNotice(
+          (error as Error).message || "Could not automatically save changes.",
+        );
+      }
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [busy, draft, selected?.id, selected?.status]);
 
   async function deleteDocument(job: MonthlyJob) {
     const exported = job.excelExport?.status === "exported";
@@ -343,8 +405,30 @@ export function MonthlySettlementReviewScreen() {
     );
     const value = row[field] || "";
     const options = suggestions[key] || match?.suggestions || [];
+    const searchedCurrentValue = Object.prototype.hasOwnProperty.call(
+      suggestions,
+      key,
+    );
+    const normalizedValue = normalizeReferenceName(value);
+    const hasExactReferenceMatch =
+      normalizedValue.length >= 2 &&
+      options.some(
+        (option) => normalizeReferenceName(option.name) === normalizedValue,
+      );
+    const wasAutoReplaced =
+      match?.status === "auto_replaced" &&
+      normalizeReferenceName(match.selectedName || "") === normalizedValue;
+    const noReferenceMatch =
+      value.trim().length >= 2 &&
+      !wasAutoReplaced &&
+      !hasExactReferenceMatch &&
+      (match?.status === "unmatched" ||
+        match?.status === "suggested" ||
+        searchedCurrentValue);
     return (
-      <td className="monthly-reference-cell">
+      <td
+        className={`monthly-reference-cell ${noReferenceMatch ? "monthly-reference-unmatched" : ""}`}
+      >
         <input
           list={`${key}-options`}
           value={value}
@@ -382,6 +466,11 @@ export function MonthlySettlementReviewScreen() {
               : isRo
                 ? "rezultate"
                 : "results"}
+            </small>
+          )}
+        {noReferenceMatch && (
+          <small className="monthly-reference-warning">
+            {isRo ? "Fără potrivire în listă" : "No match in reference list"}
           </small>
         )}
       </td>
@@ -493,7 +582,10 @@ export function MonthlySettlementReviewScreen() {
       if (!response.ok || !payload.job?.data)
         throw new Error(payload.error || "Could not redo Excel matching.");
       setSelected(payload.job);
-      setDraft(structuredClone(payload.job.data));
+      const data = structuredClone(payload.job.data);
+      setDraft(data);
+      lastSavedRef.current = JSON.stringify({ data });
+      setAutoSaveStatus("saved");
       setNotice(
         isRo
           ? "Potrivirile din Ref_Producers au fost actualizate."
@@ -564,7 +656,7 @@ export function MonthlySettlementReviewScreen() {
     }
   }
 
-  async function save(markReviewed = false) {
+  async function save(markReviewed = false, sendToExcel = markReviewed) {
     if (!selected || !draft || busy) return;
     setBusy(true);
     setNotice(isRo ? "Se salvează…" : "Saving…");
@@ -583,10 +675,32 @@ export function MonthlySettlementReviewScreen() {
       };
       if (!saveResponse.ok)
         throw new Error(savePayload.error || "Could not save changes.");
+      lastSavedRef.current = JSON.stringify({
+        data: savePayload.job?.data ?? draft,
+      });
+      setSelected((current) =>
+        savePayload.job && current?.id === savePayload.job.id
+          ? { ...savePayload.job, data: draft }
+          : current,
+      );
+      setJobs((current) =>
+        savePayload.job
+          ? current.map((job) =>
+              job.id === savePayload.job!.id
+                ? { ...job, ...savePayload.job, data: undefined }
+                : job,
+            )
+          : current,
+      );
+      setAutoSaveStatus("saved");
       if (markReviewed) {
         const reviewResponse = await fetch(
           appPath(`/api/ocr/jobs/${selected.id}/review`),
-          { method: "PATCH" },
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ skipExcel: !sendToExcel }),
+          },
         );
         const reviewPayload = (await reviewResponse.json()) as {
           job?: MonthlyJob;
@@ -594,6 +708,17 @@ export function MonthlySettlementReviewScreen() {
         };
         if (!reviewResponse.ok)
           throw new Error(reviewPayload.error || "Could not mark as reviewed.");
+        if (!sendToExcel) {
+          setSelected(null);
+          setDraft(null);
+          await loadJobs();
+          setNotice(
+            isRo
+              ? "Documentul a fost marcat ca verificat fără trimitere în Excel."
+              : "Document marked as reviewed without sending to Excel.",
+          );
+          return;
+        }
         setNotice(
           isRo
             ? "Trimitere în Monthly_Settlement…"
@@ -954,24 +1079,53 @@ export function MonthlySettlementReviewScreen() {
                   </div>
                   {draft && (
                     <div>
+                      <b className={`monthly-autosave-status status-${autoSaveStatus}`}>
+                        {autoSaveStatus === "saving"
+                          ? isRo
+                            ? "Se salvează…"
+                            : "Saving…"
+                          : autoSaveStatus === "error"
+                            ? isRo
+                              ? "Salvare eșuată"
+                              : "Save failed"
+                            : autoSaveStatus === "saved"
+                              ? isRo
+                                ? "Salvat automat"
+                                : "Autosaved"
+                              : isRo
+                                ? "Salvare automată"
+                                : "Autosave on"}
+                      </b>
                       {selected.excelExport?.status === "failed" && (
                         <button
                           className="retry"
                           onClick={() => void retryExcelExport()}
-                          disabled={busy}
+                          disabled={busy || autoSaveStatus === "saving"}
                         >
                           {isRo
                             ? "Retrimiteți în Excel"
                             : "Send to Excel again"}
                         </button>
                       )}
-                      <button onClick={() => void save(false)} disabled={busy}>
+                      <button
+                        onClick={() => void save(false)}
+                        disabled={busy || autoSaveStatus === "saving"}
+                      >
                         {isRo ? "Salvați" : "Save changes"}
                       </button>
                       <button
+                        className="secondary"
+                        onClick={() => void save(true, false)}
+                        disabled={busy || autoSaveStatus === "saving"}
+                      >
+                        {isRo
+                          ? "Marcați verificat fără Excel"
+                          : "Mark reviewed only"}
+                      </button>
+                      <button
                         className="primary"
-                        onClick={() => void save(true)}
-                        disabled={busy}
+                        onClick={() => void save(true, true)}
+                        disabled={busy || autoSaveStatus === "saving"}
                       >
                         {isRo
                           ? "Salvați, verificați și trimiteți în Excel"

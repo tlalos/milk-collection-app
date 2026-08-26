@@ -332,7 +332,30 @@
 }
 .monthly-data-title > div:last-child {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-end;
+}
+.monthly-autosave-status {
+  align-self: center;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #edf2ef;
+  color: #5e6d64;
+  font-size: 0.56rem;
+  white-space: nowrap;
+}
+.monthly-autosave-status.status-saving {
+  background: #e8f1ff;
+  color: #285888;
+}
+.monthly-autosave-status.status-saved {
+  background: #dff1e6;
+  color: #17613a;
+}
+.monthly-autosave-status.status-error {
+  background: #fce9e7;
+  color: #9d342d;
 }
 .monthly-data-title button {
   padding: 7px 9px;
@@ -346,6 +369,11 @@
 .monthly-data-title button.primary {
   background: #1a6b3c;
   color: #fff;
+}
+.monthly-data-title button.secondary {
+  border-color: #88b29a;
+  background: #eef7f2;
+  color: #17613a;
 }
 .monthly-form {
   min-height: 0;

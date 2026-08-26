@@ -13,6 +13,27 @@
 .monthly-result-count { display: block; margin-top: 2px; color: #6c7b72 !important; font-size: .53rem !important; }
 .monthly-match-error { margin: 0 12px 8px; padding: 7px 9px; border-radius: 7px; background: #fce9e7; color: #9d342d; font-size: .65rem; }
 .monthly-reference-cell { vertical-align: top; }
+.monthly-reference-cell.monthly-reference-unmatched input {
+  border-color: #e2b05b;
+  background: #fff6df;
+  box-shadow: inset 3px 0 0 #e2a238;
+}
+.monthly-reference-cell.monthly-reference-unmatched input:focus {
+  border-color: #c98518;
+  outline-color: rgba(201, 133, 24, 0.2);
+}
+.monthly-reference-warning {
+  display: block;
+  width: fit-content;
+  margin-top: 3px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #fff0b5;
+  color: #725600 !important;
+  font-size: .55rem !important;
+  font-weight: 850;
+  text-transform: none;
+}
 .monthly-bottom-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 12px 12px; }
 .monthly-bottom-actions button { min-height: 40px; border: 1px solid #a9c7b5; border-radius: 9px; background: #f4f8f5; color: #17613a; font-size: .72rem; font-weight: 850; }
 .monthly-bottom-actions button:hover { background: #e7f3eb; }

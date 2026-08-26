@@ -204,6 +204,15 @@ function displayDate(value: string | null) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value ?? ''
 }
 
+function normalizeReferenceName(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .toLocaleLowerCase()
+}
+
 function storedDate(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
   return match ? `${match[3]}-${match[2]}-${match[1]}` : value
@@ -833,6 +842,21 @@ export function OcrReviewScreen() {
     return isRo ? 'Generat din data documentului' : 'Generated from document date'
   }
 
+  function centerNameNeedsReview(row: ExtractedRow, match?: CenterMatch) {
+    const value = row.collectionCenter ?? ''
+    const normalizedValue = normalizeReferenceName(value)
+    if (normalizedValue.length < 2) return false
+    const selectedIsExact =
+      Boolean(match?.selectedName) &&
+      normalizeReferenceName(match?.selectedName ?? '') === normalizedValue
+    const suggestionIsExact = Boolean(
+      match?.suggestions.some(
+        (suggestion) => normalizeReferenceName(suggestion.name) === normalizedValue,
+      ),
+    )
+    return !selectedIsExact && !suggestionIsExact && (!match || match.status === 'suggested' || match.status === 'unmatched')
+  }
+
   function jobListSummary(job: OcrJob) {
     const values = job.id === selectedId && draft ? draft : job.summary
     const route = values?.route?.trim() || (isRo ? 'Rută necunoscută' : 'Unknown route')
@@ -1084,11 +1108,12 @@ export function OcrReviewScreen() {
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small></span></td>
-                        <td><div className="review-center-cell">
-                          <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
-                          {(() => {
-                            const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
-                            return match ? <>
+                        {(() => {
+                          const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
+                          const needsReview = centerNameNeedsReview(row, match)
+                          return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : ''}`}>
+                            <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
+                            {match ? <>
                               {openCenterSuggestions !== row.rowNumber && <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
                                 <option value="">{match.suggestions.length ? (isRo ? `Alegeți o sugestie (${match.suggestions.length})…` : `Choose a suggestion (${match.suggestions.length})…`) : (isRo ? 'Nicio potrivire găsită (0)' : 'No match found (0)')}</option>
                                 {match.suggestions.map((suggestion) => <option key={suggestion.code} value={suggestion.code}>{Math.round(suggestion.score * 100)}% · {suggestion.name} · {suggestion.code}</option>)}
@@ -1107,9 +1132,10 @@ export function OcrReviewScreen() {
                                     ? (isRo ? `Selectat de utilizator: ${match.selectedName}` : `Selected by reviewer: ${match.selectedName}`)
                                     : (isRo ? 'Descrierea OCR a fost păstrată' : 'OCR description retained')}
                               </small>
-                            </> : null
-                          })()}
-                        </div></td>
+                            </> : null}
+                            {needsReview && <small className="review-center-warning">{isRo ? 'Nicio potrivire în listă' : 'No match in reference list'}</small>}
+                          </div></td>
+                        })()}
                         <td><input inputMode="decimal" value={row.liters ?? ''} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.fatPercent ?? ''} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.density ?? ''} onChange={(event) => updateRowNumber(index, 'density', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'density', row.density); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>

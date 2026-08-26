@@ -431,13 +431,16 @@ app.patch('/api/ocr/jobs/:id/review', async (request, response, next) => {
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be reviewed.' })
+    const skipExcel = Boolean(request.body?.skipExcel)
 
     const job = await updateJob(current.id, {
       reviewStatus: 'reviewed',
       reviewedAt: new Date().toISOString(),
-      excelExport: { status: 'queued', queuedAt: new Date().toISOString(), error: null },
+      excelExport: skipExcel
+        ? { status: 'not_ready', reviewedWithoutExportAt: new Date().toISOString(), error: null }
+        : { status: 'queued', queuedAt: new Date().toISOString(), error: null },
     })
-    enqueueExcelExport(current.id)
+    if (!skipExcel) enqueueExcelExport(current.id)
     response.json({ job: toPublicJob(job, true) })
   } catch (error) {
     next(error)
