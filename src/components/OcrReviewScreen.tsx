@@ -474,6 +474,24 @@ export function OcrReviewScreen() {
     centerSearchTimersRef.current.forEach((timer) => window.clearTimeout(timer))
   }, [])
 
+  useEffect(() => {
+    if (openCenterSuggestions == null) return
+    function closeCenterSuggestions(event: PointerEvent) {
+      const target = event.target
+      if (target instanceof Element && target.closest('.review-center-cell')) return
+      setOpenCenterSuggestions(null)
+    }
+    function closeCenterSuggestionsWithKeyboard(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpenCenterSuggestions(null)
+    }
+    document.addEventListener('pointerdown', closeCenterSuggestions)
+    document.addEventListener('keydown', closeCenterSuggestionsWithKeyboard)
+    return () => {
+      document.removeEventListener('pointerdown', closeCenterSuggestions)
+      document.removeEventListener('keydown', closeCenterSuggestionsWithKeyboard)
+    }
+  }, [openCenterSuggestions])
+
   async function openJob(job: OcrJob) {
     setSelectedId(job.id)
     setSelectedSummary(job)
@@ -1323,7 +1341,11 @@ export function OcrReviewScreen() {
                     <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
-                        <td><span className="review-row-number"><span>{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small></span></td>
+                        <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small>{(() => {
+                          const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
+                          const needsAttention = row.uncertainFields.length > 0 || !row.collectionCenter?.trim() || centerNameNeedsReview(row, match)
+                          return needsAttention ? <b className="review-row-attention" title={isRo ? 'Rândul necesită verificare' : 'Row needs review'}>!</b> : null
+                        })()}</span></td>
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
                           const needsReview = centerNameNeedsReview(row, match)

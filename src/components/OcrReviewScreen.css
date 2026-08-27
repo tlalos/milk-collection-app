@@ -209,12 +209,11 @@
 .review-table-wrap th:nth-child(n+4), .review-table-wrap td:nth-child(n+4) { border-left: 1px solid #e0e8e3; }
 .review-table-wrap th { background: #edf5f0; color: #3b5747; font-size: .63rem; text-transform: uppercase; }
 .review-table-wrap tbody tr:nth-child(even) td { background: #f1f7f3; }
-.review-table-wrap tr.uncertain td { background: #fff8e5; }
 .review-table-wrap tr.empty-center td { box-shadow: inset 0 1px 0 #efd993, inset 0 -1px 0 #efd993; }
 .review-row-number { display: grid; justify-items: start; gap: 3px; }
 .review-row-number > span { display: flex; align-items: center; gap: 3px; }
 .review-row-number small { padding: 2px 4px; border-radius: 4px; background: #e8f1ff; color: #285888; font-size: .52rem; font-weight: 800; }
-.review-row-number b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #f5c84c; color: #604800; font-size: .62rem; }
+.review-row-number .review-row-attention { display: grid; place-items: center; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; background: #f5c84c; color: #604800; font-size: .62rem; font-weight: 900; }
 .review-table-wrap input, .review-table-wrap select { width: 100%; min-width: 0; height: 27px; box-sizing: border-box; padding: 0 5px; border: 1px solid #d8e1db; border-radius: 5px; background: white; color: #223128; font: inherit; }
 .review-table-wrap td:nth-child(2) input { min-width: 145px; }
 .review-table-wrap select { font-size: .62rem; font-weight: 800; }
