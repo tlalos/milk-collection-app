@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parse as parseEnv } from 'dotenv'
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const defaultExcelProject = process.cwd()
+const referenceCacheDir = path.join(defaultExcelProject, 'data', 'ocr', 'references')
+const centerSnapshotPath = path.join(referenceCacheDir, 'centers.json')
 let centerCache = { expiresAt: 0, centers: [] }
 let driverCache = { expiresAt: 0, drivers: [] }
 let vehicleCache = { expiresAt: 0, vehicles: [] }
@@ -515,24 +517,51 @@ async function loadPreviousDayRowValues(date, requestedFields) {
 async function loadReferenceCenters() {
   if (centerCache.expiresAt > Date.now()) return centerCache.centers
   const config = await loadConfig()
-  assertExcelOnlineConfigured(config, 'Center reference lookup')
-  const token = await refreshAccessToken(config)
-  const workbook = await resolveWorkbook(config, token)
-  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
-  const tablePath = `${workbookPath}/tables/${encodeURIComponent('tblCenters')}`
-  const [columns, range] = await Promise.all([
-    graphFetch(`${tablePath}/columns`, token),
-    graphFetch(`${tablePath}/dataBodyRange`, token),
-  ])
-  const names = (columns.value || []).map((column) => column.name)
-  const codeIndex = names.findIndex((name) => name.toLowerCase() === 'center_code')
-  const nameIndex = names.findIndex((name) => name.toLowerCase() === 'center_name')
-  if (codeIndex < 0 || nameIndex < 0) throw new Error('tblCenters must contain Center_Code and Center_Name columns.')
-  const centers = (range.values || [])
-    .map((values) => ({ code: String(values[codeIndex] ?? '').trim(), name: String(values[nameIndex] ?? '').trim() }))
-    .filter((center) => center.code && center.name)
-  centerCache = { expiresAt: Date.now() + 5 * 60 * 1000, centers }
-  return centers
+  try {
+    assertExcelOnlineConfigured(config, 'Center reference lookup')
+    const token = await refreshAccessToken(config)
+    const workbook = await resolveWorkbook(config, token)
+    const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+    const tablePath = `${workbookPath}/tables/${encodeURIComponent('tblCenters')}`
+    const [columns, range] = await Promise.all([
+      graphFetch(`${tablePath}/columns`, token),
+      graphFetch(`${tablePath}/dataBodyRange`, token),
+    ])
+    const names = (columns.value || []).map((column) => column.name)
+    const codeIndex = names.findIndex((name) => name.toLowerCase() === 'center_code')
+    const nameIndex = names.findIndex((name) => name.toLowerCase() === 'center_name')
+    if (codeIndex < 0 || nameIndex < 0) throw new Error('tblCenters must contain Center_Code and Center_Name columns.')
+    const centers = (range.values || [])
+      .map((values) => ({ code: String(values[codeIndex] ?? '').trim(), name: String(values[nameIndex] ?? '').trim() }))
+      .filter((center) => center.code && center.name)
+    centerCache = { expiresAt: Date.now() + 30 * 60 * 1000, centers }
+    await saveReferenceCenterSnapshot(centers).catch(() => undefined)
+    return centers
+  } catch (error) {
+    const cachedCenters = await loadReferenceCenterSnapshot()
+    if (cachedCenters.length) {
+      centerCache = { expiresAt: Date.now() + 5 * 60 * 1000, centers: cachedCenters }
+      return cachedCenters
+    }
+    throw error
+  }
+}
+
+async function loadReferenceCenterSnapshot() {
+  try {
+    const parsed = JSON.parse(await readFile(centerSnapshotPath, 'utf8'))
+    return Array.isArray(parsed.centers)
+      ? parsed.centers.map((center) => ({ code: String(center.code || '').trim(), name: String(center.name || '').trim() })).filter((center) => center.code && center.name)
+      : []
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function saveReferenceCenterSnapshot(centers) {
+  await mkdir(referenceCacheDir, { recursive: true })
+  await writeFile(centerSnapshotPath, JSON.stringify({ updatedAt: new Date().toISOString(), centers }, null, 2), 'utf8')
 }
 
 async function loadReferenceProducers() {

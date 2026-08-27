@@ -243,6 +243,12 @@
 .review-center-suggestion-menu button span { grid-row: 1 / 3; align-self: center; color: #1a6b3c; font-size: .58rem; font-weight: 900; }
 .review-center-suggestion-menu button b { overflow: hidden; text-overflow: ellipsis; font-size: .61rem; white-space: nowrap; }
 .review-center-suggestion-menu button small { color: #738078; font-size: .54rem; }
+.review-center-suggestion-menu .review-center-ocr-original-suggestion { background: #fff7ed; border: 1px solid #fed7aa; }
+.review-center-suggestion-menu .review-center-ocr-original-suggestion:hover { background: #ffedd5; }
+.review-center-suggestion-menu .review-center-ocr-original-suggestion span,
+.review-center-suggestion-menu .review-center-ocr-original-suggestion small { color: #c2410c; }
+.review-center-suggestion-menu .review-center-ocr-original-suggestion b { color: #7c2d12; }
+.review-center-ocr-original-option { color: #c2410c; font-weight: 800; }
 .review-center-suggestion-menu .review-center-suggestion-close { display: block; color: #59685f; text-align: center; font-size: .57rem; font-weight: 800; }
 .review-center-cell small { font-size: .57rem; font-weight: 800; }
 .review-center-cell small.confirmed { color: #17613a; }

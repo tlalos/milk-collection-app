@@ -63,14 +63,17 @@ function addOcrOriginalCenterSuggestion(current, match, rowNumber, search) {
   if (!original.startsWith(typed) && !original.includes(typed)) return match
   const alreadySuggested = match?.suggestions?.some((suggestion) => normalizeSuggestionText(suggestion.name) === original)
   if (alreadySuggested) return match
-  const suggestion = { code: '__OCR_ORIGINAL__', name: originalName, score: 0.99, source: 'ocr_original' }
+  const suggestion = { code: '__OCR_ORIGINAL__', name: originalName, score: 0, source: 'ocr_original' }
+  const referenceSuggestions = match?.suggestions || []
   return {
     rowNumber,
     originalName: search,
     status: 'suggested',
     selectedCode: null,
     selectedName: null,
-    suggestions: [suggestion, ...(match?.suggestions || [])].slice(0, 5),
+    suggestions: referenceSuggestions.length >= 5
+      ? [...referenceSuggestions.slice(0, 4), suggestion]
+      : [...referenceSuggestions, suggestion],
   }
 }
 
@@ -458,7 +461,6 @@ app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) =>
     if (!Number.isFinite(rowNumber) || name.length < 3) return response.json({ match: null })
     const ocrFallbackMatch = addOcrOriginalCenterSuggestion(current, null, rowNumber, name)
     try {
-      clearReferenceCaches()
       const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
       const mergedMatch = addOcrOriginalCenterSuggestion(
         current,
@@ -475,7 +477,17 @@ app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) =>
         })
         return
       }
-      throw error
+      response.json({
+        match: {
+          rowNumber,
+          originalName: name,
+          status: 'unmatched',
+          selectedCode: null,
+          selectedName: null,
+          suggestions: [],
+        },
+        warning: error instanceof Error ? error.message : 'Reference-center lookup failed.',
+      })
     }
   } catch (error) {
     next(error)
