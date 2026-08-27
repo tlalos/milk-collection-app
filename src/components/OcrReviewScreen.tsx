@@ -213,6 +213,19 @@ function normalizeReferenceName(value: string) {
     .toLocaleLowerCase()
 }
 
+function hasRequiredNumber(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function missingDailyExportFields(row: ExtractedRow) {
+  return [
+    !row.collectionCenter?.trim() ? 'center' : '',
+    !hasRequiredNumber(row.liters) ? 'liters' : '',
+    !hasRequiredNumber(row.fatPercent) ? 'fat' : '',
+    !hasRequiredNumber(row.temperature) ? 'temperature' : '',
+  ].filter(Boolean)
+}
+
 function storedDate(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
   return match ? `${match[3]}-${match[2]}-${match[1]}` : value
@@ -618,6 +631,19 @@ export function OcrReviewScreen() {
 
   async function saveDocument(markReviewed: boolean) {
     if (!selected || !draft || saving) return
+    if (markReviewed) {
+      const invalidRows = draft.rows
+        .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
+        .filter((row) => row.fields.length > 0)
+      if (invalidRows.length) {
+        setError(
+          isRo
+            ? `Completați centrul, litrii, grăsimea și temperatura înainte de trimitere. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, fat, and temperature before sending to Excel. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+        )
+        return
+      }
+    }
     setSaving(true)
     setError('')
     setSuccess('')
@@ -828,6 +854,10 @@ export function OcrReviewScreen() {
   const litersDifference = documentLitersTotal == null ? null : rowLitersTotal - documentLitersTotal
   const litersMatch = litersDifference != null && Math.abs(litersDifference) < 0.01
   const formatLiters = (value: number) => new Intl.NumberFormat(language === 'ro' ? 'ro-RO' : 'en-GB', { maximumFractionDigits: 2 }).format(value)
+  const rowsMissingRequiredExportFields = draft?.rows
+    .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
+    .filter((row) => row.fields.length > 0) ?? []
+  const sendToExcelBlocked = rowsMissingRequiredExportFields.length > 0
 
   function rowSource(rowNumber: number, field: keyof RowValueSourceEntry['fields'], value: string | number | null) {
     const source = selected?.rowValueSources?.find((item) => item.rowNumber === rowNumber)?.fields[field]
@@ -1103,8 +1133,8 @@ export function OcrReviewScreen() {
 
                 <div className="review-table-wrap">
                   <table>
-                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-liters" /><col className="col-fat" /><col className="col-ug" /><col className="col-water" /><col className="col-temp" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
-                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>U.G.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Temp.</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
+                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
+                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small></span></td>
@@ -1138,9 +1168,8 @@ export function OcrReviewScreen() {
                         })()}
                         <td><input inputMode="decimal" value={row.liters ?? ''} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.fatPercent ?? ''} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.density ?? ''} onChange={(event) => updateRowNumber(index, 'density', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'density', row.density); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={row.temperature ?? ''} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
@@ -1152,7 +1181,8 @@ export function OcrReviewScreen() {
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
                   <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching')}</button>
-                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving'}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')}</button>}
+                  {selected.reviewStatus === 'pending' && sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea și temperatura. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, and temperature. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || sendToExcelBlocked} title={sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')}</button>}
                 </div>
               </div>
             </>
