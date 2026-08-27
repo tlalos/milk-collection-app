@@ -2,10 +2,12 @@ import { z } from 'zod'
 
 const nullableText = z.string().nullable()
 const nullableNumber = z.number().nullable()
+const MilkTypeCodeSchema = z.enum(['MILK-COW', 'MILK-SHEEP', 'MILK-GOAT', 'MILK-BUFF'])
 
 export const CollectionRowSchema = z.object({
   rowNumber: z.number().int().positive(),
   collectionCenter: nullableText,
+  milkType: MilkTypeCodeSchema.nullable(),
   liters: nullableNumber,
   fatPercent: nullableNumber,
   density: nullableNumber,

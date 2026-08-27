@@ -45,6 +45,35 @@ function normalizeBasePath(value) {
   return normalized ? `/${normalized}` : ''
 }
 
+function normalizeSuggestionText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/gu, ' ')
+    .trim()
+    .replace(/\s+/gu, ' ')
+}
+
+function addOcrOriginalCenterSuggestion(current, match, rowNumber, search) {
+  const originalName = current.ocrOriginalData?.rows?.find((row) => Number(row.rowNumber) === Number(rowNumber))?.collectionCenter
+  const original = normalizeSuggestionText(originalName)
+  const typed = normalizeSuggestionText(search)
+  if (!originalName || !typed) return match
+  if (!original.startsWith(typed) && !original.includes(typed)) return match
+  const alreadySuggested = match?.suggestions?.some((suggestion) => normalizeSuggestionText(suggestion.name) === original)
+  if (alreadySuggested) return match
+  const suggestion = { code: '__OCR_ORIGINAL__', name: originalName, score: 0.99, source: 'ocr_original' }
+  return {
+    rowNumber,
+    originalName: search,
+    status: 'suggested',
+    selectedCode: null,
+    selectedName: null,
+    suggestions: [suggestion, ...(match?.suggestions || [])].slice(0, 5),
+  }
+}
+
 function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSources = []) {
   const restored = structuredClone(submittedData)
   for (const rowSource of rowValueSources || []) {
@@ -323,7 +352,12 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     const schema = isMonthlySettlement ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
     const submittedData = isMonthlySettlement
       ? { ...request.body.data, documentMonth: request.body.data?.documentMonth ?? null, totalLiters: request.body.data?.totalLiters ?? null }
-      : request.body.data
+      : {
+        ...request.body.data,
+        rows: Array.isArray(request.body.data?.rows)
+          ? request.body.data.rows.map((row) => ({ ...row, milkType: row.milkType || 'MILK-COW' }))
+          : [],
+      }
     const parsed = schema.safeParse(submittedData)
     if (!parsed.success) {
       return response.status(400).json({
@@ -383,7 +417,10 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         rowValueSources: current.rowValueSources,
       }),
     }
-    const job = await updateJob(current.id, { data, centerMatches, driverMatch, vehicleMatch, routeMatch })
+    const erpExport = request.body.erpExport && typeof request.body.erpExport === 'object'
+      ? request.body.erpExport
+      : current.erpExport
+    const job = await updateJob(current.id, { data, centerMatches, driverMatch, vehicleMatch, routeMatch, erpExport })
     response.json({ job: toPublicJob(job, true) })
   } catch (error) {
     next(error)
@@ -419,8 +456,27 @@ app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) =>
     const rowNumber = Number(request.body.rowNumber)
     const name = String(request.body.name || '').trim()
     if (!Number.isFinite(rowNumber) || name.length < 3) return response.json({ match: null })
-    const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
-    response.json({ match: match ? { ...match, status: match.suggestions.length ? 'suggested' : 'unmatched', selectedCode: null, selectedName: null } : null })
+    const ocrFallbackMatch = addOcrOriginalCenterSuggestion(current, null, rowNumber, name)
+    try {
+      clearReferenceCaches()
+      const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
+      const mergedMatch = addOcrOriginalCenterSuggestion(
+        current,
+        match ? { ...match, status: match.suggestions.length ? 'suggested' : 'unmatched', selectedCode: null, selectedName: null } : null,
+        rowNumber,
+        name,
+      )
+      response.json({ match: mergedMatch })
+    } catch (error) {
+      if (ocrFallbackMatch?.suggestions?.length) {
+        response.json({
+          match: ocrFallbackMatch,
+          warning: error instanceof Error ? error.message : 'Reference-center lookup failed.',
+        })
+        return
+      }
+      throw error
+    }
   } catch (error) {
     next(error)
   }

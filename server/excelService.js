@@ -265,7 +265,7 @@ export async function matchCentersForRows(rows) {
   return rows.map((row) => {
     const originalName = row.collectionCenter || ''
     const suggestions = centers
-      .map((center) => ({ ...center, score: similarity(originalName, center.name) }))
+      .map((center) => ({ ...center, score: centerSimilarity(originalName, center.name) }))
       .filter((center) => center.score >= 0.32)
       .sort((left, right) => right.score - left.score)
       .slice(0, 5)
@@ -679,6 +679,21 @@ function similarity(leftValue, rightValue) {
   const tokenScore = intersection / new Set([...leftTokens, ...rightTokens]).size
   const containment = left.includes(right) || right.includes(left) ? Math.min(left.length, right.length) / Math.max(left.length, right.length) : 0
   return Math.max(characterScore * 0.72 + tokenScore * 0.28, containment * 0.92)
+}
+
+function centerSimilarity(leftValue, rightValue) {
+  const left = normalizeValue(leftValue)
+  const right = normalizeValue(rightValue)
+  const compactLeft = left.replace(/\s+/gu, '')
+  const compactRight = right.replace(/\s+/gu, '')
+  const baseScore = similarity(left, right)
+  if (!left || !right) return baseScore
+  if (right.startsWith(left)) return Math.max(baseScore, 0.96)
+  if (right.split(' ').some((token) => token.startsWith(left))) return Math.max(baseScore, 0.92)
+  if (right.includes(left)) return Math.max(baseScore, 0.82)
+  if (compactRight.startsWith(compactLeft)) return Math.max(baseScore, 0.96)
+  if (compactRight.includes(compactLeft)) return Math.max(baseScore, 0.82)
+  return baseScore
 }
 
 function driverSimilarity(leftValue, rightValue) {

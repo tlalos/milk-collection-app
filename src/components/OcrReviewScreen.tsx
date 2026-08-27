@@ -3,10 +3,19 @@ import './OcrReviewScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
+import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
+
+const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
+  { value: 'MILK-COW', label: 'MILK-COW' },
+  { value: 'MILK-SHEEP', label: 'MILK-SHEEP' },
+  { value: 'MILK-GOAT', label: 'MILK-GOAT' },
+  { value: 'MILK-BUFF', label: 'MILK-BUFF' },
+]
 
 interface ExtractedRow {
   rowNumber: number
   collectionCenter: string | null
+  milkType?: DailyMilkTypeCode | null
   liters: number | null
   fatPercent: number | null
   density: number | null
@@ -36,7 +45,7 @@ interface AttentionSummary {
   needsAttention: boolean
 }
 
-interface CenterSuggestion { code: string; name: string; score: number }
+interface CenterSuggestion { code: string; name: string; score: number; source?: 'ocr_original' | string }
 interface CenterMatch {
   rowNumber: number
   originalName: string | null
@@ -129,6 +138,7 @@ interface OcrJob {
     progress?: { stage: 'connecting' | 'preparing' | 'sending' | 'completed'; current: number; total: number; rowNumber?: number; center?: string; range?: string }
     rowLog?: Array<{ rowNumber: number; center: string; status: 'ready' | 'sent' }>
   } | null
+  erpExport?: DailyRouteErpExport | null
   centerMatches?: CenterMatch[]
   centerMatchError?: string | null
   driverMatch?: DriverMatch | null
@@ -143,7 +153,7 @@ interface OcrJob {
 
 type QueueView = 'pending' | 'reviewed' | 'failed'
 type TextField = 'companyName' | 'date' | 'driverName' | 'vehicleRegistration' | 'route'
-type RowTextField = 'collectionCenter' | 'noticeNumber'
+type RowTextField = 'collectionCenter' | 'noticeNumber' | 'milkType'
 type RowNumberField = 'liters' | 'fatPercent' | 'density' | 'water' | 'temperature'
 const JOBS_PER_PAGE = 5
 let cachedDriverOptions: string[] | null = null
@@ -178,7 +188,7 @@ function loadVehicleOptions() {
 }
 
 function cloneData(data: ExtractedData) {
-  return structuredClone(data)
+  return normalizeDailyData(structuredClone(data))
 }
 
 function statusLabel(job: OcrJob, language: OcrLanguage) {
@@ -190,13 +200,17 @@ function statusLabel(job: OcrJob, language: OcrLanguage) {
 }
 
 function isFailedQueueJob(job: OcrJob) {
-  return job.status === 'failed' || job.excelExport?.status === 'failed'
+  return job.status === 'failed' || job.excelExport?.status === 'failed' || job.erpExport?.status === 'failed' || job.erpExport?.status === 'partial'
 }
 
 function nullableNumber(input: string) {
   if (!input.trim()) return null
   const parsed = Number(input.replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function canKeepEditingDecimal(input: string) {
+  return /^-?\d*(?:[.,]\d*)?$/u.test(input)
 }
 
 function displayDate(value: string | null) {
@@ -215,6 +229,30 @@ function normalizeReferenceName(value: string) {
 
 function hasRequiredNumber(value: number | null) {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function inferMilkTypeFromFat(fatPercent: number | null | undefined): DailyMilkTypeCode {
+  if (!hasRequiredNumber(fatPercent ?? null)) return 'MILK-COW'
+  const fat = fatPercent as number
+  if (fat >= 7 && fat <= 8) return 'MILK-BUFF'
+  if (fat >= 6 && fat < 7) return 'MILK-SHEEP'
+  if (fat >= 3.3 && fat <= 4.5) return 'MILK-COW'
+  return 'MILK-COW'
+}
+
+function normalizeMilkType(value: string | null | undefined, fatPercent: number | null | undefined): DailyMilkTypeCode {
+  if (value === 'MILK-COW' || value === 'MILK-SHEEP' || value === 'MILK-GOAT' || value === 'MILK-BUFF') return value
+  return inferMilkTypeFromFat(fatPercent)
+}
+
+function normalizeDailyData(data: ExtractedData): ExtractedData {
+  return {
+    ...data,
+    rows: data.rows.map((row) => ({
+      ...row,
+      milkType: normalizeMilkType(row.milkType, row.fatPercent),
+    })),
+  }
 }
 
 function missingDailyExportFields(row: ExtractedRow) {
@@ -294,8 +332,10 @@ export function OcrReviewScreen() {
   const [reprocessingId, setReprocessingId] = useState('')
   const [rematchingReferences, setRematchingReferences] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [erpSending, setErpSending] = useState(false)
   const [excelNotice, setExcelNotice] = useState<{ type: 'working' | 'success' | 'error'; message: string; progress?: OcrJob['excelExport'] extends infer T ? T : never } | null>(null)
   const [matchingCenters, setMatchingCenters] = useState(false)
+  const [rowNumberDrafts, setRowNumberDrafts] = useState<Record<string, string>>({})
   const [openCenterSuggestions, setOpenCenterSuggestions] = useState<number | null>(null)
   const [zoom, setZoom] = useState(100)
   const [panelSplit, setPanelSplit] = useState(50)
@@ -390,6 +430,7 @@ export function OcrReviewScreen() {
     setSelectedSummary(null)
     setSuccess('')
     setPage(1)
+    setRowNumberDrafts({})
     void loadJobs()
     const timer = window.setInterval(() => void loadJobs(), 5000)
     return () => window.clearInterval(timer)
@@ -437,6 +478,7 @@ export function OcrReviewScreen() {
     setSelectedId(job.id)
     setSelectedSummary(job)
     setSuccess('')
+    setRowNumberDrafts({})
     setZoom(100)
     setDataTab('document')
     if (job.status !== 'completed') {
@@ -524,9 +566,10 @@ export function OcrReviewScreen() {
     setDraft((current) => {
       if (!current) return current
       const rows = [...current.rows]
+      const value = field === 'milkType' ? normalizeMilkType(input, rows[index].fatPercent) : input.trim() ? input : null
       rows[index] = {
         ...rows[index],
-        [field]: input.trim() ? input : null,
+        [field]: value,
         uncertainFields: rows[index].uncertainFields.filter((uncertain) => uncertain !== field),
       }
       return { ...current, rows }
@@ -575,6 +618,7 @@ export function OcrReviewScreen() {
       if (match.rowNumber !== rowNumber) return match
       const selected = match.suggestions.find((suggestion) => suggestion.code === code)
       if (!selected) return { ...match, selectedCode: null, selectedName: null, status: match.suggestions.length ? 'suggested' : 'unmatched' }
+      if (selected.code === '__OCR_ORIGINAL__') return { ...match, selectedCode: null, selectedName: selected.name, status: 'confirmed' }
       return { ...match, selectedCode: selected.code, selectedName: selected.name, status: 'confirmed' }
     }))
     const selectedMatch = centerMatches.find((match) => match.rowNumber === rowNumber)?.suggestions.find((suggestion) => suggestion.code === code)
@@ -603,15 +647,42 @@ export function OcrReviewScreen() {
   }
 
   function updateRowNumber(index: number, field: RowNumberField, input: string) {
+    const rowNumber = draft?.rows[index]?.rowNumber
+    const draftKey = rowNumber == null ? '' : `${rowNumber}:${field}`
+    if (!canKeepEditingDecimal(input)) return
+    if (draftKey) setRowNumberDrafts((current) => ({ ...current, [draftKey]: input }))
+    if (input.trim() && /[.,]$/u.test(input.trim())) return
     setDraft((current) => {
       if (!current) return current
       const rows = [...current.rows]
+      const value = nullableNumber(input)
       rows[index] = {
         ...rows[index],
-        [field]: nullableNumber(input),
+        [field]: value,
+        ...(field === 'fatPercent' ? { milkType: inferMilkTypeFromFat(value) } : {}),
         uncertainFields: rows[index].uncertainFields.filter((uncertain) => uncertain !== field),
       }
       return { ...current, rows }
+    })
+  }
+
+  function rowNumberInputValue(row: ExtractedRow, field: RowNumberField) {
+    const key = `${row.rowNumber}:${field}`
+    return rowNumberDrafts[key] ?? row[field] ?? ''
+  }
+
+  function commitRowNumberInput(index: number, row: ExtractedRow, field: RowNumberField) {
+    const key = `${row.rowNumber}:${field}`
+    const pendingValue = rowNumberDrafts[key]
+    if (pendingValue !== undefined) {
+      const normalizedValue = pendingValue.trim().replace(/[.,]$/u, '')
+      updateRowNumber(index, field, normalizedValue)
+    }
+    setRowNumberDrafts((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
     })
   }
 
@@ -690,6 +761,101 @@ export function OcrReviewScreen() {
       setError((saveError as Error).message || 'Could not save corrected data.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveErpExportState(erpExport: DailyRouteErpExport) {
+    if (!selected || !draft) throw new Error('No OCR document is selected.')
+    const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: draft, centerMatches, erpExport }),
+    })
+    const payload = await response.json() as { job?: OcrJob; error?: string }
+    if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not save ERP status.')
+    jobCacheRef.current.set(payload.job.id, payload.job)
+    setSelected(payload.job)
+    setDraft(payload.job.data ? cloneData(payload.job.data) : null)
+    setCenterMatches(structuredClone(payload.job.centerMatches ?? []))
+    setSelectedSummary(payload.job)
+    lastSavedRef.current = JSON.stringify({ data: payload.job.data, centerMatches: payload.job.centerMatches ?? [] })
+    return payload.job
+  }
+
+  async function sendDocumentToErp() {
+    if (!selected || !draft || erpSending) return
+    const invalidRows = draft.rows
+      .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
+      .filter((row) => row.fields.length > 0)
+    if (invalidRows.length) {
+      setError(
+        isRo
+          ? `Completați centrul, litrii, grăsimea și temperatura înainte de trimiterea în ERP. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+          : `Fill center, liters, fat, and temperature before sending to ERP. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+      )
+      return
+    }
+
+    const startedAt = new Date().toISOString()
+    setErpSending(true)
+    setError('')
+    setSuccess('')
+    try {
+      await saveErpExportState({
+        status: 'sending',
+        startedAt,
+        error: null,
+        rowCount: draft.rows.length,
+        rowLog: draft.rows.map((row) => ({
+          rowNumber: row.rowNumber,
+          aviz: row.noticeNumber,
+          center: row.collectionCenter,
+          status: 'ready',
+        })),
+      })
+
+      const result = await sendDailyRouteDetailsToErp(
+        draft,
+        centerMatches,
+        selected.sourceFile,
+        undefined,
+        (progress) => {
+          setSelected((current) => current ? { ...current, erpExport: progress } : current)
+          setSelectedSummary((current) => current ? { ...current, erpExport: progress } : current)
+        },
+      )
+      await saveErpExportState(result)
+      await loadJobs()
+
+      if (result.status === 'sent') {
+        setSuccess(isRo ? `${result.successCount ?? 0} avize au fost trimise în ERP.` : `${result.successCount ?? 0} aviz rows were sent to ERP.`)
+      } else {
+        const failedRows = result.rowLog?.filter((row) => row.status === 'failed').map((row) => row.rowNumber).join(', ')
+        setError(
+          isRo
+            ? `Trimitere ERP incompletă. Rânduri eșuate: ${failedRows || 'necunoscute'}.`
+            : `ERP send incomplete. Failed rows: ${failedRows || 'unknown'}.`,
+        )
+      }
+    } catch (sendError) {
+      const failedState: DailyRouteErpExport = {
+        status: 'failed',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: sendError instanceof Error ? sendError.message : 'Could not send daily route rows to ERP.',
+        rowCount: draft.rows.length,
+        successCount: 0,
+        failedCount: draft.rows.length,
+      }
+      try {
+        await saveErpExportState(failedState)
+        await loadJobs()
+      } catch {
+        // The visible error below is the important failure for the reviewer.
+      }
+      setError(failedState.error || 'Could not send daily route rows to ERP.')
+    } finally {
+      setErpSending(false)
     }
   }
 
@@ -988,6 +1154,7 @@ export function OcrReviewScreen() {
                   {job.openai?.model && <span className="review-job-model">OCR: {job.openai.provider || 'openai'} · {job.openai.model}{formatOcrDuration(job) ? ` · ${formatOcrDuration(job)}` : ''}</span>}
                   {formatCost(job) && <span className="review-job-cost">OpenAI est. {formatCost(job)}</span>}
                   {job.excelExport?.status && job.excelExport.status !== 'not_ready' && <span className={`review-excel-status excel-${job.excelExport.status}`}>Excel: {job.excelExport.status}</span>}
+                  {job.erpExport?.status && job.erpExport.status !== 'not_ready' && <span className={`review-erp-status erp-${job.erpExport.status}`}>ERP: {job.erpExport.status}</span>}
                   <small>{new Date(job.createdAt).toLocaleString()}</small>
                 </button>
                 {job.status === 'failed' && (
@@ -1057,6 +1224,25 @@ export function OcrReviewScreen() {
                           : selected.excelExport?.error || (isRo ? 'Documentul verificat nu a fost încă exportat.' : 'This reviewed document has not been exported yet.')}</span>
                     </div>
                     {(selected.excelExport?.status === 'failed' || !selected.excelExport || selected.excelExport.status === 'not_ready') && <button type="button" onClick={() => void retryExcelExport()} disabled={exporting}>{exporting ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Exportați în Excel' : 'Export to Excel')}</button>}
+                  </div>
+                )}
+
+                {selected.erpExport?.status && selected.erpExport.status !== 'not_ready' && (
+                  <div className={`review-erp-export erp-${selected.erpExport.status}`}>
+                    <div>
+                      <strong>ERP</strong>
+                      <span>{selected.erpExport.status === 'sent'
+                        ? `${selected.erpExport.successCount ?? selected.erpExport.rowCount ?? 0} ${isRo ? 'avize trimise în ERP.' : 'aviz rows sent to ERP.'}`
+                        : selected.erpExport.status === 'sending'
+                          ? (isRo ? 'Trimiterea în ERP este în curs…' : 'Sending daily route rows to ERP…')
+                          : selected.erpExport.error || (isRo ? 'Trimiterea în ERP a eșuat.' : 'ERP send failed.')}</span>
+                    </div>
+                    {selected.erpExport.rowLog?.length ? <ul>
+                      {selected.erpExport.rowLog.map((row) => <li className={`erp-row-${row.status}`} key={row.rowNumber}>
+                        <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber}</b>
+                        <span>{row.status === 'sent' ? (row.newid ? `ERP #${row.newid}` : (isRo ? 'Trimis' : 'Sent')) : row.status === 'failed' ? row.message : (isRo ? 'Pregătit' : 'Ready')}</span>
+                      </li>)}
+                    </ul> : null}
                   </div>
                 )}
 
@@ -1133,8 +1319,8 @@ export function OcrReviewScreen() {
 
                 <div className="review-table-wrap">
                   <table>
-                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
-                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
+                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-milk-type" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
+                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}{!row.collectionCenter?.trim() && <b title={isRo ? 'Descriere centru goală' : 'Empty center description'}>!</b>}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small></span></td>
@@ -1146,12 +1332,12 @@ export function OcrReviewScreen() {
                             {match ? <>
                               {openCenterSuggestions !== row.rowNumber && <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
                                 <option value="">{match.suggestions.length ? (isRo ? `Alegeți o sugestie (${match.suggestions.length})…` : `Choose a suggestion (${match.suggestions.length})…`) : (isRo ? 'Nicio potrivire găsită (0)' : 'No match found (0)')}</option>
-                                {match.suggestions.map((suggestion) => <option key={suggestion.code} value={suggestion.code}>{Math.round(suggestion.score * 100)}% · {suggestion.name} · {suggestion.code}</option>)}
+                                {match.suggestions.map((suggestion) => <option key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{Math.round(suggestion.score * 100)}% · {suggestion.name} · {suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</option>)}
                               </select>}
                               {openCenterSuggestions === row.rowNumber && match.suggestions.length > 0 && (
                                 <div className="review-center-suggestion-menu" role="listbox" aria-label={isRo ? `Sugestii pentru rândul ${row.rowNumber}` : `Suggestions for row ${row.rowNumber}`}>
                                   <strong>{isRo ? `${match.suggestions.length} sugestii găsite` : `${match.suggestions.length} suggestions found`}</strong>
-                                  {match.suggestions.map((suggestion) => <button type="button" role="option" key={suggestion.code} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{Math.round(suggestion.score * 100)}%</span><b>{suggestion.name}</b><small>{suggestion.code}</small></button>)}
+                                  {match.suggestions.map((suggestion) => <button type="button" role="option" key={`${suggestion.code}-${suggestion.name}`} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{Math.round(suggestion.score * 100)}%</span><b>{suggestion.name}</b><small>{suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</small></button>)}
                                   <button className="review-center-suggestion-close" type="button" onClick={() => setOpenCenterSuggestions(null)}>{isRo ? 'Închideți' : 'Close'}</button>
                                 </div>
                               )}
@@ -1166,10 +1352,15 @@ export function OcrReviewScreen() {
                             {needsReview && <small className="review-center-warning">{isRo ? 'Nicio potrivire în listă' : 'No match in reference list'}</small>}
                           </div></td>
                         })()}
-                        <td><input inputMode="decimal" value={row.liters ?? ''} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.fatPercent ?? ''} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.temperature ?? ''} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={row.water ?? ''} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td>
+                          <select value={normalizeMilkType(row.milkType, row.fatPercent)} onChange={(event) => updateRowText(index, 'milkType', event.target.value)} aria-label={isRo ? `Tip lapte pentru rândul ${row.rowNumber}` : `Milk type for row ${row.rowNumber}`}>
+                            {DAILY_MILK_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                        </td>
+                        <td><input inputMode="decimal" value={rowNumberInputValue(row, 'liters')} onBlur={() => commitRowNumberInput(index, row, 'liters')} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'fatPercent')} onBlur={() => commitRowNumberInput(index, row, 'fatPercent')} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'water')} onBlur={() => commitRowNumberInput(index, row, 'water')} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
@@ -1181,7 +1372,8 @@ export function OcrReviewScreen() {
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
                   <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching')}</button>
-                  {selected.reviewStatus === 'pending' && sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea și temperatura. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, and temperature. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea și temperatura. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, and temperature. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={saving || autoSaveStatus === 'saving' || erpSending || sendToExcelBlocked} title={sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimiterea în ERP' : 'Fill the required fields before sending to ERP') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimiteți din nou în ERP' : 'Send again to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
                   {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || sendToExcelBlocked} title={sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')}</button>}
                 </div>
               </div>

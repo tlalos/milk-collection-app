@@ -13,6 +13,7 @@ Rules:
 - Dates must be returned as YYYY-MM-DD only when unambiguous. Otherwise return null and explain in warnings.
 - Extract only non-empty collection rows. Keep their printed row numbers.
 - Column meanings: collection center name, liters, fat percentage (Gr %), density/U.G., water/APA, temperature/TEMP, notice number/AVIZ.
+- For each row, set milkType to one of MILK-COW, MILK-SHEEP, MILK-GOAT, MILK-BUFF. Use visible document text when present. Otherwise infer from fat percentage: cow is usually 3.3-4.2, sheep 6.0-7.0, buffalo 7.0-8.0, goat 3.5-4.5. Because goat is uncommon and overlaps cow, prefer MILK-COW over MILK-GOAT unless goat is explicitly written.
 - Romanian decimal commas are decimal points in JSON numbers (for example 3,8 becomes 3.8).
 - Do not infer illegible values. Use null, add the field name to uncertainFields, and describe significant ambiguity in warnings.
 - confidence is an estimate from 0 to 1 for each entire row.
@@ -151,8 +152,9 @@ export async function extractMilkCollectionDocument(file, documentCategory = 'da
   }
 
   const accounting = calculateOpenAiCost(model, response.usage)
+  const rawData = isMonthly ? response.output_parsed : prepareDailyRawData(response.output_parsed)
   return {
-    data: normalizeMonthlyData(schema.parse(response.output_parsed)),
+    data: normalizeMonthlyData(schema.parse(rawData)),
     openai: {
       responseId: response.id,
       model,
@@ -196,7 +198,7 @@ function jsonPrompt(documentCategory) {
   if (documentCategory === 'journal_monthly_settlement') {
     return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"documentMonth":number|null,"milkType":string,"headerCenterName":string|null,"totalLiters":number|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
   }
-  return `${EXTRACTION_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"daily_driver_statement","companyName":string|null,"date":string|null,"driverName":string|null,"vehicleRegistration":string|null,"route":string|null,"rows":[{"rowNumber":number,"collectionCenter":string|null,"liters":number|null,"fatPercent":number|null,"density":number|null,"water":number|null,"temperature":number|null,"noticeNumber":string|null,"confidence":number,"uncertainFields":string[]}],"totalLiters":number|null,"warnings":string[],"rawTranscription":string}`
+  return `${EXTRACTION_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"daily_driver_statement","companyName":string|null,"date":string|null,"driverName":string|null,"vehicleRegistration":string|null,"route":string|null,"rows":[{"rowNumber":number,"collectionCenter":string|null,"milkType":"MILK-COW"|"MILK-SHEEP"|"MILK-GOAT"|"MILK-BUFF","liters":number|null,"fatPercent":number|null,"density":number|null,"water":number|null,"temperature":number|null,"noticeNumber":string|null,"confidence":number,"uncertainFields":string[]}],"totalLiters":number|null,"warnings":string[],"rawTranscription":string}`
 }
 
 function prepareMonthlyRawData(rawData) {
@@ -217,6 +219,33 @@ function prepareMonthlyRawData(rawData) {
     gValue: row.gValue ?? row.ugTotal ?? row.g ?? null,
     confidence: typeof row.confidence === 'number' ? Math.max(0, Math.min(1, row.confidence)) : 0.5,
     uncertainFields: Array.isArray(row.uncertainFields) ? row.uncertainFields : [],
+  }))
+  return rawData
+}
+
+function inferDailyMilkTypeFromFat(fatPercent) {
+  const fat = Number(fatPercent)
+  if (!Number.isFinite(fat)) return 'MILK-COW'
+  if (fat >= 7 && fat <= 8) return 'MILK-BUFF'
+  if (fat >= 6 && fat < 7) return 'MILK-SHEEP'
+  if (fat >= 3.3 && fat <= 4.5) return 'MILK-COW'
+  return 'MILK-COW'
+}
+
+function normalizeDailyMilkType(value, fatPercent) {
+  const normalized = String(value || '').trim().toUpperCase()
+  if (['MILK-COW', 'MILK-SHEEP', 'MILK-GOAT', 'MILK-BUFF'].includes(normalized)) return normalized
+  if (['COW', 'VACA', 'LAPTE DE VACA'].includes(normalized)) return 'MILK-COW'
+  if (['SHEEP', 'OAIE', 'LAPTE DE OAIE'].includes(normalized)) return 'MILK-SHEEP'
+  if (['GOAT', 'CAPRA', 'LAPTE DE CAPRA'].includes(normalized)) return 'MILK-GOAT'
+  if (['BUFF', 'BUFFALO', 'BIVOL', 'LAPTE DE BIVOL'].includes(normalized)) return 'MILK-BUFF'
+  return inferDailyMilkTypeFromFat(fatPercent)
+}
+
+function prepareDailyRawData(rawData) {
+  rawData.rows = (Array.isArray(rawData.rows) ? rawData.rows : []).map((row) => ({
+    ...row,
+    milkType: normalizeDailyMilkType(row.milkType, row.fatPercent),
   }))
   return rawData
 }
@@ -274,6 +303,7 @@ async function extractWithMistralDocumentAi(file, settings, documentCategory) {
   if (!text) throw new Error('Mistral did not convert the OCR transcription into review data.')
   const rawData = JSON.parse(String(text).replace(/^```(?:json)?\s*|\s*```$/gu, '').trim())
   if (documentCategory === 'journal_monthly_settlement') prepareMonthlyRawData(rawData)
+  if (documentCategory !== 'journal_monthly_settlement') prepareDailyRawData(rawData)
   if (documentCategory === 'journal_monthly_settlement' && rawData.layoutType === 'detailed' && file.mimetype !== 'application/pdf') {
     const verification = await verifyMistralFinalColumns(file, rawData, headers, structuringModel)
     const verifiedByRow = new Map(verification.rows.map((row) => [Number(row.rowNumber), row]))
@@ -451,6 +481,7 @@ async function extractWithCompatibleProvider(file, settings, documentCategory) {
   if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'VACA'
   if (documentCategory === 'journal_monthly_settlement' && rawData.documentMonth === undefined) rawData.documentMonth = null
   if (documentCategory === 'journal_monthly_settlement' && rawData.totalLiters === undefined) rawData.totalLiters = null
+  if (documentCategory !== 'journal_monthly_settlement') prepareDailyRawData(rawData)
   const data = normalizeMonthlyData(schema.parse(rawData))
   const usage = payload.usage ? {
     inputTokens: payload.usage.prompt_tokens || 0,

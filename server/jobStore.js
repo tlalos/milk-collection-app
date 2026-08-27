@@ -79,6 +79,7 @@ export async function createJob(file, documentCategory = 'daily_routes') {
     ocrOriginalData: null,
     openai: null,
     excelExport: { status: 'not_ready', error: null },
+    erpExport: { status: 'not_ready', error: null },
     centerMatches: [],
     centerMatchError: null,
     producerMatches: [],
