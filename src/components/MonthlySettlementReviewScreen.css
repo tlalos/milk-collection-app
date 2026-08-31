@@ -83,14 +83,15 @@
 }
 .monthly-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border-radius: 9px;
   background: #edf2ef;
 }
 .monthly-tabs button {
-  padding: 8px;
+  min-width: 0;
+  padding: 8px 4px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -417,6 +418,38 @@
 .monthly-warnings ul {
   margin: 4px 0 0;
   padding-left: 17px;
+}
+.monthly-table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 8px;
+}
+.monthly-table-toolbar button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid #91b7a0;
+  border-radius: 8px;
+  background: #e9f4ed;
+  color: #17613a;
+  font-size: 0.67rem;
+  font-weight: 850;
+}
+.monthly-table-toolbar button:disabled {
+  opacity: 0.6;
+}
+.monthly-table-toolbar button span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 5px;
+  background: #2f8b55;
+  color: white;
+  font-size: 0.85rem;
+  line-height: 1;
 }
 .monthly-table {
   min-height: 0;

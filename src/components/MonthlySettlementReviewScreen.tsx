@@ -130,9 +130,13 @@ function formatOcrDuration(job: MonthlyJob) {
     : `${seconds}s`;
 }
 
+function isFailedMonthlyJob(job: MonthlyJob) {
+  return job.status === "failed" || job.excelExport?.status === "failed";
+}
+
 export function MonthlySettlementReviewScreen() {
   const { language, setLanguage, isRo } = useOcrLanguage();
-  const [view, setView] = useState<"pending" | "reviewed">("pending");
+  const [view, setView] = useState<"pending" | "reviewed" | "failed">("pending");
   const [listCollapsed, setListCollapsed] = useState(false);
   const [centerSearch, setCenterSearch] = useState("");
   const [jobs, setJobs] = useState<MonthlyJob[]>([]);
@@ -182,10 +186,12 @@ export function MonthlySettlementReviewScreen() {
     : jobs;
 
   const loadJobs = useCallback(async () => {
+    const query =
+      view === "failed"
+        ? "documentCategory=journal_monthly_settlement"
+        : `reviewStatus=${view}&documentCategory=journal_monthly_settlement`;
     const response = await fetch(
-      appPath(
-        `/api/ocr/jobs?reviewStatus=${view}&documentCategory=journal_monthly_settlement`,
-      ),
+      appPath(`/api/ocr/jobs?${query}`),
     );
     const payload = (await response.json()) as {
       jobs?: MonthlyJob[];
@@ -193,7 +199,13 @@ export function MonthlySettlementReviewScreen() {
     };
     if (!response.ok)
       throw new Error(payload.error || "Could not load documents.");
-    setJobs(payload.jobs || []);
+    const nextJobs =
+      view === "pending"
+        ? (payload.jobs || []).filter((job) => job.status !== "failed")
+        : view === "failed"
+          ? (payload.jobs || []).filter(isFailedMonthlyJob)
+          : payload.jobs || [];
+    setJobs(nextJobs);
   }, [view]);
 
   useEffect(() => {
@@ -363,6 +375,32 @@ export function MonthlySettlementReviewScreen() {
       delete next[`row-${rowNumber}`];
       return next;
     });
+  }
+
+  function addManualRow() {
+    setDraft((current) => {
+      if (!current) return current;
+      const nextRowNumber =
+        current.rows.reduce(
+          (highest, row) => Math.max(highest, row.rowNumber),
+          0,
+        ) + 1;
+      const row: MonthlyRow = {
+        rowNumber: nextRowNumber,
+        producer: current.layoutType === "detailed" ? "" : null,
+        centerName: current.layoutType === "overview" ? "" : null,
+        liters: null,
+        ugPercent: null,
+        gValue: null,
+        confidence: 1,
+        uncertainFields:
+          current.layoutType === "detailed"
+            ? ["producer", "liters", "ugPercent"]
+            : ["centerName", "liters", "gValue"],
+      };
+      return { ...current, rows: [...current.rows, row] };
+    });
+    setNotice(isRo ? "Rând nou adăugat." : "New row added.");
   }
 
   async function searchProducers(
@@ -858,6 +896,16 @@ export function MonthlySettlementReviewScreen() {
             >
               {isRo ? "Verificate" : "Reviewed"}
             </button>
+            <button
+              className={view === "failed" ? "active" : ""}
+              onClick={() => {
+                setView("failed");
+                setSelected(null);
+                setDraft(null);
+              }}
+            >
+              {isRo ? "Eșuate" : "Failed"}
+            </button>
           </div>
           <h2>
             {isRo ? "Documente" : "Documents"} <b>{filteredJobs.length}</b>
@@ -1276,6 +1324,12 @@ export function MonthlySettlementReviewScreen() {
                         {selected.producerMatchError}
                       </div>
                     )}
+                    <div className="monthly-table-toolbar">
+                      <button type="button" onClick={addManualRow} disabled={busy}>
+                        <span>+</span>
+                        {isRo ? "Adăugați rând" : "Add row"}
+                      </button>
+                    </div>
                     <div className="monthly-table">
                       <table>
                         <thead>

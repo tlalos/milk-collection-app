@@ -195,6 +195,9 @@
 .review-liters-summary.matches > b { border-color: #afd2bc; background: #e9f6ee; color: #17613a; }
 .review-liters-summary.mismatch > b { border-color: #e6c26a; background: #fff6dc; color: #795800; }
 .review-liters-summary.unknown > b { border-color: #e0c7a3; background: #fff7eb; color: #795b32; }
+.review-table-toolbar { display: flex; justify-content: flex-end; margin: 0 14px 8px; }
+.review-table-toolbar button { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #91b7a0; border-radius: 8px; background: #e9f4ed; color: #17613a; font-size: .67rem; font-weight: 850; }
+.review-table-toolbar button span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: #2f8b55; color: white; font-size: .85rem; line-height: 1; }
 .review-table-wrap { flex: 1 1 auto; min-height: 150px; margin: 0 14px; overflow: auto; border: 1px solid #dce4df; border-radius: 9px; }
 .review-table-wrap table { width: 100%; min-width: 790px; table-layout: fixed; border-collapse: collapse; font-size: .7rem; }
 .review-table-wrap .col-row { width: 42px; }

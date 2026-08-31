@@ -32,6 +32,19 @@ const DAILY_ROUTES_USED_ROW_COLUMNS = [
   'ERP_Status',
   'Center_Code',
 ]
+const MONTHLY_SETTLEMENT_USED_ROW_COLUMNS = [
+  'Month',
+  'Producer_Name',
+  'Milk_Code',
+  'Qty_Month_L',
+  'Avg_Fat',
+  'Producer_Comments',
+  'jpg',
+  'Producer_Code',
+  'Producer_TRN',
+  'Center_Code',
+  'Center_Name',
+]
 
 export function clearReferenceCaches() {
   centerCache = { expiresAt: 0, centers: [] }
@@ -164,13 +177,15 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
   const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
   const tableName = 'tblMonthlySettlement'
   const tablePath = `${workbookPath}/tables/${encodeURIComponent(tableName)}`
-  const [columns, monthRange] = await Promise.all([
+  const [columns, monthRange, tableBodyRange] = await Promise.all([
     graphFetch(`${tablePath}/columns`, token),
     graphFetch(`${tablePath}/columns/${encodeURIComponent('Month')}/dataBodyRange`, token),
+    graphFetch(`${tablePath}/dataBodyRange`, token),
   ])
   const columnNames = (columns.value || []).map((column) => column.name)
   const monthValues = (monthRange.values || []).flat()
-  const lastUsedIndex = monthValues.reduce((last, value, index) => value !== null && value !== '' ? index : last, -1)
+  const tableBodyValues = Array.isArray(tableBodyRange.values) ? tableBodyRange.values : []
+  const lastUsedIndex = findLastUsedTableRowIndex(tableBodyValues, columnNames, MONTHLY_SETTLEMENT_USED_ROW_COLUMNS)
   const startIndex = lastUsedIndex + 1
   const monthSerial = toExcelSerial(job.data.date)
   const milkCode = monthlyMilkCode(job.data.milkType)
@@ -204,7 +219,7 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
     values.push(columnNames.slice(0, 15).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null))
     await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: producerName })
   }
-  await ensureTableCapacity(tablePath, token, monthValues.length, startIndex + values.length)
+  await ensureTableCapacity(tablePath, token, Math.max(monthValues.length, tableBodyValues.length), startIndex + values.length)
   const bodyStartRow = Number(monthRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
   if (!bodyStartRow) throw new Error('Could not determine the Monthly_Settlement table row address.')
   const excelStartRow = bodyStartRow + startIndex
@@ -839,8 +854,21 @@ async function resolveWorkbook(config, token) {
 async function graphFetch(pathname, token, options = {}) {
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json', ...options.headers }
   if (options.body) headers['Content-Type'] = 'application/json'
-  const response = await fetch(`${GRAPH_ROOT}${pathname}`, { ...options, headers })
-  return parseResponse(response, `${options.method || 'GET'} ${pathname}`)
+  const method = options.method || 'GET'
+  const retryable = method === 'GET' || method === 'PATCH'
+  const maxAttempts = retryable ? 3 : 1
+  let lastError
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(`${GRAPH_ROOT}${pathname}`, { ...options, headers })
+      return await parseResponse(response, `${method} ${pathname}`)
+    } catch (error) {
+      lastError = error
+      if (!retryable || attempt === maxAttempts || !isRetryableGraphError(error)) throw error
+      await delay(graphRetryDelayMs(error, attempt))
+    }
+  }
+  throw lastError
 }
 
 async function parseResponse(response, context) {
@@ -849,6 +877,26 @@ async function parseResponse(response, context) {
   if (text) {
     try { body = JSON.parse(text) } catch { body = { message: text } }
   }
-  if (!response.ok) throw new Error(body?.error?.message || body?.error_description || body?.message || `${context} failed (${response.status}).`)
+  if (!response.ok) {
+    const error = new Error(body?.error?.message || body?.error_description || body?.message || `${context} failed (${response.status}).`)
+    error.status = response.status
+    error.retryAfter = response.headers.get('retry-after')
+    throw error
+  }
   return body || {}
+}
+
+function isRetryableGraphError(error) {
+  const status = Number(error?.status)
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || error?.cause?.code === 'ETIMEDOUT'
+}
+
+function graphRetryDelayMs(error, attempt) {
+  const retryAfterSeconds = Number(error?.retryAfter)
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) return Math.min(retryAfterSeconds * 1000, 15000)
+  return attempt * 2500
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

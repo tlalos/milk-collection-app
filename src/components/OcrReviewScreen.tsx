@@ -718,6 +718,28 @@ export function OcrReviewScreen() {
     if (openCenterSuggestions === rowNumber) setOpenCenterSuggestions(null)
   }
 
+  function addManualRow() {
+    setDraft((current) => {
+      if (!current) return current
+      const nextRowNumber = current.rows.reduce((highest, row) => Math.max(highest, row.rowNumber), 0) + 1
+      const row: ExtractedRow = {
+        rowNumber: nextRowNumber,
+        collectionCenter: '',
+        milkType: 'MILK-COW',
+        liters: null,
+        fatPercent: null,
+        density: null,
+        water: null,
+        temperature: null,
+        noticeNumber: '',
+        confidence: 1,
+        uncertainFields: ['collectionCenter', 'liters', 'fatPercent', 'temperature'],
+      }
+      return { ...current, rows: [...current.rows, row] }
+    })
+    setSuccess(isRo ? 'Rând nou adăugat.' : 'New row added.')
+  }
+
   async function saveDocument(markReviewed: boolean) {
     if (!selected || !draft || saving) return
     if (markReviewed) {
@@ -1333,6 +1355,13 @@ export function OcrReviewScreen() {
                     : litersMatch
                       ? (isRo ? '✓ Totalurile corespund' : '✓ Totals match')
                       : `${isRo ? '!' : '!'} ${isRo ? 'Diferență' : 'Difference'}: ${litersDifference! > 0 ? '+' : ''}${formatLiters(litersDifference!)} L`}</b>
+                </div>
+
+                <div className="review-table-toolbar">
+                  <button type="button" onClick={addManualRow}>
+                    <span>+</span>
+                    {isRo ? 'Adăugați rând' : 'Add row'}
+                  </button>
                 </div>
 
                 <div className="review-table-wrap">
