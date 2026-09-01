@@ -35,9 +35,11 @@
   text-transform: none;
 }
 .monthly-bottom-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 12px 12px; }
-.monthly-bottom-actions button { min-height: 40px; border: 1px solid #a9c7b5; border-radius: 9px; background: #f4f8f5; color: #17613a; font-size: .72rem; font-weight: 850; }
-.monthly-bottom-actions button:hover { background: #e7f3eb; }
-.monthly-bottom-actions button:disabled { opacity: .55; }
+.monthly-bottom-actions button { min-height: 40px; border: 1px solid #a9c7b5; border-radius: 9px; background: #f4f8f5; color: #17613a; font-size: .72rem; font-weight: 850; cursor: pointer; transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, transform .08s ease; }
+.monthly-bottom-actions button:hover:not(:disabled) { border-color: #32724d; background: #cbe8d6; color: #0a4d29; box-shadow: 0 2px 8px rgba(23,97,58,.2); }
+.monthly-bottom-actions button:active:not(:disabled) { transform: translateY(1px); }
+.monthly-bottom-actions button:focus-visible { outline: 3px solid rgba(31,122,73,.22); outline-offset: 2px; }
+.monthly-bottom-actions button:disabled { opacity: .55; cursor: not-allowed; }
 .monthly-excel-status { width: fit-content; padding: 3px 6px; border-radius: 5px; background: #eef1ef; color: #526158 !important; font-size: .6rem !important; font-weight: 850; text-transform: none !important; }
 .monthly-excel-status.status-exported { background: #dceeff; color: #17608b !important; }
 .monthly-excel-status.status-failed { background: #fce9e7; color: #9d342d !important; }

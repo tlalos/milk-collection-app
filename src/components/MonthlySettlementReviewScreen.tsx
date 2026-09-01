@@ -328,17 +328,26 @@ export function MonthlySettlementReviewScreen() {
   }
 
   function updateRow(index: number, field: keyof MonthlyRow, value: string) {
-    if (!draft) return;
     const numeric = ["liters", "ugPercent", "gValue"].includes(field);
-    const rows = draft.rows.map((row, rowIndex) =>
-      rowIndex === index
+    setDraft((current) =>
+      current
         ? {
-            ...row,
-            [field]: numeric ? (value === "" ? null : Number(value)) : value,
+            ...current,
+            rows: current.rows.map((row, rowIndex) =>
+              rowIndex === index
+                ? {
+                    ...row,
+                    [field]: numeric
+                      ? value === ""
+                        ? null
+                        : Number(value)
+                      : value,
+                  }
+                : row,
+            ),
           }
-        : row,
+        : current,
     );
-    setDraft({ ...draft, rows });
   }
 
   function deleteRow(rowNumber: number) {
@@ -1173,11 +1182,26 @@ export function MonthlySettlementReviewScreen() {
                       <button
                         className="primary"
                         onClick={() => void save(true, true)}
-                        disabled={busy || autoSaveStatus === "saving"}
+                        disabled={
+                          busy ||
+                          autoSaveStatus === "saving" ||
+                          selected.excelExport?.status === "exported"
+                        }
+                        title={
+                          selected.excelExport?.status === "exported"
+                            ? isRo
+                              ? "Acest document a fost deja trimis în Excel"
+                              : "This document has already been sent to Excel"
+                            : undefined
+                        }
                       >
-                        {isRo
-                          ? "Salvați, verificați și trimiteți în Excel"
-                          : "Save, mark reviewed and send to Excel"}
+                        {selected.excelExport?.status === "exported"
+                          ? isRo
+                            ? "Trimis deja în Excel"
+                            : "Already sent to Excel"
+                          : isRo
+                            ? "Salvați, verificați și trimiteți în Excel"
+                            : "Save, mark reviewed and send to Excel"}
                       </button>
                     </div>
                   )}
@@ -1229,10 +1253,14 @@ export function MonthlySettlementReviewScreen() {
                           list="monthly-header-centers"
                           value={draft.headerCenterName || ""}
                           onChange={(e) => {
-                            setDraft({
-                              ...draft,
-                              headerCenterName: e.target.value,
-                            });
+                            setDraft((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    headerCenterName: e.target.value,
+                                  }
+                                : current,
+                            );
                             void searchProducers(
                               "header",
                               e.target.value,

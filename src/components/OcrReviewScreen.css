@@ -1,4 +1,6 @@
 .review-screen { height: 100vh; overflow: hidden; background: #edf1ee; color: #17231c; }
+.review-screen button:not(:disabled) { cursor: pointer; }
+.review-screen button:disabled { cursor: not-allowed; }
 .review-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 24px; box-sizing: border-box; background: #174f31; color: white; }
 .review-header h1 { margin: 0 0 2px; font-size: 1.35rem; }
 .review-header h1 small { display: inline-block; margin-left: 5px; color: rgba(255,255,255,.68); font-size: .58rem; font-weight: 700; vertical-align: middle; }
@@ -166,7 +168,11 @@
 .review-excel-export strong { color: #274a35; }
 .review-excel-export.excel-exported { border-color: #b8d9c4; background: #eff9f3; }
 .review-excel-export.excel-failed { border-color: #efc5c1; background: #fff0ef; color: #8a3933; }
-.review-excel-export button { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #1a6b3c; border-radius: 7px; background: white; color: #1a6b3c; font-size: .65rem; font-weight: 800; }
+.review-excel-export button { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #1a6b3c; border-radius: 7px; background: white; color: #1a6b3c; font-size: .65rem; font-weight: 800; cursor: pointer; transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, transform .08s ease; }
+.review-excel-export button:hover:not(:disabled) { border-color: #0a4d29; background: #cbe8d6; color: #063d21; box-shadow: 0 3px 10px rgba(23,97,58,.24); }
+.review-excel-export button:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 3px rgba(23,97,58,.18); }
+.review-excel-export button:focus-visible { outline: 3px solid rgba(31,122,73,.2); outline-offset: 2px; }
+.review-excel-export button:disabled { border-color: #c9d6ce; background: #eef3f0; color: #7d8a82; cursor: not-allowed; box-shadow: none; }
 .review-excel-export-top { margin-top: 8px; margin-bottom: 0; }
 .review-erp-export { display: grid; gap: 7px; margin: 8px 14px 0; padding: 8px 10px; border: 1px solid #d4dfd8; border-radius: 8px; background: #f5f8f6; color: #526158; font-size: .65rem; }
 .review-erp-export > div { display: grid; gap: 2px; }
@@ -272,10 +278,17 @@
 .review-transcription summary { color: #1a6b3c; cursor: pointer; font-weight: 750; }
 .review-transcription p { padding: 9px; border-radius: 8px; background: #edf2ef; white-space: pre-wrap; line-height: 1.45; }
 .review-transcription textarea { width: 100%; min-height: 110px; margin-top: 8px; box-sizing: border-box; padding: 9px; border: 1px solid #d6e0da; border-radius: 8px; background: #f7faf8; color: #34463b; font: inherit; font-size: .72rem; line-height: 1.45; resize: vertical; }
-.review-complete { min-height: 48px; margin: 14px; border: 0; border-radius: 11px; background: #1a6b3c; color: white; font-weight: 800; }
-.review-complete:disabled { opacity: .6; }
+.review-complete { min-height: 48px; margin: 14px; border: 0; border-radius: 11px; background: #1a6b3c; color: white; font-weight: 800; cursor: pointer; transition: background-color .16s ease, box-shadow .16s ease, transform .08s ease, opacity .16s ease; }
+.review-complete:hover:not(:disabled) { background: #0a4d29; box-shadow: 0 3px 12px rgba(10,77,41,.3); }
+.review-complete:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 4px rgba(23,97,58,.18); }
+.review-complete:focus-visible { outline: 3px solid rgba(31,122,73,.22); outline-offset: 2px; }
+.review-complete:disabled { opacity: .6; cursor: not-allowed; box-shadow: none; }
 .review-save-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 7px; margin: 7px 14px 9px; }
-.review-save-actions button { min-height: 34px; padding: 5px 8px; border-radius: 8px; font-size: .68rem; line-height: 1.15; }
+.review-save-actions button { min-height: 34px; padding: 5px 8px; border-radius: 8px; font-size: .68rem; line-height: 1.15; cursor: pointer; transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, transform .08s ease; }
+.review-save-actions button:hover:not(:disabled) { box-shadow: 0 3px 10px rgba(23,97,58,.24); }
+.review-save-actions button:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 3px rgba(23,97,58,.18); }
+.review-save-actions button:focus-visible { outline: 3px solid rgba(31,122,73,.2); outline-offset: 2px; }
+.review-save-actions button:disabled { cursor: not-allowed; box-shadow: none; }
 .review-save-actions .review-complete { margin: 0; }
 .review-export-required-warning {
   grid-column: 1 / -1;
@@ -289,14 +302,19 @@
   font-weight: 800;
 }
 .review-save-secondary { min-height: 48px; border: 1px solid #1a6b3c; border-radius: 11px; background: white; color: #1a6b3c; font-weight: 800; }
+.review-save-secondary:hover:not(:disabled) { border-color: #0a4d29; background: #cbe8d6; color: #063d21; }
 .review-save-secondary:disabled { opacity: .6; }
 .review-reprocess { border: 1px solid #b9c6be; border-radius: 11px; background: #f2f5f3; color: #45574c; font-weight: 800; }
+.review-reprocess:hover:not(:disabled) { border-color: #6f8176; background: #dce5df; color: #23362a; }
 .review-reprocess:disabled { opacity: .6; }
 .review-rematch { border: 1px solid #91b7a0; border-radius: 11px; background: #e9f4ed; color: #17613a; font-weight: 800; }
+.review-rematch:hover:not(:disabled) { border-color: #32724d; background: #cbe8d6; color: #0a4d29; }
 .review-rematch:disabled { opacity: .6; }
-.review-erp-send { border: 1px solid #1d6f89; border-radius: 11px; background: #eaf6fa; color: #155a70; font-weight: 800; }
-.review-erp-send:disabled { opacity: .6; }
+.review-erp-send { border: 1px solid #1d6f89; border-radius: 11px; background: #eaf6fa; color: #155a70; font-weight: 800; cursor: pointer; }
+.review-erp-send:hover:not(:disabled) { border-color: #0e4f64; background: #bee4ef; color: #083f51; }
+.review-erp-send:disabled { opacity: .6; cursor: not-allowed; }
 .review-match-centers { border: 1px solid #91b7a0; background: #e9f4ed; color: #17613a; font-weight: 800; }
+.review-match-centers:hover:not(:disabled) { border-color: #32724d; background: #cbe8d6; color: #0a4d29; }
 .review-match-centers:disabled { opacity: .6; }
 @media (max-width: 1050px) { .review-layout { grid-template-columns: 230px minmax(0, 1fr); } .review-workspace { grid-template-columns: 1fr; gap: 14px; overflow-y: auto; } .review-panel-splitter { display: none; } .review-source-panel { min-height: 65vh; } .review-data-panel { overflow: visible; } }
 @media (max-width: 720px) { .review-header { padding: 12px 14px; } .review-layout, .review-layout.queue-collapsed { height: auto; min-height: calc(100vh - 76px); grid-template-columns: 1fr; } .review-queue { max-height: 280px; border-right: 0; border-bottom: 1px solid #d4ddd7; } .review-layout.queue-collapsed .review-queue { min-height: 48px; max-height: 48px; box-sizing: border-box; } .review-workspace { padding: 10px; } .review-source-panel { min-height: 70vh; } }

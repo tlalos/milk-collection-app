@@ -4,6 +4,12 @@
   background: #edf1ee;
   color: #17231c;
 }
+.monthly-review button:not(:disabled) {
+  cursor: pointer;
+}
+.monthly-review button:disabled {
+  cursor: not-allowed;
+}
 .monthly-review > header {
   height: 76px;
   box-sizing: border-box;
@@ -366,15 +372,54 @@
   color: #17613a;
   font-size: 0.67rem;
   font-weight: 800;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.08s ease;
+}
+.monthly-data-title button:hover:not(:disabled) {
+  border-color: #0a4d29;
+  background: #cbe8d6;
+  color: #063d21;
+  box-shadow: 0 3px 10px rgba(23, 97, 58, 0.24);
+}
+.monthly-data-title button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 3px rgba(23, 97, 58, 0.18);
+}
+.monthly-data-title button:focus-visible {
+  outline: 3px solid rgba(31, 122, 73, 0.2);
+  outline-offset: 2px;
+}
+.monthly-data-title button:disabled {
+  border-color: #c9d6ce;
+  background: #eef3f0;
+  color: #7d8a82;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 .monthly-data-title button.primary {
   background: #1a6b3c;
   color: #fff;
 }
+.monthly-data-title button.primary:hover:not(:disabled) {
+  border-color: #063d21;
+  background: #0a4d29;
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(10, 77, 41, 0.28);
+}
 .monthly-data-title button.secondary {
   border-color: #88b29a;
   background: #eef7f2;
   color: #17613a;
+}
+.monthly-data-title button.secondary:hover:not(:disabled) {
+  border-color: #32724d;
+  background: #cbe8d6;
+  color: #0a4d29;
 }
 .monthly-form {
   min-height: 0;
@@ -436,9 +481,26 @@
   color: #17613a;
   font-size: 0.67rem;
   font-weight: 850;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.08s ease;
+}
+.monthly-table-toolbar button:hover:not(:disabled) {
+  border-color: #32724d;
+  background: #cbe8d6;
+  color: #0a4d29;
+  box-shadow: 0 2px 8px rgba(23, 97, 58, 0.2);
+}
+.monthly-table-toolbar button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 .monthly-table-toolbar button:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
 }
 .monthly-table-toolbar button span {
   display: grid;
