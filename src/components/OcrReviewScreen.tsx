@@ -377,6 +377,7 @@ export function OcrReviewScreen() {
   const [exporting, setExporting] = useState(false)
   const [erpSending, setErpSending] = useState(false)
   const [excelNotice, setExcelNotice] = useState<{ type: 'working' | 'success' | 'error'; message: string; progress?: OcrJob['excelExport'] extends infer T ? T : never } | null>(null)
+  const [excelNoticeMinimized, setExcelNoticeMinimized] = useState(false)
   const [matchingCenters, setMatchingCenters] = useState(false)
   const [rowNumberDrafts, setRowNumberDrafts] = useState<Record<string, string>>({})
   const [openCenterSuggestions, setOpenCenterSuggestions] = useState<number | null>(null)
@@ -1228,11 +1229,14 @@ export function OcrReviewScreen() {
       {error && <div className="review-global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label={isRo ? 'Închideți eroarea' : 'Dismiss error'}>×</button></div>}
       {success && <div className="review-global-success" role="status"><span>{success}</span><button type="button" onClick={() => setSuccess('')} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button></div>}
       {excelNotice && (
-        <div className={`review-excel-notice ${excelNotice.type}`} role={excelNotice.type === 'error' ? 'alert' : 'status'} aria-live="polite">
+        <div className={`review-excel-notice ${excelNotice.type} ${excelNoticeMinimized ? 'minimized' : ''}`} role={excelNotice.type === 'error' ? 'alert' : 'status'} aria-live="polite">
           <span aria-hidden="true">{excelNotice.type === 'working' ? '↻' : excelNotice.type === 'success' ? '✓' : '!'}</span>
           <strong>{excelNotice.message}</strong>
-          <button type="button" onClick={() => setExcelNotice(null)} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button>
-          {excelNotice.progress && <div className="review-excel-progress">
+          <div className="review-excel-actions">
+            <button type="button" onClick={() => setExcelNoticeMinimized((current) => !current)} aria-label={excelNoticeMinimized ? (isRo ? 'Extindeți notificarea Excel' : 'Expand Excel notification') : (isRo ? 'Minimizați notificarea Excel' : 'Minimize Excel notification')}>{excelNoticeMinimized ? '□' : '−'}</button>
+            <button type="button" onClick={() => { setExcelNotice(null); setExcelNoticeMinimized(false) }} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button>
+          </div>
+          {excelNotice.progress && !excelNoticeMinimized && <div className="review-excel-progress">
             <div className="review-excel-progress-bar"><span style={{ width: `${excelNotice.progress.progress?.total ? Math.round((excelNotice.progress.progress.current / excelNotice.progress.progress.total) * 100) : 5}%` }} /></div>
             <div className="review-excel-row-log">{excelNotice.progress.rowLog?.map((row) => <span key={row.rowNumber}><b>{row.status === 'sent' ? '✓' : '•'} {isRo ? 'Rând' : 'Row'} {row.rowNumber}</b><small>{row.center}</small><em>{row.status === 'sent' ? (isRo ? 'Trimis' : 'Sent') : (isRo ? 'Pregătit' : 'Ready')}</em></span>)}</div>
           </div>}

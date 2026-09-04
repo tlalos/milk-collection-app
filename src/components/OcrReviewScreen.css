@@ -11,14 +11,19 @@
 .review-global-error { border: 1px solid #efc5c1; background: #fff0ef; color: #9d342d; }
 .review-global-success { border: 1px solid #b8d9c4; background: #eff9f3; color: #17613a; }
 .review-global-error button, .review-global-success button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: currentColor; font-size: 1.2rem; }
-.review-excel-notice { position: fixed; right: 18px; bottom: 18px; z-index: 50; width: min(580px, calc(100% - 36px)); min-height: 110px; display: grid; grid-template-columns: 32px 1fr 28px; align-items: start; gap: 10px; box-sizing: border-box; padding: 16px 14px; border: 1px solid #bed2c5; border-radius: 12px; background: white; box-shadow: 0 12px 38px rgba(20,45,30,.24); color: #30483a; font-size: .76rem; line-height: 1.4; }
+.review-excel-notice { position: fixed; right: 18px; bottom: 18px; z-index: 50; width: min(580px, calc(100% - 36px)); min-height: 110px; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: start; gap: 10px; box-sizing: border-box; padding: 16px 14px; border: 1px solid #bed2c5; border-radius: 12px; background: white; box-shadow: 0 12px 38px rgba(20,45,30,.24); color: #30483a; font-size: .76rem; line-height: 1.4; }
+.review-excel-notice.minimized { width: min(420px, calc(100% - 36px)); min-height: 0; padding: 11px 12px; align-items: center; }
 .review-excel-notice > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #e8f1ff; color: #285888; font-size: 1rem; font-weight: 900; }
+.review-excel-notice strong { min-width: 0; overflow-wrap: anywhere; }
+.review-excel-notice.minimized strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-excel-notice.success { border-color: #8ec4a2; background: #eff9f3; color: #17613a; }
 .review-excel-notice.success > span { background: #d6efdf; color: #17613a; }
 .review-excel-notice.error { border-color: #e5aaa4; background: #fff0ef; color: #8f312a; }
 .review-excel-notice.error > span { background: #f7d7d4; color: #9d342d; }
 .review-excel-notice.working > span { animation: review-spin .8s linear infinite; }
-.review-excel-notice button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: currentColor; font-size: 1.2rem; }
+.review-excel-actions { display: flex; align-items: center; gap: 4px; }
+.review-excel-notice button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: currentColor; font-size: 1.2rem; line-height: 1; }
+.review-excel-notice button:hover { background: rgba(26,107,60,.1); }
 .review-excel-progress { grid-column: 2 / 4; display: grid; gap: 8px; min-width: 0; }
 .review-excel-progress-bar { height: 7px; overflow: hidden; border-radius: 999px; background: #dce7e0; }
 .review-excel-progress-bar span { display: block; height: 100%; min-width: 5%; border-radius: inherit; background: #1a7a45; transition: width .25s ease; }
@@ -216,11 +221,11 @@
 .review-table-toolbar button { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #91b7a0; border-radius: 8px; background: #e9f4ed; color: #17613a; font-size: .67rem; font-weight: 850; }
 .review-table-toolbar button span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: #2f8b55; color: white; font-size: .85rem; line-height: 1; }
 .review-table-wrap { flex: 1 1 auto; min-height: 150px; margin: 0 14px; overflow: auto; border: 1px solid #dce4df; border-radius: 9px; }
-.review-table-wrap table { width: 100%; min-width: 790px; table-layout: fixed; border-collapse: collapse; font-size: .7rem; }
-.review-table-wrap .col-row { width: 42px; }
-.review-table-wrap .col-center { width: 190px; }
-.review-table-wrap .col-milk-type { width: 112px; }
-.review-table-wrap .col-liters { width: 92px; }
+.review-table-wrap table { width: 100%; min-width: 1040px; table-layout: fixed; border-collapse: collapse; font-size: .7rem; }
+.review-table-wrap .col-row { width: 52px; }
+.review-table-wrap .col-center { width: 300px; }
+.review-table-wrap .col-milk-type { width: 130px; }
+.review-table-wrap .col-liters { width: 98px; }
 .review-table-wrap .col-fat { width: 86px; }
 .review-table-wrap .col-water, .review-table-wrap .col-temp { width: 86px; }
 .review-table-wrap .col-aviz { width: 98px; }
@@ -235,10 +240,10 @@
 .review-row-number small { padding: 2px 4px; border-radius: 4px; background: #e8f1ff; color: #285888; font-size: .52rem; font-weight: 800; }
 .review-row-number .review-row-attention { display: grid; place-items: center; width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; background: #f5c84c; color: #604800; font-size: .62rem; font-weight: 900; }
 .review-table-wrap input, .review-table-wrap select { width: 100%; min-width: 0; height: 27px; box-sizing: border-box; padding: 0 5px; border: 1px solid #d8e1db; border-radius: 5px; background: white; color: #223128; font: inherit; }
-.review-table-wrap td:nth-child(2) input { min-width: 145px; }
+.review-table-wrap td:nth-child(2) input { overflow: hidden; text-overflow: ellipsis; }
 .review-table-wrap select { font-size: .62rem; font-weight: 800; }
 .review-table-wrap td:nth-child(4) input, .review-table-wrap td:nth-child(5) input, .review-table-wrap td:nth-child(6) input, .review-table-wrap td:nth-child(7) input { min-width: 44px; padding-inline: 4px; }
-.review-center-cell { position: relative; display: grid; gap: 4px; min-width: 190px; }
+.review-center-cell { position: relative; display: grid; gap: 4px; min-width: 0; }
 .review-center-cell:has(.review-center-suggestion-menu) { z-index: 20; }
 .review-center-cell.review-center-unmatched input {
   border-color: #e2b05b;
