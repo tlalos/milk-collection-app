@@ -141,6 +141,45 @@ function isFailedMonthlyJob(job: MonthlyJob) {
   return job.status === "failed" || job.excelExport?.status === "failed";
 }
 
+function recognizedDateSortValue(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = value.trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  const displayMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u);
+  const timestamp = isoMatch
+    ? Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
+    : displayMatch
+      ? Date.UTC(Number(displayMatch[3]), Number(displayMatch[2]) - 1, Number(displayMatch[1]))
+      : Date.parse(normalized);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function uploadDateSortValue(value: string | null | undefined) {
+  const timestamp = Date.parse(value || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function monthlyRecognizedDateSortValue(job: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
+  const liveData = job.id === selectedId ? draft : null;
+  const date = liveData?.date ?? job.summary?.date ?? job.data?.date;
+  const documentMonth = liveData?.documentMonth ?? job.summary?.documentMonth ?? job.data?.documentMonth;
+  if (Number.isInteger(documentMonth) && documentMonth! >= 1 && documentMonth! <= 12) {
+    const year = String(date || "").match(/^(\d{4})/u)?.[1];
+    if (year) return Date.UTC(Number(year), documentMonth! - 1, 1);
+  }
+  return recognizedDateSortValue(date);
+}
+
+function compareMonthlyJobsForList(left: MonthlyJob, right: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
+  const leftDate = monthlyRecognizedDateSortValue(left, selectedId, draft);
+  const rightDate = monthlyRecognizedDateSortValue(right, selectedId, draft);
+  const leftNotRecognized = left.status !== "completed" || leftDate === null;
+  const rightNotRecognized = right.status !== "completed" || rightDate === null;
+  if (leftNotRecognized !== rightNotRecognized) return leftNotRecognized ? -1 : 1;
+  if (leftDate !== null && rightDate !== null && leftDate !== rightDate) return rightDate - leftDate;
+  return uploadDateSortValue(right.createdAt) - uploadDateSortValue(left.createdAt);
+}
+
 class NonJsonApiResponseError extends Error {
   nonJson = true;
 }
@@ -221,6 +260,9 @@ export function MonthlySettlementReviewScreen() {
           .includes(normalizedCenterSearch),
       )
     : jobs;
+  const sortedJobs = [...filteredJobs].sort((left, right) =>
+    compareMonthlyJobsForList(left, right, selected?.id || "", draft),
+  );
 
   const loadJobs = useCallback(async () => {
     const query =
@@ -1035,7 +1077,7 @@ export function MonthlySettlementReviewScreen() {
             />
           </label>
           <div className="monthly-list">
-            {filteredJobs.map((job) => (
+            {sortedJobs.map((job) => (
               <div
                 className={`monthly-list-card ${selected?.id === job.id ? "active" : ""}`}
                 key={job.id}

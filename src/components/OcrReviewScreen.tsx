@@ -210,6 +210,34 @@ function isFailedQueueJob(job: OcrJob) {
   return job.status === 'failed' || job.excelExport?.status === 'failed'
 }
 
+function recognizedDateSortValue(value: string | null | undefined) {
+  if (!value) return null
+  const normalized = value.trim()
+  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+  const displayMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
+  const timestamp = isoMatch
+    ? Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
+    : displayMatch
+      ? Date.UTC(Number(displayMatch[3]), Number(displayMatch[2]) - 1, Number(displayMatch[1]))
+      : Date.parse(normalized)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function uploadDateSortValue(value: string | null | undefined) {
+  const timestamp = Date.parse(value || '')
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function compareDailyJobsForList(left: OcrJob, right: OcrJob, selectedId: string, draft: ExtractedData | null) {
+  const leftDate = recognizedDateSortValue(left.id === selectedId && draft ? draft.date : left.summary?.date ?? left.data?.date)
+  const rightDate = recognizedDateSortValue(right.id === selectedId && draft ? draft.date : right.summary?.date ?? right.data?.date)
+  const leftNotRecognized = left.status !== 'completed' || leftDate === null
+  const rightNotRecognized = right.status !== 'completed' || rightDate === null
+  if (leftNotRecognized !== rightNotRecognized) return leftNotRecognized ? -1 : 1
+  if (leftDate !== null && rightDate !== null && leftDate !== rightDate) return rightDate - leftDate
+  return uploadDateSortValue(right.createdAt) - uploadDateSortValue(left.createdAt)
+}
+
 function nullableNumber(input: string) {
   if (!input.trim()) return null
   const parsed = Number(input.replace(',', '.'))
@@ -1146,8 +1174,9 @@ export function OcrReviewScreen() {
       job.sourceFile,
     ].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalizedSearch))
   }) : jobs
-  const pageCount = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE))
-  const visibleJobs = filteredJobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE)
+  const sortedJobs = [...filteredJobs].sort((left, right) => compareDailyJobsForList(left, right, selectedId, draft))
+  const pageCount = Math.max(1, Math.ceil(sortedJobs.length / JOBS_PER_PAGE))
+  const visibleJobs = sortedJobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE)
   const emptyCenterCount = draft?.rows.filter((row) => !row.collectionCenter?.trim()).length ?? 0
   const rowLitersTotal = draft?.rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0) ?? 0
   const documentLitersTotal = typeof draft?.totalLiters === 'number' && Number.isFinite(draft.totalLiters) ? draft.totalLiters : null
