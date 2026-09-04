@@ -43,10 +43,14 @@
 .review-queue-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 15px; padding: 4px; border-radius: 10px; background: #edf2ef; }
 .review-queue-tabs button { min-width: 0; padding: 8px 3px; border: 0; border-radius: 7px; background: transparent; color: #6d7b72; font-size: .68rem; font-weight: 750; }
 .review-queue-tabs button.active { background: white; color: #1a6b3c; box-shadow: 0 2px 7px rgba(20,60,35,.1); }
-.review-job-search { height: 34px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px; align-items: center; gap: 3px; margin-bottom: 12px; padding: 0 7px; box-sizing: border-box; border: 1px solid #d5dfd8; border-radius: 8px; background: #fafcfb; color: #718078; }
+.review-job-search { height: 34px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 26px; align-items: center; gap: 3px; margin-bottom: 12px; padding: 0 7px; box-sizing: border-box; border: 1px solid #d5dfd8; border-radius: 8px; background: #fafcfb; color: #718078; }
 .review-job-search:focus-within { border-color: #1a6b3c; box-shadow: 0 0 0 2px rgba(26,107,60,.12); }
 .review-job-search input { min-width: 0; border: 0; outline: 0; background: transparent; color: #203027; font-size: .7rem; }
-.review-job-search button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: #e9efeb; color: #526158; font-size: .95rem; }
+.review-job-search .review-job-date-picker { grid-column: 4; width: 24px; height: 24px; padding: 0; border-radius: 5px; background: #e9efeb; color: transparent; cursor: pointer; }
+.review-job-search .review-job-date-picker:hover { background: #cbe8d6; }
+.review-job-search .review-job-date-picker::-webkit-calendar-picker-indicator { width: 18px; height: 18px; margin: 0; opacity: .78; cursor: pointer; }
+.review-job-search button { grid-column: 3; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: #e9efeb; color: #526158; font-size: .95rem; cursor: pointer; }
+.review-job-search button:hover { background: #cbe8d6; color: #063d21; }
 .review-queue-title { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 12px; }
 .review-queue-title h2 { margin: 0; font-size: .95rem; }
 .review-queue-title span { display: grid; place-items: center; min-width: 25px; height: 25px; border-radius: 999px; background: #e4f1e9; color: #1a6b3c; font-size: .73rem; font-weight: 800; }

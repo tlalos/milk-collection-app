@@ -132,20 +132,67 @@
   font-weight: 850;
   text-transform: uppercase;
 }
+.monthly-search-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 30px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 0;
+  border: 1px solid #d3dfd8;
+  border-radius: 8px;
+  background: #fff;
+}
+.monthly-search-control:focus-within {
+  border-color: #1f7a49;
+  box-shadow: 0 0 0 2px rgba(31, 122, 73, 0.16);
+}
 .monthly-search input {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 11px;
-  border: 1px solid #d3dfd8;
-  border-radius: 8px;
-  background: #fff;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #17251d;
   font: inherit;
   font-size: 0.78rem;
+  outline: 0;
 }
-.monthly-search input:focus {
-  border-color: #1f7a49;
-  outline: 2px solid rgba(31, 122, 73, 0.16);
+.monthly-search .monthly-search-month-picker {
+  grid-column: 3;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: #e9efeb;
+  color: transparent;
+  cursor: pointer;
+}
+.monthly-search .monthly-search-month-picker:hover {
+  background: #cbe8d6;
+}
+.monthly-search .monthly-search-month-picker::-webkit-calendar-picker-indicator {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 0.78;
+  cursor: pointer;
+}
+.monthly-search button {
+  grid-column: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: #e9efeb;
+  color: #526158;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.monthly-search button:hover {
+  background: #cbe8d6;
+  color: #063d21;
 }
 .monthly-list {
   display: grid;

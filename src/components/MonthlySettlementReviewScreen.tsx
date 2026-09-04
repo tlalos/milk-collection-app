@@ -15,6 +15,7 @@ interface MonthlyRow {
   gValue: number | null;
   confidence: number;
   uncertainFields: string[];
+  manual?: boolean;
 }
 interface MonthlyData {
   documentType: "journal_monthly_settlement";
@@ -170,6 +171,18 @@ function monthlyRecognizedDateSortValue(job: MonthlyJob, selectedId: string, dra
   return recognizedDateSortValue(date);
 }
 
+function monthlyFilterMonthValue(job: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
+  const liveData = job.id === selectedId ? draft : null;
+  const date = liveData?.date ?? job.summary?.date ?? job.data?.date;
+  const documentMonth = liveData?.documentMonth ?? job.summary?.documentMonth ?? job.data?.documentMonth;
+  const year = String(date || "").match(/^(\d{4})/u)?.[1];
+  if (year && Number.isInteger(documentMonth) && documentMonth! >= 1 && documentMonth! <= 12) {
+    return `${year}-${String(documentMonth).padStart(2, "0")}`;
+  }
+  const dateMonth = String(date || "").match(/^(\d{4})-(\d{2})/u);
+  return dateMonth ? `${dateMonth[1]}-${dateMonth[2]}` : "";
+}
+
 function compareMonthlyJobsForList(left: MonthlyJob, right: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
   const leftDate = monthlyRecognizedDateSortValue(left, selectedId, draft);
   const rightDate = monthlyRecognizedDateSortValue(right, selectedId, draft);
@@ -214,6 +227,7 @@ export function MonthlySettlementReviewScreen() {
   const [view, setView] = useState<"pending" | "reviewed" | "failed">("pending");
   const [listCollapsed, setListCollapsed] = useState(false);
   const [centerSearch, setCenterSearch] = useState("");
+  const [monthFilter, setMonthFilter] = useState("");
   const [jobs, setJobs] = useState<MonthlyJob[]>([]);
   const [selected, setSelected] = useState<MonthlyJob | null>(null);
   const [draft, setDraft] = useState<MonthlyData | null>(null);
@@ -253,13 +267,15 @@ export function MonthlySettlementReviewScreen() {
       maximumFractionDigits: 2,
     }).format(value);
   const normalizedCenterSearch = centerSearch.trim().toLocaleLowerCase();
-  const filteredJobs = normalizedCenterSearch
-    ? jobs.filter((job) =>
-        (job.summary?.centerName || job.sourceFile)
-          .toLocaleLowerCase()
-          .includes(normalizedCenterSearch),
-      )
-    : jobs;
+  const filteredJobs = jobs.filter((job) => {
+    const matchesSearch = !normalizedCenterSearch || [
+      job.summary?.centerName,
+      displayMonth(job, isRo),
+      job.sourceFile,
+    ].some((value) => String(value || "").toLocaleLowerCase().includes(normalizedCenterSearch));
+    const matchesMonth = !monthFilter || monthlyFilterMonthValue(job, selected?.id || "", draft) === monthFilter;
+    return matchesSearch && matchesMonth;
+  });
   const sortedJobs = [...filteredJobs].sort((left, right) =>
     compareMonthlyJobsForList(left, right, selected?.id || "", draft),
   );
@@ -539,6 +555,7 @@ export function MonthlySettlementReviewScreen() {
         ugPercent: null,
         gValue: null,
         confidence: 1,
+        manual: true,
         uncertainFields:
           current.layoutType === "detailed"
             ? ["producer", "liters", "ugPercent"]
@@ -1065,16 +1082,38 @@ export function MonthlySettlementReviewScreen() {
           </h2>
           <label className="monthly-search">
             <span>{isRo ? "Căutare centru" : "Search center"}</span>
-            <input
-              type="search"
-              value={centerSearch}
-              onChange={(event) => setCenterSearch(event.target.value)}
-              placeholder={
-                isRo
-                  ? "Căutați numele centrului..."
-                  : "Search collection center..."
-              }
-            />
+            <div className="monthly-search-control">
+              <input
+                type="search"
+                value={centerSearch}
+                onChange={(event) => setCenterSearch(event.target.value)}
+                placeholder={
+                  isRo
+                    ? "Căutați numele centrului..."
+                    : "Search collection center..."
+                }
+              />
+              <input
+                className="monthly-search-month-picker"
+                type="month"
+                value={monthFilter}
+                onChange={(event) => setMonthFilter(event.target.value)}
+                aria-label={isRo ? "Filtrați după lună" : "Filter by month"}
+                title={isRo ? "Alegeți luna documentului" : "Choose document month"}
+              />
+              {(centerSearch || monthFilter) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCenterSearch("");
+                    setMonthFilter("");
+                  }}
+                  aria-label={isRo ? "Ștergeți căutarea" : "Clear search"}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </label>
           <div className="monthly-list">
             {sortedJobs.map((job) => (

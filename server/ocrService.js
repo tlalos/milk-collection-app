@@ -110,9 +110,9 @@ export function normalizeMonthlyData(data) {
     documentMonth: derivedMonthDate ? identifiedMonth : null,
     milkType: data.milkType?.trim() || 'VACA',
     totalLiters: data.totalLiters ?? null,
-    rows: rows.filter((row) => data.layoutType === 'detailed'
+    rows: rows.filter((row) => row.manual || (data.layoutType === 'detailed'
       ? Boolean(row.producer?.trim() || row.liters !== null || row.ugPercent !== null)
-      : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null)),
+      : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null))),
     warnings: [
       ...data.warnings.filter((warning) => !warning.startsWith('U.G. % was calculated as U.G. Total divided by TOTAL L')),
       ...calculationWarning,

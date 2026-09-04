@@ -384,6 +384,7 @@ export function OcrReviewScreen() {
   const [queueView, setQueueView] = useState<QueueView>('pending')
   const [queueCollapsed, setQueueCollapsed] = useState(false)
   const [jobSearch, setJobSearch] = useState('')
+  const [jobDateFilter, setJobDateFilter] = useState('')
   const [dataTab, setDataTab] = useState<'document' | 'centers'>('document')
   const [jobs, setJobs] = useState<OcrJob[]>([])
   const [selected, setSelected] = useState<OcrJob | null>(null)
@@ -1163,17 +1164,20 @@ export function OcrReviewScreen() {
       ? (isRo ? 'verificate' : 'reviewed')
       : (isRo ? 'eșuate' : 'failed')
   const normalizedSearch = jobSearch.trim().toLocaleLowerCase()
-  const filteredJobs = normalizedSearch ? jobs.filter((job) => {
+  const filteredJobs = jobs.filter((job) => {
     const liveData = job.id === selectedId ? draft : null
-    return [
+    const dateValue = liveData?.date ?? job.summary?.date ?? job.data?.date ?? null
+    const matchesSearch = !normalizedSearch || [
       liveData?.route ?? job.summary?.route,
-      liveData?.date ?? job.summary?.date,
-      displayDate(liveData?.date ?? job.summary?.date ?? null),
+      dateValue,
+      displayDate(dateValue),
       liveData?.driverName ?? job.summary?.driverName,
       liveData?.vehicleRegistration ?? job.summary?.vehicleRegistration,
       job.sourceFile,
     ].some((value) => String(value ?? '').toLocaleLowerCase().includes(normalizedSearch))
-  }) : jobs
+    const matchesDate = !jobDateFilter || dateValue === jobDateFilter
+    return matchesSearch && matchesDate
+  })
   const sortedJobs = [...filteredJobs].sort((left, right) => compareDailyJobsForList(left, right, selectedId, draft))
   const pageCount = Math.max(1, Math.ceil(sortedJobs.length / JOBS_PER_PAGE))
   const visibleJobs = sortedJobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE)
@@ -1232,7 +1236,7 @@ export function OcrReviewScreen() {
     if (page > pageCount) setPage(pageCount)
   }, [page, pageCount])
 
-  useEffect(() => setPage(1), [jobSearch])
+  useEffect(() => setPage(1), [jobSearch, jobDateFilter])
 
   useEffect(() => {
     if (!success) return
@@ -1287,7 +1291,8 @@ export function OcrReviewScreen() {
           <label className="review-job-search">
             <span aria-hidden="true">⌕</span>
             <input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…'} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
-            {jobSearch && <button type="button" onClick={() => setJobSearch('')} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
+            <input className="review-job-date-picker" type="date" value={jobDateFilter} onChange={(event) => setJobDateFilter(event.target.value)} aria-label={isRo ? 'Filtrați după dată' : 'Filter by date'} title={isRo ? 'Alegeți data documentului' : 'Choose document date'} />
+            {(jobSearch || jobDateFilter) && <button type="button" onClick={() => { setJobSearch(''); setJobDateFilter('') }} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
           </label>
           <div className="review-queue-title"><h2>{queueTitle}</h2><span>{filteredJobs.length}</span></div>
           {queueView === 'pending' ? (
