@@ -6,6 +6,7 @@ import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
+import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
 import { OcrSettingsScreen } from './components/OcrSettingsScreen'
 import { MonthlySettlementReviewScreen } from './components/MonthlySettlementReviewScreen'
@@ -42,6 +43,7 @@ type Screen =
   | 'suppliers'
   | 'entry'
   | 'ocrDocuments'
+  | 'ocrArchiveHistory'
   | 'ocrReview'
   | 'ocrSettings'
   | 'monthlySettlementReview'
@@ -49,6 +51,7 @@ type Screen =
 
 function initialScreen(): Screen {
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
+  if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
@@ -221,6 +224,10 @@ export function App() {
         <OcrAuthGate><OcrDocumentScreen onBack={() => { window.location.href = appPath('/') }} /></OcrAuthGate>
       )}
 
+      {screen === 'ocrArchiveHistory' && (
+        <OcrAuthGate><OcrArchiveHistoryScreen /></OcrAuthGate>
+      )}
+
       {screen === 'ocrReview' && (
         <OcrAuthGate><OcrReviewScreen /></OcrAuthGate>
       )}
@@ -385,6 +392,24 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">OCR documents</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/ocr/archive-history') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 7h16" />
+                    <path d="M6 7v12a2 2 0 002 2h8a2 2 0 002-2V7" />
+                    <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" />
+                    <path d="M9 12h6" />
+                    <path d="M9 16h4" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Backup history</span>
               </button>
 
             </div>

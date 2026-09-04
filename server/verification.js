@@ -32,9 +32,9 @@ export function rebuildVerificationWarnings(data, context = {}) {
   if (generatedAvizCount) warnings.push(`${generatedAvizCount} Aviz value${generatedAvizCount === 1 ? ' was' : 's were'} generated from the document date. Verify the highlighted fields.`)
 
   const missingLabels = [
+    ['collectionCenter', 'Center'],
+    ['liters', 'Liters'],
     ['fatPercent', 'Fat'],
-    ['density', 'U.G.'],
-    ['water', 'Water'],
     ['temperature', 'Temperature'],
     ['noticeNumber', 'Aviz'],
   ].flatMap(([field, label]) => data.rows.some((row) => row[field] === null || row[field] === undefined || row[field] === '') ? [label] : [])

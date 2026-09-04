@@ -122,15 +122,17 @@ export async function listJobs() {
 }
 
 export function getStoredFilePath(job) {
+  if (!job?.storedFilename) return null
   return path.join(filesDir, job.storedFilename)
 }
 
 export async function deleteJob(id) {
   const job = await getJob(id)
   if (!job) return false
+  const storedFilePath = getStoredFilePath(job)
   await Promise.all([
     rm(jobPath(id), { force: true }),
-    rm(getStoredFilePath(job), { force: true }),
+    storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve(),
   ])
   return true
 }

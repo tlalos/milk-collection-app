@@ -22,11 +22,22 @@ async function processNext() {
     const job = await getJob(id)
     if (!job || job.reviewStatus !== 'reviewed' || job.excelExport?.status === 'exported') return
     const startedAt = new Date().toISOString()
-    let rowLog = []
+    let rowLog = Array.isArray(job.excelExport?.rowLog)
+      ? job.excelExport.rowLog.filter((row) => row.status === 'sent')
+      : []
     await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress: { stage: 'connecting', current: 0, total: job.data?.rows?.length || 0 }, rowLog } })
     const exportDocument = job.documentCategory === 'journal_monthly_settlement' ? appendMonthlySettlementToExcel : appendReviewedDocumentToExcel
     const result = await exportDocument(job, async (progress) => {
-      if (progress.stage === 'preparing') rowLog = [...rowLog, { rowNumber: progress.rowNumber, center: progress.center, status: 'ready' }]
+      if (progress.stage === 'preparing' && !rowLog.some((row) => row.rowNumber === progress.rowNumber)) {
+        rowLog = [...rowLog, { rowNumber: progress.rowNumber, center: progress.center, status: 'ready' }]
+      }
+      if (progress.stage === 'sent') {
+        if (rowLog.some((row) => row.rowNumber === progress.rowNumber)) {
+          rowLog = rowLog.map((row) => row.rowNumber === progress.rowNumber ? { ...row, status: 'sent', range: progress.range } : row)
+        } else {
+          rowLog = [...rowLog, { rowNumber: progress.rowNumber, center: progress.center, status: 'sent', range: progress.range }]
+        }
+      }
       await updateJob(id, { excelExport: { ...job.excelExport, status: 'exporting', startedAt, error: null, progress, rowLog } })
     })
     await updateJob(id, { excelExport: { status: 'exported', startedAt, completedAt: new Date().toISOString(), error: null, progress: { stage: 'completed', current: result.rowCount, total: result.rowCount }, rowLog: rowLog.map((row) => ({ ...row, status: 'sent' })), ...result } })

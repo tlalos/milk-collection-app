@@ -2,6 +2,7 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/u, '')
 
 export function appPath(pathname: string) {
   const path = pathname.startsWith('/') ? pathname : `/${pathname}`
+  if (import.meta.env.DEV && path.startsWith('/api/')) return path
   return `${basePath}${path}` || '/'
 }
 

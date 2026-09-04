@@ -155,7 +155,7 @@
   position: relative;
   display: grid;
   gap: 3px;
-  padding: 10px 38px 10px 10px;
+  padding: 10px 68px 10px 10px;
   border: 1px solid #d6e0da;
   border-radius: 9px;
   background: #fafcfb;
@@ -181,6 +181,36 @@
 .monthly-card-redo:disabled {
   cursor: wait;
   opacity: 0.65;
+}
+.monthly-document-archive {
+  position: absolute;
+  top: 8px;
+  right: 40px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: #e5f2ec;
+  color: #17613a;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+.monthly-document-archive:hover {
+  background: #bde2cb;
+  color: #063d21;
+}
+.monthly-document-archive:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.monthly-document-archive:focus-visible {
+  outline: 2px solid rgba(26, 107, 60, 0.24);
+  outline-offset: 2px;
 }
 .monthly-document-delete {
   position: absolute;
@@ -246,6 +276,21 @@
   border-radius: 50%;
   animation: monthly-spin 0.7s linear infinite;
 }
+.monthly-archive-status {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 0.62rem;
+  font-weight: 850;
+}
+.monthly-archive-status.archived {
+  background: #e5f2ec;
+  color: #17613a;
+}
+.monthly-archive-status.failed {
+  background: #fce9e7;
+  color: #9d342d;
+}
 @keyframes monthly-spin {
   to { transform: rotate(360deg); }
 }
@@ -309,6 +354,39 @@
   width: 100%;
   flex: 1;
   border: 0;
+}
+.monthly-archived-source {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 22px;
+  background: #f4f8f6;
+  color: #526158;
+  text-align: center;
+}
+.monthly-archived-source strong {
+  color: #17613a;
+  font-size: 0.9rem;
+}
+.monthly-archived-source span {
+  font-size: 0.72rem;
+}
+.monthly-archived-source a {
+  width: fit-content;
+  justify-self: center;
+  padding: 7px 10px;
+  border: 1px solid #1a6b3c;
+  border-radius: 7px;
+  background: white;
+  color: #17613a;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+.monthly-archived-source a:hover {
+  background: #cbe8d6;
+  color: #063d21;
 }
 .monthly-data-title {
   min-height: 62px;

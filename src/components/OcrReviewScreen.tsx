@@ -101,6 +101,13 @@ interface OcrJob {
   completedAt: string | null
   reviewedAt?: string | null
   fileUrl: string
+  archiveStatus?: {
+    status: 'archived' | 'failed' | string
+    archivedAt?: string
+    webUrl?: string | null
+    folderPath?: string
+    error?: string
+  } | null
   attention: AttentionSummary
   summary?: {
     date: string | null
@@ -200,13 +207,39 @@ function statusLabel(job: OcrJob, language: OcrLanguage) {
 }
 
 function isFailedQueueJob(job: OcrJob) {
-  return job.status === 'failed' || job.excelExport?.status === 'failed' || job.erpExport?.status === 'failed' || job.erpExport?.status === 'partial'
+  return job.status === 'failed' || job.excelExport?.status === 'failed'
 }
 
 function nullableNumber(input: string) {
   if (!input.trim()) return null
   const parsed = Number(input.replace(',', '.'))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+class NonJsonApiResponseError extends Error {
+  nonJson = true
+}
+
+async function readApiJson<T>(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get('content-type') || ''
+  const text = await response.text()
+  if (!text.trim()) return {} as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    if (response.status === 401) throw new Error('Your OCR session expired. Please sign in again.')
+    throw new NonJsonApiResponseError(`${fallbackMessage} (${response.status}, ${contentType || 'no content type'})`)
+  }
+}
+
+function archiveApiUrls(pathname: string) {
+  const path = pathname.startsWith('/') ? pathname : `/${pathname}`
+  const urls = [appPath(path), path]
+  if (import.meta.env.DEV) {
+    const port = import.meta.env.VITE_OCR_API_PORT || '8780'
+    urls.push(`${window.location.protocol}//${window.location.hostname}:${port}${path}`)
+  }
+  return Array.from(new Set(urls))
 }
 
 function canKeepEditingDecimal(input: string) {
@@ -230,6 +263,8 @@ function normalizeReferenceName(value: string) {
 function hasRequiredNumber(value: number | null) {
   return typeof value === 'number' && Number.isFinite(value)
 }
+
+const DAILY_REQUIRED_FIELDS = new Set(['collectionCenter', 'liters', 'fatPercent', 'temperature', 'noticeNumber'])
 
 function inferMilkTypeFromFat(fatPercent: number | null | undefined): DailyMilkTypeCode {
   if (!hasRequiredNumber(fatPercent ?? null)) return 'MILK-COW'
@@ -261,7 +296,14 @@ function missingDailyExportFields(row: ExtractedRow) {
     !hasRequiredNumber(row.liters) ? 'liters' : '',
     !hasRequiredNumber(row.fatPercent) ? 'fat' : '',
     !hasRequiredNumber(row.temperature) ? 'temperature' : '',
+    !row.noticeNumber?.trim() ? 'aviz number' : '',
   ].filter(Boolean)
+}
+
+function rowHasRequiredAttention(row: ExtractedRow, centerNeedsReview: boolean) {
+  return missingDailyExportFields(row).length > 0
+    || row.uncertainFields.some((field) => DAILY_REQUIRED_FIELDS.has(field))
+    || centerNeedsReview
 }
 
 function storedDate(value: string) {
@@ -325,6 +367,7 @@ export function OcrReviewScreen() {
   const [success, setSuccess] = useState('')
   const [loadingId, setLoadingId] = useState('')
   const [deletingId, setDeletingId] = useState('')
+  const [archivingId, setArchivingId] = useState('')
   const [driverOptions, setDriverOptions] = useState<string[]>([])
   const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -733,7 +776,7 @@ export function OcrReviewScreen() {
         temperature: null,
         noticeNumber: '',
         confidence: 1,
-        uncertainFields: ['collectionCenter', 'liters', 'fatPercent', 'temperature'],
+        uncertainFields: ['collectionCenter', 'liters', 'fatPercent', 'temperature', 'noticeNumber'],
       }
       return { ...current, rows: [...current.rows, row] }
     })
@@ -749,8 +792,8 @@ export function OcrReviewScreen() {
       if (invalidRows.length) {
         setError(
           isRo
-            ? `Completați centrul, litrii, grăsimea și temperatura înainte de trimitere. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
-            : `Fill center, liters, fat, and temperature before sending to Excel. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de trimitere. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, fat, temperature, and aviz number before sending to Excel. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
         )
         return
       }
@@ -804,6 +847,56 @@ export function OcrReviewScreen() {
     }
   }
 
+  async function archiveDocument(job: OcrJob) {
+    const prompt = isRo
+      ? `Arhivați acum imaginea „${job.sourceFile}” în SharePoint?\n\nDupă încărcarea cu succes, fișierul local va fi șters, dar procesul OCR și istoricul backup vor rămâne.`
+      : `Archive the picture "${job.sourceFile}" to SharePoint now?\n\nAfter a successful upload, the local file will be removed, but the OCR job and backup history will remain.`
+    if (!window.confirm(prompt)) return
+    setArchivingId(job.id)
+    setError('')
+    setSuccess('')
+    try {
+      let response: Response | null = null
+      let payload: { job?: OcrJob; error?: string } | null = null
+      let nonJsonError: Error | null = null
+
+      for (const url of archiveApiUrls(`/api/ocr/jobs/${job.id}/archive`)) {
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          })
+          payload = await readApiJson<{ job?: OcrJob; error?: string }>(
+            response,
+            `The archive endpoint did not return JSON from ${url}.`,
+          )
+          break
+        } catch (candidateError) {
+          if (!(candidateError instanceof NonJsonApiResponseError)) throw candidateError
+          nonJsonError = candidateError
+        }
+      }
+
+      if (!response || !payload) throw nonJsonError || new Error('Could not archive the document.')
+      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not archive the document.')
+      jobCacheRef.current.set(payload.job.id, payload.job)
+      if (selectedId === payload.job.id) {
+        setSelected(payload.job)
+        setSelectedSummary(payload.job)
+        if (payload.job.data) setDraft(cloneData(payload.job.data))
+      }
+      setJobs((current) => current.map((item) => item.id === payload.job!.id ? payload.job! : item))
+      setSuccess(isRo ? 'Documentul a fost arhivat în SharePoint.' : 'Document archived to SharePoint.')
+      await loadJobs()
+    } catch (archiveError) {
+      setError((archiveError as Error).message || 'Could not archive the document.')
+      await loadJobs().catch(() => undefined)
+    } finally {
+      setArchivingId('')
+    }
+  }
+
   async function saveErpExportState(erpExport: DailyRouteErpExport) {
     if (!selected || !draft) throw new Error('No OCR document is selected.')
     const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
@@ -828,11 +921,11 @@ export function OcrReviewScreen() {
       .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
       .filter((row) => row.fields.length > 0)
     if (invalidRows.length) {
-      setError(
-        isRo
-          ? `Completați centrul, litrii, grăsimea și temperatura înainte de trimiterea în ERP. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
-          : `Fill center, liters, fat, and temperature before sending to ERP. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
-      )
+        setError(
+          isRo
+            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de trimiterea în ERP. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, fat, temperature, and aviz number before sending to ERP. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+        )
       return
     }
 
@@ -1064,6 +1157,9 @@ export function OcrReviewScreen() {
     .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
     .filter((row) => row.fields.length > 0) ?? []
   const sendToExcelBlocked = rowsMissingRequiredExportFields.length > 0
+  const excelExportStatus = selected?.excelExport?.status || 'not_ready'
+  const excelExportInProgress = excelExportStatus === 'queued' || excelExportStatus === 'exporting'
+  const excelAlreadyExported = excelExportStatus === 'exported'
 
   function rowSource(rowNumber: number, field: keyof RowValueSourceEntry['fields'], value: string | number | null) {
     const source = selected?.rowValueSources?.find((item) => item.rowNumber === rowNumber)?.fields[field]
@@ -1123,6 +1219,7 @@ export function OcrReviewScreen() {
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Decont lunar' : 'Monthly Review'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/compare') }}>{isRo ? 'Comparare OCR' : 'OCR Compare'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR settings'}</button>
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/archive-history') }}>{isRo ? 'Istoric backup' : 'Backup history'}</button>
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </div>
@@ -1176,7 +1273,7 @@ export function OcrReviewScreen() {
             <div className="review-job-list">
               {visibleJobs.map((job) => (
                 <article className={`review-job-item ${selectedId === job.id ? 'selected' : ''} status-${job.status}`} key={job.id}>
-                <button className="review-job-open" type="button" onClick={() => void openJob(job)} disabled={loadingId === job.id || deletingId === job.id}>
+                <button className="review-job-open" type="button" onClick={() => void openJob(job)} disabled={loadingId === job.id || deletingId === job.id || archivingId === job.id}>
                   {(() => {
                     const summary = jobListSummary(job)
                     return <>
@@ -1195,6 +1292,8 @@ export function OcrReviewScreen() {
                   {formatCost(job) && <span className="review-job-cost">OpenAI est. {formatCost(job)}</span>}
                   {job.excelExport?.status && job.excelExport.status !== 'not_ready' && <span className={`review-excel-status excel-${job.excelExport.status}`}>Excel: {job.excelExport.status}</span>}
                   {job.erpExport?.status && job.erpExport.status !== 'not_ready' && <span className={`review-erp-status erp-${job.erpExport.status}`}>ERP: {job.erpExport.status}</span>}
+                  {job.archiveStatus?.status === 'archived' && <span className="review-archive-status archived">{isRo ? 'Arhivat' : 'Archived'}</span>}
+                  {job.archiveStatus?.status === 'failed' && <span className="review-archive-status failed">{isRo ? 'Backup eșuat' : 'Backup failed'}</span>}
                   <small>{new Date(job.createdAt).toLocaleString()}</small>
                 </button>
                 {job.status === 'failed' && (
@@ -1202,7 +1301,8 @@ export function OcrReviewScreen() {
                     {reprocessingId === job.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}
                   </button>
                 )}
-                <button className="review-job-delete" type="button" onClick={() => void deleteDocument(job)} disabled={deletingId === job.id} title={isRo ? 'Șterge documentul și procesul' : 'Delete document and process'} aria-label={isRo ? `Șterge ${job.sourceFile}` : `Delete ${job.sourceFile}`}>{deletingId === job.id ? '…' : '×'}</button>
+                <button className="review-job-archive" type="button" onClick={() => void archiveDocument(job)} disabled={archivingId === job.id || deletingId === job.id || job.status === 'queued' || job.status === 'processing' || job.archiveStatus?.status === 'archived'} title={job.archiveStatus?.status === 'archived' ? (isRo ? 'Document deja arhivat' : 'Document already archived') : (isRo ? 'Arhivați imaginea în SharePoint' : 'Archive picture to SharePoint')} aria-label={isRo ? `Arhivează ${job.sourceFile}` : `Archive ${job.sourceFile}`}>{archivingId === job.id ? '…' : job.archiveStatus?.status === 'archived' ? '✓' : '↥'}</button>
+                <button className="review-job-delete" type="button" onClick={() => void deleteDocument(job)} disabled={deletingId === job.id || archivingId === job.id} title={isRo ? 'Șterge documentul și procesul' : 'Delete document and process'} aria-label={isRo ? `Șterge ${job.sourceFile}` : `Delete ${job.sourceFile}`}>{deletingId === job.id ? '…' : '×'}</button>
                 </article>
               ))}
             </div>
@@ -1236,7 +1336,13 @@ export function OcrReviewScreen() {
                     <button type="button" onClick={() => setZoom(100)}>{isRo ? 'Potrivire' : 'Fit'}</button>
                   </div>
                 </div>
-                {selected.mimeType === 'application/pdf' ? <iframe key={`${selected.id}-${zoom}`} src={`${selected.fileUrl}#zoom=${zoom}`} title={`Source document ${selected.sourceFile}`} /> : <div className="review-image-wrap"><img style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none' }} src={selected.fileUrl} alt={`Source document ${selected.sourceFile}`} /></div>}
+                {selected.archiveStatus?.status === 'archived' ? (
+                  <div className="review-archived-source">
+                    <strong>{isRo ? 'Document arhivat în SharePoint' : 'Document archived to SharePoint'}</strong>
+                    <span>{selected.archiveStatus.folderPath || (isRo ? 'Fișierul sursă nu mai este stocat local.' : 'The source file is no longer stored locally.')}</span>
+                    {selected.archiveStatus.webUrl && <a href={selected.archiveStatus.webUrl} target="_blank" rel="noreferrer">{isRo ? 'Deschideți în SharePoint' : 'Open in SharePoint'}</a>}
+                  </div>
+                ) : selected.mimeType === 'application/pdf' ? <iframe key={`${selected.id}-${zoom}`} src={`${selected.fileUrl}#zoom=${zoom}`} title={`Source document ${selected.sourceFile}`} /> : <div className="review-image-wrap"><img style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none' }} src={selected.fileUrl} alt={`Source document ${selected.sourceFile}`} /></div>}
               </div>
 
               <div className="review-panel-splitter" role="separator" aria-orientation="vertical" aria-label={isRo ? 'Redimensionați panourile documentului' : 'Resize document panels'} aria-valuemin={28} aria-valuemax={72} aria-valuenow={Math.round(panelSplit)} title={isRo ? 'Trageți pentru a ajusta lățimea' : 'Drag to adjust width'} onPointerDown={startPanelResize}>
@@ -1263,7 +1369,6 @@ export function OcrReviewScreen() {
                           ? (isRo ? 'Exportul rulează în fundal pe server.' : 'Export is running in the server background.')
                           : selected.excelExport?.error || (isRo ? 'Documentul verificat nu a fost încă exportat.' : 'This reviewed document has not been exported yet.')}</span>
                     </div>
-                    {(selected.excelExport?.status === 'failed' || !selected.excelExport || selected.excelExport.status === 'not_ready') && <button type="button" onClick={() => void retryExcelExport()} disabled={exporting}>{exporting ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Exportați în Excel' : 'Export to Excel')}</button>}
                   </div>
                 )}
 
@@ -1369,10 +1474,10 @@ export function OcrReviewScreen() {
                     <colgroup><col className="col-row" /><col className="col-center" /><col className="col-milk-type" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
                     <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
-                      <tr className={`${row.uncertainFields.length ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
+                      <tr className={`${rowHasRequiredAttention(row, centerNameNeedsReview(row, centerMatches.find((item) => item.rowNumber === row.rowNumber))) ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small>{(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
-                          const needsAttention = row.uncertainFields.length > 0 || !row.collectionCenter?.trim() || centerNameNeedsReview(row, match)
+                          const needsAttention = rowHasRequiredAttention(row, centerNameNeedsReview(row, match))
                           return needsAttention ? <b className="review-row-attention" title={isRo ? 'Rândul necesită verificare' : 'Row needs review'}>!</b> : null
                         })()}</span></td>
                         {(() => {
@@ -1423,9 +1528,19 @@ export function OcrReviewScreen() {
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
                   <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching')}</button>
-                  {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea și temperatura. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, and temperature. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
-                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={saving || autoSaveStatus === 'saving' || erpSending || sendToExcelBlocked} title={sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimiterea în ERP' : 'Fill the required fields before sending to ERP') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimiteți din nou în ERP' : 'Send again to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
-                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || sendToExcelBlocked || selected.excelExport?.status === 'exported'} title={selected.excelExport?.status === 'exported' ? (isRo ? 'Acest document a fost deja trimis în Excel' : 'This document has already been sent to Excel') : sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>{selected.excelExport?.status === 'exported' ? (isRo ? 'Trimis deja în Excel' : 'Already sent to Excel') : saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')}</button>}
+                  {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp} disabled title={isRo ? 'Trimiterea în ERP este dezactivată temporar.' : 'ERP sending is temporarily disabled.'}>{isRo ? 'ERP dezactivat' : 'ERP disabled'}</button>
+                  <button className="review-complete" type="button" onClick={() => selected.reviewStatus === 'pending' ? void saveDocument(true) : void retryExcelExport()} disabled={saving || autoSaveStatus === 'saving' || exporting || sendToExcelBlocked || excelAlreadyExported || excelExportInProgress} title={excelAlreadyExported ? (isRo ? 'Acest document a fost deja trimis în Excel' : 'This document has already been sent to Excel') : sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>
+                    {excelAlreadyExported
+                      ? (isRo ? 'Trimis deja în Excel' : 'Already sent to Excel')
+                      : excelExportInProgress || exporting
+                        ? (isRo ? 'Se exportă în Excel…' : 'Exporting to Excel…')
+                        : saving
+                          ? (isRo ? 'Se salvează…' : 'Saving…')
+                          : selected.reviewStatus === 'pending'
+                            ? (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')
+                            : (isRo ? 'Trimiteți din nou în Excel' : 'Send to Excel again')}
+                  </button>
                 </div>
               </div>
             </>

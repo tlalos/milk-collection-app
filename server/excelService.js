@@ -25,11 +25,6 @@ const DAILY_ROUTES_USED_ROW_COLUMNS = [
   'Qty_Collected_L',
   'Fat/Densitate',
   'Temperature_C',
-  'Antibiotics_Status',
-  'Water_Percent',
-  'Comments',
-  'ERP_Action',
-  'ERP_Status',
   'Center_Code',
 ]
 const MONTHLY_SETTLEMENT_USED_ROW_COLUMNS = [
@@ -54,7 +49,7 @@ export function clearReferenceCaches() {
   producerCache = { expiresAt: 0, producers: [] }
 }
 
-async function loadConfig() {
+export async function loadConfig() {
   const projectDir = process.env.EXCEL_GRAPH_PROJECT_DIR || defaultExcelProject
   let inherited = {}
   try {
@@ -75,6 +70,15 @@ async function loadConfig() {
     sheetName: env.OCR_EXCEL_SHEET_NAME || 'Daily_Routes',
     milkCode: env.OCR_EXCEL_DEFAULT_MILK_CODE || 'MILK-COW',
     antibioticsStatus: env.OCR_EXCEL_ANTIBIOTICS_STATUS || 'OK',
+    archiveEnabled: String(env.OCR_ARCHIVE_ENABLED || '').toLowerCase() === 'true',
+    archiveDriveId: env.OCR_ARCHIVE_DRIVE_ID || '',
+    archiveFolderPath: env.OCR_ARCHIVE_SHAREPOINT_FOLDER_PATH || 'pictures',
+    archiveDailyFolderPath: env.OCR_ARCHIVE_DAILY_FOLDER_PATH || '',
+    archiveMonthlyFolderPath: env.OCR_ARCHIVE_MONTHLY_FOLDER_PATH || '',
+    archiveHistoryFilePath: env.OCR_ARCHIVE_HISTORY_FILE_PATH || '',
+    archiveMinAgeDays: Number(env.OCR_ARCHIVE_MIN_AGE_DAYS || 60),
+    archiveIntervalHours: Number(env.OCR_ARCHIVE_INTERVAL_HOURS || 24),
+    archiveInitialDelayMinutes: Number(env.OCR_ARCHIVE_INITIAL_DELAY_MINUTES || 5),
   }
 }
 
@@ -118,13 +122,20 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
   const lastUsedIndex = findLastUsedTableRowIndex(tableBodyValues, columnNames, DAILY_ROUTES_USED_ROW_COLUMNS)
   const startIndex = lastUsedIndex + 1
   const dateSerial = toExcelSerial(job.data.date)
-
+  const bodyStartRow = Number(rowIdRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
+  if (!bodyStartRow) throw new Error('Could not determine the Daily_Routes table row address.')
   const values = []
-  for (let index = 0; index < job.data.rows.length; index += 1) {
-    const row = job.data.rows[index]
+  const rowInfos = []
+  const rowsToExport = job.data.rows
+  let preparedCount = 0
+  for (const row of rowsToExport) {
     const confirmedCenter = job.centerMatches?.find((match) => match.rowNumber === row.rowNumber && match.selectedCode)
     const missing = [
-      ['center', row.collectionCenter], ['liters', row.liters], ['notice number', row.noticeNumber],
+      ['center', row.collectionCenter],
+      ['liters', row.liters],
+      ['fat', row.fatPercent],
+      ['temperature', row.temperature],
+      ['notice number', row.noticeNumber],
     ].filter(([, value]) => value === null || value === undefined || value === '').map(([name]) => name)
     if (missing.length) throw new Error(`Cannot export OCR row ${row.rowNumber}: missing ${missing.join(', ')}.`)
 
@@ -147,13 +158,25 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
       ERP_Status: '',
       Center_Code: confirmedCenter?.selectedCode || null,
     }
+    const existingRowIndex = findExistingDailyRouteRowIndex(tableBodyValues, columnNames, mapped)
+    if (existingRowIndex >= 0) {
+      await onProgress({
+        stage: 'sent',
+        current: preparedCount,
+        total: rowsToExport.length,
+        rowNumber: row.rowNumber,
+        center: mapped.Center_Name,
+        range: `A${bodyStartRow + existingRowIndex}:N${bodyStartRow + existingRowIndex}`,
+      })
+      continue
+    }
     values.push(columnNames.slice(0, 14).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null))
-    await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: mapped.Center_Name })
+    rowInfos.push({ rowNumber: row.rowNumber, center: mapped.Center_Name })
+    preparedCount += 1
+    await onProgress({ stage: 'preparing', current: preparedCount, total: rowsToExport.length, rowNumber: row.rowNumber, center: mapped.Center_Name })
   }
+  if (!values.length) return { workbook: workbook.name, table: config.tableName, rowCount: 0, range: '' }
 
-  await ensureTableCapacity(tablePath, token, Math.max(rowIdValues.length, tableBodyValues.length), startIndex + values.length)
-  const bodyStartRow = Number(rowIdRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
-  if (!bodyStartRow) throw new Error('Could not determine the Daily_Routes table row address.')
   const excelStartRow = bodyStartRow + startIndex
   const excelEndRow = excelStartRow + values.length - 1
   const worksheets = await graphFetch(`${workbookPath}/worksheets`, token, { headers })
@@ -161,9 +184,7 @@ export async function appendReviewedDocumentToExcel(job, onProgress = async () =
   if (!worksheet) throw new Error(`Excel worksheet ${config.sheetName} was not found.`)
   const targetAddress = `A${excelStartRow}:N${excelEndRow}`
   await onProgress({ stage: 'sending', current: values.length, total: values.length, range: targetAddress })
-  await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/range(address='${targetAddress}')`, token, {
-    method: 'PATCH', headers, body: JSON.stringify({ values }),
-  })
+  await writeWorksheetRows(workbookPath, worksheet.id, token, excelStartRow, 'A', 'N', values, rowInfos, onProgress, headers)
   return { workbook: workbook.name, table: config.tableName, rowCount: values.length, range: targetAddress }
 }
 
@@ -189,9 +210,14 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
   const startIndex = lastUsedIndex + 1
   const monthSerial = toExcelSerial(job.data.date)
   const milkCode = monthlyMilkCode(job.data.milkType)
+  const sentRowNumbers = previouslySentRowNumbers(job)
+  const rowsToExport = job.data.rows.filter((row) => !sentRowNumbers.has(row.rowNumber))
+  if (!rowsToExport.length) return { workbook: workbook.name, table: tableName, worksheet: '', rowCount: 0, range: '' }
+
   const values = []
-  for (let index = 0; index < job.data.rows.length; index += 1) {
-    const row = job.data.rows[index]
+  const rowInfos = []
+  for (let index = 0; index < rowsToExport.length; index += 1) {
+    const row = rowsToExport[index]
     const match = job.producerMatches?.find((item) => item.rowNumber === row.rowNumber)
     const matchedRef = match?.suggestions?.find((item) => item.code === match.selectedCode) || null
     const producerName = match?.selectedName || (job.data.layoutType === 'detailed' ? row.producer : row.centerName)
@@ -217,9 +243,9 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
       Column3: producerName,
     }
     values.push(columnNames.slice(0, 15).map((name) => Object.hasOwn(mapped, name) ? mapped[name] : null))
-    await onProgress({ stage: 'preparing', current: index + 1, total: job.data.rows.length, rowNumber: row.rowNumber, center: producerName })
+    rowInfos.push({ rowNumber: row.rowNumber, center: producerName })
+    await onProgress({ stage: 'preparing', current: index + 1, total: rowsToExport.length, rowNumber: row.rowNumber, center: producerName })
   }
-  await ensureTableCapacity(tablePath, token, Math.max(monthValues.length, tableBodyValues.length), startIndex + values.length)
   const bodyStartRow = Number(monthRange.address?.match(/![A-Z]+(\d+):/u)?.[1])
   if (!bodyStartRow) throw new Error('Could not determine the Monthly_Settlement table row address.')
   const excelStartRow = bodyStartRow + startIndex
@@ -229,7 +255,7 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
   const worksheet = (worksheets.value || []).find((item) => normalizeValue(item.name) === 'MONTHLY SETTLEMENT')
   if (!worksheet) throw new Error('Excel worksheet Monthly_Settlement was not found.')
   await onProgress({ stage: 'sending', current: values.length, total: values.length, range: targetAddress })
-  await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/range(address='${targetAddress}')`, token, { method: 'PATCH', body: JSON.stringify({ values }) })
+  await writeWorksheetRows(workbookPath, worksheet.id, token, excelStartRow, 'A', 'O', values, rowInfos, onProgress)
   return { workbook: workbook.name, table: tableName, worksheet: worksheet.name, rowCount: values.length, range: targetAddress }
 }
 
@@ -240,25 +266,100 @@ function monthlyMilkCode(value) {
   return 'MILK-COW'
 }
 
-async function ensureTableCapacity(tablePath, token, currentCapacity, requiredCapacity) {
-  if (requiredCapacity <= currentCapacity) return
-  const tableRange = await graphFetch(`${tablePath}/range`, token)
-  const normalizedAddress = String(tableRange.address || '').replace(/\$/gu, '')
-  const match = normalizedAddress.match(/(?:^|!)([A-Z]+)(\d+):([A-Z]+)(\d+)$/u)
-  if (!match) throw new Error('Could not determine the Excel table range for automatic expansion.')
-  const [, startColumn, , endColumn] = match
-  const missingRows = requiredCapacity - currentCapacity
-  const reserveRows = Math.max(missingRows, 50)
-  const columnCount = excelColumnNumber(endColumn) - excelColumnNumber(startColumn) + 1
-  const blankRows = Array.from({ length: reserveRows }, () => Array(columnCount).fill(null))
-  await graphFetch(`${tablePath}/rows/add`, token, {
-    method: 'POST',
-    body: JSON.stringify({ index: null, values: blankRows }),
-  })
+function previouslySentRowNumbers(job) {
+  return new Set(
+    (Array.isArray(job.excelExport?.rowLog) ? job.excelExport.rowLog : [])
+      .filter((row) => row.status === 'sent' && row.rowNumber !== null && row.rowNumber !== undefined)
+      .map((row) => Number(row.rowNumber))
+      .filter(Number.isFinite),
+  )
 }
 
-function excelColumnNumber(column) {
-  return [...column].reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0)
+async function writeWorksheetRows(workbookPath, worksheetId, token, startRow, startColumn, endColumn, values, rowInfos, onProgress, headers = {}) {
+  for (let index = 0; index < values.length; index += 1) {
+    const address = `${startColumn}${startRow + index}:${endColumn}${startRow + index}`
+    await writeVerifiedRange(workbookPath, worksheetId, token, address, [values[index]], headers)
+    await onProgress({
+      stage: 'sent',
+      current: index + 1,
+      total: values.length,
+      rowNumber: rowInfos[index]?.rowNumber,
+      center: rowInfos[index]?.center,
+      range: address,
+    })
+  }
+}
+
+async function writeVerifiedRange(workbookPath, worksheetId, token, address, values, headers = {}) {
+  const rangePath = `${workbookPath}/worksheets/${encodeURIComponent(worksheetId)}/range(address='${address}')`
+  try {
+    await graphFetch(rangePath, token, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ values }),
+    })
+    return
+  } catch (error) {
+    if (isRetryableGraphError(error) && await rangeMatchesExpected(rangePath, token, values, headers)) return
+    throw new Error(`Excel range write failed for ${address}. ${error instanceof Error ? error.message : 'Excel Online did not respond in time.'}`)
+  }
+}
+
+async function rangeMatchesExpected(rangePath, token, expectedValues, headers = {}) {
+  const delays = [1500, 4000, 8000]
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    await delay(delays[attempt])
+    try {
+      const actual = await graphFetch(rangePath, token, { headers })
+      if (excelValuesMatch(actual.values || [], expectedValues)) return true
+    } catch {
+      // Excel Online can keep the workbook busy briefly after a timeout.
+    }
+  }
+  return false
+}
+
+function excelValuesMatch(actualRows, expectedRows) {
+  if (!Array.isArray(actualRows) || actualRows.length < expectedRows.length) return false
+  return expectedRows.every((expectedRow, rowIndex) =>
+    expectedRow.every((expectedValue, columnIndex) => excelValueMatches(actualRows[rowIndex]?.[columnIndex], expectedValue)),
+  )
+}
+
+function excelValueMatches(actualValue, expectedValue) {
+  if (expectedValue === null || expectedValue === undefined || expectedValue === '') {
+    return actualValue === null || actualValue === undefined || actualValue === ''
+  }
+  const expectedNumber = typeof expectedValue === 'number' ? expectedValue : Number.NaN
+  const actualNumber = typeof actualValue === 'number' ? actualValue : Number(String(actualValue).replace(',', '.'))
+  if (Number.isFinite(expectedNumber) && Number.isFinite(actualNumber)) {
+    return Math.abs(actualNumber - expectedNumber) < 0.0001
+  }
+  return String(actualValue ?? '').trim() === String(expectedValue ?? '').trim()
+}
+
+function findExistingDailyRouteRowIndex(rows, columnNames, mapped) {
+  const indexes = columnIndexMap(columnNames)
+  const expected = [
+    ['Date', mapped.Date],
+    ['Driver', mapped.Driver],
+    ['Truck', mapped.Truck],
+    ['Route_ID', mapped.Route_ID],
+    ['Aviz_No', mapped.Aviz_No],
+    ['Center_Name', mapped.Center_Name],
+    ['Milk_Code', mapped.Milk_Code],
+    ['Qty_Collected_L', mapped.Qty_Collected_L],
+    ['Fat/Densitate', mapped['Fat/Densitate']],
+    ['Temperature_C', mapped.Temperature_C],
+  ]
+  return rows.findIndex((row) => expected.every(([name, value]) => {
+    const columnIndex = indexes.get(normalizeValue(name))
+    return columnIndex === undefined || excelValueMatches(row?.[columnIndex], value)
+  }))
+}
+
+function columnIndexMap(columnNames) {
+  return new Map(columnNames.map((name, index) => [normalizeValue(name), index]))
 }
 
 function findLastUsedTableRowIndex(rows, columnNames, importantColumns) {
@@ -806,7 +907,7 @@ function excelDateMatches(value, expectedSerial) {
   return Number.isFinite(parsed) && Math.round(parsed) === Math.round(expectedSerial)
 }
 
-async function refreshAccessToken(config) {
+export async function refreshAccessToken(config) {
   if (!tokenRefreshPromise) {
     tokenRefreshPromise = performTokenRefresh(config).finally(() => { tokenRefreshPromise = null })
   }
@@ -842,7 +943,7 @@ async function performTokenRefresh(config) {
   return token.access_token
 }
 
-async function resolveWorkbook(config, token) {
+export async function resolveWorkbook(config, token) {
   if (config.driveId && config.itemId) return { driveId: config.driveId, itemId: config.itemId, name: config.itemId }
   const base64 = Buffer.from(config.workbookUrl, 'utf8').toString('base64')
   const shareId = `u!${base64.replace(/=+$/u, '').replace(/\//gu, '_').replace(/\+/gu, '-')}`
@@ -851,24 +952,64 @@ async function resolveWorkbook(config, token) {
   return { driveId: item.parentReference.driveId, itemId: item.id, name: item.name }
 }
 
-async function graphFetch(pathname, token, options = {}) {
-  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json', ...options.headers }
-  if (options.body) headers['Content-Type'] = 'application/json'
-  const method = options.method || 'GET'
-  const retryable = method === 'GET' || method === 'PATCH'
+export async function graphFetch(pathname, token, options = {}) {
+  const { retryable: retryableOverride, timeoutMs = 45000, ...fetchOptions } = options
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json', ...fetchOptions.headers }
+  if (fetchOptions.body) headers['Content-Type'] = 'application/json'
+  const method = fetchOptions.method || 'GET'
+  const retryable = retryableOverride ?? (method === 'GET' || method === 'PATCH')
   const maxAttempts = retryable ? 3 : 1
   let lastError
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await fetch(`${GRAPH_ROOT}${pathname}`, { ...options, headers })
+      const response = await fetchWithTimeout(`${GRAPH_ROOT}${pathname}`, { ...fetchOptions, headers }, timeoutMs)
       return await parseResponse(response, `${method} ${pathname}`)
     } catch (error) {
-      lastError = error
-      if (!retryable || attempt === maxAttempts || !isRetryableGraphError(error)) throw error
+      lastError = enrichFetchError(error, `${method} ${pathname}`)
+      if (!retryable || attempt === maxAttempts || !isRetryableGraphError(lastError)) throw lastError
       await delay(graphRetryDelayMs(error, attempt))
     }
   }
   throw lastError
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController()
+  const upstreamSignal = options.signal
+  const onAbort = () => controller.abort(upstreamSignal.reason)
+  if (upstreamSignal?.aborted) controller.abort(upstreamSignal.reason)
+  upstreamSignal?.addEventListener('abort', onAbort, { once: true })
+  const timeout = setTimeout(() => {
+    const error = new Error(`Graph request timed out after ${Math.round(timeoutMs / 1000)} seconds`)
+    error.code = 'ETIMEDOUT'
+    controller.abort(error)
+  }, timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason instanceof Error) throw controller.signal.reason
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    upstreamSignal?.removeEventListener('abort', onAbort)
+  }
+}
+
+function enrichFetchError(error, context) {
+  if (!(error instanceof Error)) return new Error(`${context} failed: network request failed.`)
+  if (error.code === 'ETIMEDOUT') {
+    const enriched = new Error(`${context} failed: ${error.message}.`)
+    enriched.code = error.code
+    return enriched
+  }
+  if (error.message !== 'fetch failed') return error
+  const cause = error.cause
+  const detail = [cause?.code, cause?.message].filter(Boolean).join(' - ')
+  const enriched = new Error(`${context} failed: fetch failed${detail ? ` (${detail})` : ''}.`)
+  enriched.status = error.status
+  enriched.retryAfter = error.retryAfter
+  enriched.cause = cause
+  return enriched
 }
 
 async function parseResponse(response, context) {
@@ -878,7 +1019,8 @@ async function parseResponse(response, context) {
     try { body = JSON.parse(text) } catch { body = { message: text } }
   }
   if (!response.ok) {
-    const error = new Error(body?.error?.message || body?.error_description || body?.message || `${context} failed (${response.status}).`)
+    const detail = body?.error?.message || body?.error_description || body?.message || response.statusText
+    const error = new Error(`${context} failed (${response.status})${detail ? `: ${detail}` : '.'}`)
     error.status = response.status
     error.retryAfter = response.headers.get('retry-after')
     throw error
@@ -888,7 +1030,9 @@ async function parseResponse(response, context) {
 
 function isRetryableGraphError(error) {
   const status = Number(error?.status)
-  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || error?.cause?.code === 'ETIMEDOUT'
+  const networkCode = error?.code || error?.cause?.code
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504
+    || ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET'].includes(networkCode)
 }
 
 function graphRetryDelayMs(error, attempt) {

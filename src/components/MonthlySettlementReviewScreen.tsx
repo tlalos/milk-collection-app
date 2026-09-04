@@ -54,6 +54,13 @@ interface MonthlyJob {
   completedAt?: string | null;
   error?: string | null;
   fileUrl: string;
+  archiveStatus?: {
+    status: "archived" | "failed" | string;
+    archivedAt?: string;
+    webUrl?: string | null;
+    folderPath?: string;
+    error?: string;
+  } | null;
   data?: MonthlyData;
   summary?: {
     date?: string | null;
@@ -134,6 +141,35 @@ function isFailedMonthlyJob(job: MonthlyJob) {
   return job.status === "failed" || job.excelExport?.status === "failed";
 }
 
+class NonJsonApiResponseError extends Error {
+  nonJson = true;
+}
+
+async function readApiJson<T>(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (response.status === 401)
+      throw new Error("Your OCR session expired. Please sign in again.");
+    throw new NonJsonApiResponseError(
+      `${fallbackMessage} (${response.status}, ${contentType || "no content type"})`,
+    );
+  }
+}
+
+function archiveApiUrls(pathname: string) {
+  const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const urls = [appPath(path), path];
+  if (import.meta.env.DEV) {
+    const port = import.meta.env.VITE_OCR_API_PORT || "8780";
+    urls.push(`${window.location.protocol}//${window.location.hostname}:${port}${path}`);
+  }
+  return Array.from(new Set(urls));
+}
+
 export function MonthlySettlementReviewScreen() {
   const { language, setLanguage, isRo } = useOcrLanguage();
   const [view, setView] = useState<"pending" | "reviewed" | "failed">("pending");
@@ -149,6 +185,7 @@ export function MonthlySettlementReviewScreen() {
   >("idle");
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<
     Record<string, ProducerSuggestion[]>
   >({});
@@ -324,6 +361,64 @@ export function MonthlySettlementReviewScreen() {
       setNotice((error as Error).message);
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function archiveDocument(job: MonthlyJob) {
+    const prompt = isRo
+      ? `Arhivați acum imaginea „${job.sourceFile}” în SharePoint?\n\nDupă încărcarea cu succes, fișierul local va fi șters, dar procesul OCR și istoricul backup vor rămâne.`
+      : `Archive the picture "${job.sourceFile}" to SharePoint now?\n\nAfter a successful upload, the local file will be removed, but the OCR job and backup history will remain.`;
+    if (!window.confirm(prompt)) return;
+    setArchivingId(job.id);
+    setNotice("");
+    try {
+      let response: Response | null = null;
+      let payload: { job?: MonthlyJob; error?: string } | null = null;
+      let nonJsonError: Error | null = null;
+
+      for (const url of archiveApiUrls(`/api/ocr/jobs/${job.id}/archive`)) {
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          });
+          payload = await readApiJson<{ job?: MonthlyJob; error?: string }>(
+            response,
+            `The archive endpoint did not return JSON from ${url}.`,
+          );
+          break;
+        } catch (error) {
+          if (!(error instanceof NonJsonApiResponseError)) throw error;
+          nonJsonError = error;
+        }
+      }
+
+      if (!response || !payload)
+        throw nonJsonError || new Error("Could not archive the document.");
+      if (!response.ok || !payload.job)
+        throw new Error(payload.error || "Could not archive the document.");
+      if (selected?.id === payload.job.id) {
+        setSelected(payload.job);
+        if (payload.job.data) {
+          setDraft(structuredClone(payload.job.data));
+          lastSavedRef.current = JSON.stringify({ data: payload.job.data });
+        }
+      }
+      setJobs((current) =>
+        current.map((item) => (item.id === payload.job!.id ? payload.job! : item)),
+      );
+      setNotice(
+        isRo
+          ? "Documentul a fost arhivat în SharePoint."
+          : "Document archived to SharePoint.",
+      );
+      await loadJobs();
+    } catch (error) {
+      setNotice((error as Error).message || "Could not archive the document.");
+      await loadJobs().catch(() => undefined);
+    } finally {
+      setArchivingId(null);
     }
   }
 
@@ -861,6 +956,13 @@ export function MonthlySettlementReviewScreen() {
           >
             {isRo ? "Setări OCR" : "OCR Settings"}
           </button>
+          <button
+            onClick={() => {
+              window.location.href = appPath("/ocr/archive-history");
+            }}
+          >
+            {isRo ? "Istoric backup" : "Backup history"}
+          </button>
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </nav>
       </header>
@@ -946,9 +1048,44 @@ export function MonthlySettlementReviewScreen() {
                 }}
               >
                 <button
+                  className="monthly-document-archive"
+                  type="button"
+                  disabled={
+                    archivingId === job.id ||
+                    deletingId === job.id ||
+                    job.status === "queued" ||
+                    job.status === "processing" ||
+                    job.archiveStatus?.status === "archived"
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void archiveDocument(job);
+                  }}
+                  title={
+                    job.archiveStatus?.status === "archived"
+                      ? isRo
+                        ? "Document deja arhivat"
+                        : "Document already archived"
+                      : isRo
+                        ? "Arhivați imaginea în SharePoint"
+                        : "Archive picture to SharePoint"
+                  }
+                  aria-label={
+                    isRo
+                      ? `Arhivați ${job.sourceFile}`
+                      : `Archive ${job.sourceFile}`
+                  }
+                >
+                  {archivingId === job.id
+                    ? "…"
+                    : job.archiveStatus?.status === "archived"
+                      ? "✓"
+                      : "↥"}
+                </button>
+                <button
                   className="monthly-document-delete"
                   type="button"
-                  disabled={deletingId === job.id}
+                  disabled={deletingId === job.id || archivingId === job.id}
                   onClick={(event) => {
                     event.stopPropagation();
                     void deleteDocument(job);
@@ -1017,6 +1154,16 @@ export function MonthlySettlementReviewScreen() {
                           : isRo
                             ? "Excel: Netrimis"
                             : "Excel: Not sent"}
+                  </span>
+                )}
+                {job.archiveStatus?.status === "archived" && (
+                  <span className="monthly-archive-status archived">
+                    {isRo ? "Arhivat" : "Archived"}
+                  </span>
+                )}
+                {job.archiveStatus?.status === "failed" && (
+                  <span className="monthly-archive-status failed">
+                    {isRo ? "Backup eșuat" : "Backup failed"}
                   </span>
                 )}
                 <small>{new Date(job.createdAt).toLocaleString()}</small>
@@ -1097,7 +1244,26 @@ export function MonthlySettlementReviewScreen() {
                     </button>
                   </div>
                 </div>
-                {selected.mimeType === "application/pdf" ? (
+                {selected.archiveStatus?.status === "archived" ? (
+                  <div className="monthly-archived-source">
+                    <strong>{isRo ? "Document arhivat în SharePoint" : "Document archived to SharePoint"}</strong>
+                    <span>
+                      {selected.archiveStatus.folderPath ||
+                        (isRo
+                          ? "Fișierul sursă nu mai este stocat local."
+                          : "The source file is no longer stored locally.")}
+                    </span>
+                    {selected.archiveStatus.webUrl && (
+                      <a
+                        href={selected.archiveStatus.webUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {isRo ? "Deschideți în SharePoint" : "Open in SharePoint"}
+                      </a>
+                    )}
+                  </div>
+                ) : selected.mimeType === "application/pdf" ? (
                   <iframe
                     key={`${selected.id}-${zoom}`}
                     src={`${selected.fileUrl}#zoom=${zoom}`}

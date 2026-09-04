@@ -61,11 +61,14 @@
 .review-job-list { display: grid; gap: 8px; }
 .review-job-item { position: relative; border: 1px solid #dce4df; border-radius: 10px; background: #fafcfb; overflow: hidden; }
 .review-job-item.selected { border-color: #1a6b3c; background: #edf7f1; box-shadow: 0 0 0 1px #1a6b3c; }
-.review-job-open { display: grid; gap: 4px; width: 100%; padding: 11px 38px 11px 11px; border: 0; background: transparent; color: #1f3026; text-align: left; }
+.review-job-open { display: grid; gap: 4px; width: 100%; padding: 11px 68px 11px 11px; border: 0; background: transparent; color: #1f3026; text-align: left; }
 .review-job-open:disabled { cursor: default; opacity: .72; }
-.review-job-delete { position: absolute; top: 7px; right: 7px; display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: #f5e8e7; color: #9d342d; font-size: 1.1rem; font-weight: 700; }
+.review-job-archive { position: absolute; top: 7px; right: 37px; display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: #e5f2ec; color: #17613a; font-size: .95rem; font-weight: 900; cursor: pointer; }
+.review-job-archive:hover { background: #bde2cb; color: #063d21; }
+.review-job-archive:disabled { cursor: default; opacity: .55; }
+.review-job-delete { position: absolute; top: 7px; right: 7px; display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 0; border-radius: 7px; background: #f5e8e7; color: #9d342d; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
 .review-job-delete:hover { background: #efd0cd; }
-.review-job-delete:disabled { opacity: .5; }
+.review-job-delete:disabled { cursor: default; opacity: .5; }
 .review-job-reprocess { width: calc(100% - 49px); min-height: 30px; margin: 0 38px 10px 11px; border: 1px solid #dca9a4; border-radius: 7px; background: #fff5f4; color: #923b34; font-size: .67rem; font-weight: 800; }
 .review-job-reprocess:hover { background: #fce9e7; }
 .review-job-reprocess:disabled { opacity: .55; }
@@ -97,6 +100,9 @@
 .review-erp-status.erp-sent { background: #dff1e6; color: #17613a; }
 .review-erp-status.erp-failed, .review-erp-status.erp-partial { background: #fce9e7; color: #9d342d; }
 .review-erp-status.erp-sending { background: #e8f1ff; color: #285888; }
+.review-archive-status { width: fit-content; padding: 3px 6px; border-radius: 5px; font-size: .62rem; font-weight: 800; }
+.review-archive-status.archived { background: #e5f2ec; color: #17613a; }
+.review-archive-status.failed { background: #fce9e7; color: #9d342d; }
 .review-pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 7px; margin-top: 12px; }
 .review-pagination button { min-height: 32px; border: 1px solid #cdd9d1; border-radius: 7px; background: white; color: #1a6b3c; font-size: .65rem; font-weight: 750; }
 .review-pagination button:disabled { opacity: .4; }
@@ -138,6 +144,11 @@
 .review-source-panel iframe { width: 100%; flex: 1; border: 0; }
 .review-image-wrap { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: block; padding: 12px; background: #222a25; }
 .review-image-wrap img { height: auto; display: block; margin: 0; transform-origin: top left; background: white; }
+.review-archived-source { flex: 1; display: grid; place-content: center; gap: 8px; padding: 22px; background: #f4f8f6; color: #526158; text-align: center; }
+.review-archived-source strong { color: #17613a; font-size: .9rem; }
+.review-archived-source span { font-size: .72rem; }
+.review-archived-source a { width: fit-content; justify-self: center; padding: 7px 10px; border: 1px solid #1a6b3c; border-radius: 7px; background: white; color: #17613a; font-size: .68rem; font-weight: 800; text-decoration: none; }
+.review-archived-source a:hover { background: #cbe8d6; color: #063d21; }
 .review-data-panel { overflow: hidden; }
 .review-data-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 8px 14px; padding: 4px; border-radius: 9px; background: #edf2ef; }
 .review-data-tabs button { min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 7px; background: transparent; color: #647269; font-size: .68rem; font-weight: 800; }

@@ -21,6 +21,8 @@ The frontend is already compiled in `dist`; no production build is required on t
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.
 
+Optional cleanup can move old reviewed source documents from `data/ocr/files` to SharePoint. Enable it with `OCR_ARCHIVE_ENABLED=true`. By default it archives Daily Routes and Monthly Settlement documents that are completed, reviewed, and at least 60 days old. It uploads Daily Routes to `OCR_ARCHIVE_DAILY_FOLDER_PATH` and Monthly Settlement journals to `OCR_ARCHIVE_MONTHLY_FOLDER_PATH`; the defaults are `pictures/daily` and `pictures/journals`. Monthly settlement files are renamed with the header center and timestamp; Daily Routes files are renamed with the timestamp and truck number. The local source file is deleted only after the SharePoint upload succeeds; the job JSON remains and records `archiveStatus`. A backup history is also kept locally at `data/ocr/archive-history.json` and mirrored to SharePoint at `OCR_ARCHIVE_HISTORY_FILE_PATH`.
+
 ## Required environment values
 
 - `OPENAI_API_KEY`
@@ -30,6 +32,18 @@ The current filesystem store uses `data/ocr/files` for uploaded documents and `d
 - `AZURE_TENANT_ID`
 - `GRAPH_WORKBOOK_URL`, or both `GRAPH_DRIVE_ID` and `GRAPH_ITEM_ID`
 - `EXCEL_GRAPH_TOKEN_CACHE`: absolute path to the delegated Graph token-cache JSON
+
+Optional OCR archive cleanup values:
+
+- `OCR_ARCHIVE_ENABLED`: set to `true` to enable automatic SharePoint archiving
+- `OCR_ARCHIVE_SHAREPOINT_FOLDER_PATH`: root destination folder path in the SharePoint drive; defaults to `pictures`
+- `OCR_ARCHIVE_DAILY_FOLDER_PATH`: destination folder for Daily Routes images; defaults to `pictures/daily`
+- `OCR_ARCHIVE_MONTHLY_FOLDER_PATH`: destination folder for Monthly Settlement journal images; defaults to `pictures/journals`
+- `OCR_ARCHIVE_HISTORY_FILE_PATH`: SharePoint path for the archive history backup JSON; defaults to `pictures/archive-history.json`
+- `OCR_ARCHIVE_DRIVE_ID`: optional destination drive id; leave blank to use the workbook drive
+- `OCR_ARCHIVE_MIN_AGE_DAYS`: defaults to `60`
+- `OCR_ARCHIVE_INTERVAL_HOURS`: defaults to `24`
+- `OCR_ARCHIVE_INITIAL_DELAY_MINUTES`: defaults to `5`
 
 The token-cache file must be writable by the application identity because refresh tokens are rotated. Do not place `.env` or the token cache inside source control or a replaceable release directory.
 

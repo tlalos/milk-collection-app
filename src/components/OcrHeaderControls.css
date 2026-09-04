@@ -1,8 +1,9 @@
-:root { --ocr-header-control-width: 124px; --ocr-header-control-height: 38px; }
+:root { --ocr-header-control-width: 116px; --ocr-header-control-height: 38px; }
 
 .ocr-header-actions,
 .review-header-actions,
-.monthly-review > header nav {
+.monthly-review > header nav,
+.archive-history-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -13,6 +14,7 @@
 .ocr-header-actions > button,
 .review-header-actions > button,
 .monthly-review > header nav > button,
+.archive-history-actions > button,
 .ocr-auth-signout {
   width: var(--ocr-header-control-width);
   min-width: var(--ocr-header-control-width);
@@ -34,7 +36,8 @@
 
 .ocr-header-actions .ocr-language-switch,
 .review-header-actions .ocr-language-switch,
-.monthly-review > header nav .ocr-language-switch {
+.monthly-review > header nav .ocr-language-switch,
+.archive-history-actions .ocr-language-switch {
   width: var(--ocr-header-control-width);
   min-width: var(--ocr-header-control-width);
   height: var(--ocr-header-control-height);
@@ -44,7 +47,8 @@
 
 .ocr-header-actions .ocr-language-switch button,
 .review-header-actions .ocr-language-switch button,
-.monthly-review > header nav .ocr-language-switch button { min-width: 0; height: 30px; flex: 1; }
+.monthly-review > header nav .ocr-language-switch button,
+.archive-history-actions .ocr-language-switch button { min-width: 0; height: 30px; flex: 1; }
 
 .ocr-auth-signout { top: 19px; right: 16px !important; z-index: 100; }
 
@@ -61,7 +65,7 @@
 
 @media (max-width: 1250px) {
   :root { --ocr-header-control-width: 108px; }
-  .ocr-header-actions, .review-header-actions, .monthly-review > header nav { gap: 5px; margin-right: 122px; }
+  .ocr-header-actions, .review-header-actions, .monthly-review > header nav, .archive-history-actions { gap: 5px; margin-right: 122px; }
 }
 
 @media (max-width: 760px) {
@@ -79,7 +83,8 @@
   .ocr-header p { max-width: 270px; line-height: 1.35; }
 
   .review-header,
-  .monthly-review > header {
+  .monthly-review > header,
+  .archive-history-header {
     height: auto;
     min-height: 0;
     display: grid;
@@ -89,11 +94,13 @@
     padding: 13px 12px;
   }
   .review-header > div:first-child,
-  .monthly-review > header > div:first-child { min-width: 0; padding-right: 108px; }
+  .monthly-review > header > div:first-child,
+  .archive-history-header > div:nth-child(2) { min-width: 0; padding-right: 108px; }
 
   .ocr-header-actions,
   .review-header-actions,
-  .monthly-review > header nav {
+  .monthly-review > header nav,
+  .archive-history-actions {
     width: 100%;
     max-width: none;
     display: grid;
@@ -107,9 +114,11 @@
   .ocr-header-actions > button,
   .review-header-actions > button,
   .monthly-review > header nav > button,
+  .archive-history-actions > button,
   .ocr-header-actions .ocr-language-switch,
   .review-header-actions .ocr-language-switch,
-  .monthly-review > header nav .ocr-language-switch {
+  .monthly-review > header nav .ocr-language-switch,
+  .archive-history-actions .ocr-language-switch {
     width: 100%;
     min-width: 0;
   }

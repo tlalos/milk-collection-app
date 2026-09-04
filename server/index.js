@@ -16,6 +16,8 @@ import {
 import { getSessionUser, initializeAuthStore, login, logout } from './authStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
+import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
+import { readArchiveHistory } from './ocrArchiveHistory.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, isOcrProviderConfigured, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
@@ -39,6 +41,12 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
 const appVersion = process.env.APP_VERSION || '2026.08.19.1'
+const localDevOrigins = new Set([
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://localhost:5173',
+  'http://localhost:5174',
+])
 
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
@@ -89,6 +97,18 @@ function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSou
   }
   return restored
 }
+
+app.use((request, response, next) => {
+  const origin = request.headers.origin
+  if (origin && localDevOrigins.has(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.setHeader('Access-Control-Allow-Credentials', 'true')
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept')
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
+    if (request.method === 'OPTIONS') return response.sendStatus(204)
+  }
+  next()
+})
 
 app.use((request, _response, next) => {
   if (appBasePath && (request.url === appBasePath || request.url.startsWith(`${appBasePath}/`))) {
@@ -333,13 +353,51 @@ app.delete('/api/ocr/jobs/:id', async (request, response, next) => {
   }
 })
 
+app.post('/api/ocr/jobs/:id/archive', async (request, response, next) => {
+  try {
+    const result = await archiveOcrJobNow(request.params.id)
+    response.json({ job: toPublicJob(result.job, true), archiveStatus: result.job.archiveStatus })
+  } catch (error) {
+    const status = Number(error?.status || 500)
+    if (status >= 400 && status < 500) {
+      return response.status(status).json({
+        error: error instanceof Error ? error.message : 'Could not archive the document.',
+        job: error?.job ? toPublicJob(error.job, true) : undefined,
+      })
+    }
+    next(error)
+  }
+})
+
 app.get('/api/ocr/jobs/:id/file', async (request, response, next) => {
   try {
     const job = await getJob(request.params.id)
     if (!job) return response.status(404).json({ error: 'OCR job not found.' })
+    if (!job.storedFilename && job.archiveStatus?.status === 'archived') {
+      return response.status(410).json({
+        error: 'The source document was archived to SharePoint and is no longer stored locally.',
+        archiveStatus: job.archiveStatus,
+      })
+    }
+    const storedFilePath = getStoredFilePath(job)
+    if (!storedFilePath) return response.status(404).json({ error: 'Source document file is not available.' })
     response.type(job.mimeType)
     response.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(job.sourceFile)}`)
-    response.sendFile(getStoredFilePath(job))
+    response.sendFile(storedFilePath)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/archive-history', async (request, response, next) => {
+  try {
+    const history = await readArchiveHistory()
+    response.json({
+      ...history,
+      records: history.records
+        .slice()
+        .sort((left, right) => String(right.updatedAt || right.archivedAt || right.attemptedAt || '').localeCompare(String(left.updatedAt || left.archivedAt || left.attemptedAt || ''))),
+    })
   } catch (error) {
     next(error)
   }
@@ -523,7 +581,7 @@ app.post('/api/ocr/jobs/:id/excel/retry', async (request, response, next) => {
     if (current.excelExport?.status === 'queued' || current.excelExport?.status === 'exporting') {
       return response.status(409).json({ error: 'Excel export is already in progress.' })
     }
-    const job = await updateJob(current.id, { excelExport: { status: 'queued', queuedAt: new Date().toISOString(), error: null } })
+    const job = await updateJob(current.id, { excelExport: { ...current.excelExport, status: 'queued', queuedAt: new Date().toISOString(), error: null } })
     enqueueExcelExport(current.id)
     response.status(202).json({ job: toPublicJob(job, true) })
   } catch (error) {
@@ -644,6 +702,10 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
   }
 })
 
+app.use('/api', (request, response) => {
+  response.status(404).json({ error: `API endpoint not found: ${request.method} ${request.originalUrl}` })
+})
+
 app.use(express.static(path.join(rootDir, 'dist'), {
   setHeaders(response, filePath) {
     const fileName = path.basename(filePath).toLowerCase()
@@ -670,6 +732,7 @@ await initializeJobStore()
 await initializeOcrSettingsStore()
 await resumePendingJobs()
 await resumeExcelExports()
+startOcrArchiveCleanup()
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`MilkCollect server running at http://127.0.0.1:${port}`)

@@ -21,6 +21,8 @@ After a document is saved and marked reviewed, its collection rows are queued fo
 
 OCR collection-center names are compared with `Ref_Centers` / `tblCenters` after extraction. A match of 60% or higher automatically replaces the OCR description with the reference description and is visibly marked as system-replaced. Lower matches remain optional suggestions; `Center_Code` is not mandatory and the workbook keeps responsibility for its normal code lookup.
 
+Set `OCR_ARCHIVE_ENABLED=true` to run the automatic OCR source-file cleanup. The cleanup archives reviewed Daily Routes and Monthly Settlement source documents that were completed at least `OCR_ARCHIVE_MIN_AGE_DAYS` days ago, uploads Daily Routes to `OCR_ARCHIVE_DAILY_FOLDER_PATH` and Monthly Settlement journals to `OCR_ARCHIVE_MONTHLY_FOLDER_PATH` using Microsoft Graph, and removes the local file only after SharePoint confirms the upload. Monthly settlement files are named with the header center and timestamp; Daily Routes files are named with the timestamp and truck number. Job JSON files stay in `data/ocr/jobs` with an `archiveStatus` record. A separate local backup file is kept at `data/ocr/archive-history.json` and mirrored to `OCR_ARCHIVE_HISTORY_FILE_PATH` in SharePoint.
+
 For frontend development, run `npm run server` and `npm run dev` in separate terminals. Vite proxies `/api/ocr` to the local backend.
 
 ## OCR configuration

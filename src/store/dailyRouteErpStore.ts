@@ -1,4 +1,5 @@
 import { login } from '../api/authApi'
+import { ApiError } from '../api/client'
 import { saveZGParalavesSuppliesOrder } from '../api/suppliesOrderApi'
 import { db } from '../db/database'
 import { settingsStore } from './settingsStore'
@@ -89,6 +90,21 @@ function normalize(value: string | null | undefined): string {
 
 function hasValue(value: unknown): boolean {
   return value !== null && value !== undefined && String(value).trim() !== ''
+}
+
+function readableApiError(error: unknown): string {
+  if (error instanceof ApiError) return `${error.message} (${error.status})`
+  return error instanceof Error ? error.message : 'Unexpected API error.'
+}
+
+function missingErpFields(row: DailyRouteExtractedRow): string[] {
+  return [
+    !hasValue(row.collectionCenter) ? 'center' : '',
+    !hasValue(row.liters) ? 'liters' : '',
+    !hasValue(row.fatPercent) ? 'fat' : '',
+    !hasValue(row.temperature) ? 'temperature' : '',
+    !hasValue(row.noticeNumber) ? 'aviz number' : '',
+  ].filter(Boolean)
 }
 
 function milkAliases(milkType: DailyMilkTypeCode): string[] {
@@ -240,16 +256,30 @@ export async function sendDailyRouteDetailsToErp(
   const { apiUsername, apiPassword, defaultFiscalYear } = settingsStore.get()
   if (!apiUsername || !apiPassword) throw new Error('API credentials not configured. Open Settings first.')
 
-  const rows = data.rows.filter((row) => hasValue(row.collectionCenter) && hasValue(row.liters))
+  const rows = data.rows.filter((row) => hasValue(row.collectionCenter) || hasValue(row.liters) || hasValue(row.fatPercent) || hasValue(row.temperature) || hasValue(row.noticeNumber))
   if (!rows.length) throw new Error('There are no daily route rows with center and liters to send.')
 
-  const [items, suppliers, zgParam, loginResponse] = await Promise.all([
+  const incompleteRows = rows
+    .map((row) => ({ rowNumber: row.rowNumber, fields: missingErpFields(row) }))
+    .filter((row) => row.fields.length > 0)
+  if (incompleteRows.length) {
+    const details = incompleteRows.map((row) => `row ${row.rowNumber}: ${row.fields.join(', ')}`).join('; ')
+    throw new Error(`Cannot send daily route rows to ERP. Missing required fields: ${details}.`)
+  }
+
+  const [items, suppliers, zgParam] = await Promise.all([
     db.items.toArray(),
     db.suppliers.toArray(),
     db.zgParams.get('current'),
-    login({ Username: apiUsername, Password: apiPassword, fiscalyear: defaultFiscalYear }, signal),
   ])
   if (!suppliers.length) throw new Error('No synced ERP suppliers were found. Sync local suppliers before sending to ERP.')
+
+  const loginResponse = await login(
+    { Username: apiUsername, Password: apiPassword, fiscalyear: defaultFiscalYear },
+    signal,
+  ).catch((error) => {
+    throw new Error(`ERP login failed: ${readableApiError(error)}. Check the Settings API base URL and ERP credentials.`)
+  })
 
   const username = loginResponse.user_name || apiUsername
   const userSettings = loginResponse.user_settings
@@ -271,6 +301,9 @@ export async function sendDailyRouteDetailsToErp(
       if (!item) throw new Error(`No synced ERP item matched milk type "${normalizedMilkType(row.milkType)}".`)
       const payload = buildPayloadLine(data, row, sourceFile, item, supplier, username, userSettings, zgParam)
       const response = await saveZGParalavesSuppliesOrder([payload], signal, loginResponse.access_token)
+        .catch((error) => {
+          throw new Error(`ERP save failed for row ${row.rowNumber}, aviz ${row.noticeNumber || '-'}: ${readableApiError(error)}`)
+        })
       if (!response.status) throw new Error(response.status_message || 'ERP rejected this aviz.')
       rowLog[logIndex] = {
         ...rowLog[logIndex],

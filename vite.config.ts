@@ -6,21 +6,33 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const ocrTarget = `http://127.0.0.1:${env.PORT || '8787'}`
   const basePath = env.VITE_BASE_PATH || '/'
+  const normalizedBasePath = basePath.replace(/\/$/u, '')
+  const apiProxy = {
+    '/api': ocrTarget,
+    '/api/auth': ocrTarget,
+    '/api/ocr': ocrTarget,
+    ...(normalizedBasePath
+      ? {
+        [`${normalizedBasePath}/api/auth`]: {
+          target: ocrTarget,
+          rewrite: (path: string) => path.slice(normalizedBasePath.length),
+        },
+        [`${normalizedBasePath}/api/ocr`]: {
+          target: ocrTarget,
+          rewrite: (path: string) => path.slice(normalizedBasePath.length),
+        },
+      }
+      : {}),
+  }
 
   return {
     base: basePath,
     server: {
-      proxy: {
-        '/api/auth': ocrTarget,
-        '/api/ocr': ocrTarget,
-      },
+      proxy: apiProxy,
     },
     preview: {
       allowedHosts: true,
-      proxy: {
-        '/api/auth': ocrTarget,
-        '/api/ocr': ocrTarget,
-      },
+      proxy: apiProxy,
     },
     plugins: [
     react(),
