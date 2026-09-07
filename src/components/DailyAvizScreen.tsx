@@ -251,19 +251,18 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
             <table className="daily-aviz-table">
               <thead>
                 <tr>
-                  <th>Aviz date</th>
-                  <th>Route</th>
-                  <th>Truck</th>
-                  <th>Driver</th>
                   <th>Line</th>
+                  <th>Aviz date</th>
+                  <th>Aviz no</th>
+                  <th>Truck no</th>
+                  <th>Route</th>
+                  <th>Driver</th>
                   <th>Center</th>
                   <th>Milk type</th>
                   <th>Liters</th>
                   <th>Fat %</th>
-                  <th>Density</th>
-                  <th>Water %</th>
                   <th>Temp C</th>
-                  <th>Notice no.</th>
+                  <th>Water %</th>
                   <th>Review</th>
                   <th>Excel</th>
                   <th>File</th>
@@ -272,26 +271,25 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={17} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
+                  <tr><td colSpan={16} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
                 )}
                 {!loading && filteredRows.length === 0 && (
-                  <tr><td colSpan={17} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
+                  <tr><td colSpan={16} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
                 )}
                 {!loading && filteredRows.map((row) => (
                   <tr key={row.id}>
-                    <td>{displayDate(row.documentDate)}</td>
-                    <td>{row.route || '-'}</td>
-                    <td>{row.vehicleRegistration || '-'}</td>
-                    <td>{row.driverName || '-'}</td>
                     <td>{row.rowNumber ?? '-'}</td>
+                    <td>{displayDate(row.documentDate)}</td>
+                    <td>{row.noticeNumber || '-'}</td>
+                    <td>{row.vehicleRegistration || '-'}</td>
+                    <td>{row.route || '-'}</td>
+                    <td>{row.driverName || '-'}</td>
                     <td title={row.collectionCenter || ''}>{row.collectionCenter || '-'}</td>
                     <td>{row.milkType || '-'}</td>
                     <td>{formatNumber(row.liters)}</td>
                     <td>{formatNumber(row.fatPercent, 2)}</td>
-                    <td>{formatNumber(row.density, 3)}</td>
-                    <td>{formatNumber(row.water, 2)}</td>
                     <td>{formatNumber(row.temperature, 1)}</td>
-                    <td>{row.noticeNumber || '-'}</td>
+                    <td>{formatNumber(row.water, 2)}</td>
                     <td>
                       <span className={`daily-aviz-badge ${row.reviewStatus}`}>
                         {statusLabel(row.reviewStatus)}

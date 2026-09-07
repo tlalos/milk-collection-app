@@ -32,6 +32,7 @@ interface MilkReceptionOptions {
 
 type VehicleCategory = 'COLLECTION' | 'OTHER'
 type QualityDetailType = 'ORIGINAL' | 'CUSTOM'
+type DetailSectionType = 'RECONCILIATION' | QualityDetailType
 
 interface RouteSetting {
   settingId: string
@@ -64,6 +65,26 @@ interface QualityDetail {
   productionExitAt: string
   responsiblePerson: string
   pcc1Observations: string
+}
+
+interface MilkReceptionReconciliationRow {
+  rowNumber: number | null
+  center: string
+  milkType: string
+  liters: number | null
+  noticeNumber: string
+  sourceFile: string
+}
+
+interface MilkReceptionReconciliation {
+  status: 'not_collection' | 'missing_info' | 'no_truck' | 'no_date' | 'no_route' | 'ok' | 'difference'
+  label: string
+  avizLiters: number | null
+  differenceLiters: number | null
+  differencePercent: number | null
+  matchedRowCount: number
+  suggestedRoutes: string[]
+  matchedRows: MilkReceptionReconciliationRow[]
 }
 
 interface MilkReceptionRecord {
@@ -103,6 +124,7 @@ interface MilkReceptionRecord {
   responsiblePerson: string
   pcc1Observations: string
   qualityDetails: Record<QualityDetailType, QualityDetail>
+  reconciliation?: MilkReceptionReconciliation
   createdAt?: string
   updatedAt?: string
   isNew?: boolean
@@ -180,12 +202,18 @@ function displayDateTimeInput(value: string) {
   const date = new Date(text)
   if (!Number.isFinite(date.getTime())) return text
   const two = (part: number) => String(part).padStart(2, '0')
-  return `${two(date.getMonth() + 1)}/${two(date.getDate())}/${date.getFullYear()} ${two(date.getHours())}:${two(date.getMinutes())}`
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}`
 }
 
 function storedDateTimeInput(value: string) {
   const text = String(value || '').trim()
   if (!text) return ''
+  const nativeMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/u.exec(text)
+  if (nativeMatch) {
+    const [, year, month, day, hour, minute] = nativeMatch
+    const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))
+    if (Number.isFinite(date.getTime())) return date.toISOString()
+  }
   const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[\s,]+(\d{1,2}):(\d{2}))?$/u.exec(text)
   if (match) {
     const [, month, day, year, hour = '0', minute = '0'] = match
@@ -193,6 +221,12 @@ function storedDateTimeInput(value: string) {
     if (Number.isFinite(date.getTime())) return date.toISOString()
   }
   return text
+}
+
+function compactReceptionId(record: MilkReceptionRecord) {
+  if (record.isNew) return 'New'
+  const parts = record.receptionId.split('-').filter(Boolean)
+  return parts[parts.length - 1] || record.receptionId.slice(-6)
 }
 
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
@@ -216,6 +250,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [settingsBusy, setSettingsBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     void loadOptions()
@@ -290,6 +325,19 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       return truckOptions.filter((truck) => allowed.has(normalizeText(truck.value)))
     }
     return truckOptions
+  }
+
+  function detailSectionKey(receptionId: string, sectionType: DetailSectionType) {
+    return `${receptionId}:${sectionType}`
+  }
+
+  function isDetailSectionOpen(receptionId: string, sectionType: DetailSectionType) {
+    return detailSectionOpen[detailSectionKey(receptionId, sectionType)] ?? true
+  }
+
+  function updateDetailSectionOpen(receptionId: string, sectionType: DetailSectionType, open: boolean) {
+    const key = detailSectionKey(receptionId, sectionType)
+    setDetailSectionOpen((current) => current[key] === open ? current : { ...current, [key]: open })
   }
 
   async function loadLocalTrucks() {
@@ -650,32 +698,78 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const detail = normalizeQualityDetails(record.qualityDetails)[detailType]
     const className = detailType === 'ORIGINAL' ? 'original-detail' : 'custom-detail'
     return (
-      <section className={`quality-detail-card ${className}`}>
-        <div className="quality-detail-heading">
-          <div className="quality-detail-title">
-            <h3>{title}</h3>
-            {detailType === 'ORIGINAL' && <button type="button" className="quality-picture-button" title="Picture OCR will be added later">Picture</button>}
-          </div>
-          <span>{detailType}</span>
-        </div>
+      <details
+        className={`detail-section-card quality-detail-card ${className}`}
+        open={isDetailSectionOpen(record.receptionId, detailType)}
+        onToggle={(event) => updateDetailSectionOpen(record.receptionId, detailType, event.currentTarget.open)}
+      >
+        <summary className="detail-section-summary">{title}</summary>
+        {detailType === 'ORIGINAL' && <button type="button" className="quality-picture-button" title="Picture OCR will be added later">Picture</button>}
         <div className="quality-detail-grid">
-          <label><span>Temp. exterior (°C)</span><input inputMode="decimal" value={detail.exteriorTemperatureC ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { exteriorTemperatureC: event.target.value })} /></label>
-          <label><span>Data/ora acces</span><input inputMode="numeric" placeholder="MM/DD/YYYY HH:MM" value={displayDateTimeInput(detail.accessAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { accessAt: storedDateTimeInput(event.target.value) })} /></label>
-          <label><span>Data/ora recepție</span><input inputMode="numeric" placeholder="MM/DD/YYYY HH:MM" value={displayDateTimeInput(detail.receptionAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { receptionAt: storedDateTimeInput(event.target.value) })} /></label>
-          <label><span>Antib. PCC</span><select value={detail.antibioticPccResult} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { antibioticPccResult: event.target.value })}><option value="">Select</option>{options.antibioticResults.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span>pH</span><input inputMode="decimal" value={detail.ph ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { ph: event.target.value })} /></label>
-          <label><span>T produs (°C)</span><input inputMode="decimal" value={detail.productTemperatureC ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productTemperatureC: event.target.value })} /></label>
-          <label><span>Gr</span><input inputMode="decimal" value={detail.fatResult ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { fatResult: event.target.value })} /></label>
-          <label><span>% apă</span><input inputMode="decimal" value={detail.waterPercentage ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { waterPercentage: event.target.value })} /></label>
-          <label><span>Prot</span><input inputMode="decimal" value={detail.proteinResult ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { proteinResult: event.target.value })} /></label>
-          <label><span>Nr. tanc</span><select value={detail.tankNumber} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { tankNumber: event.target.value })}><option value="">Select tank</option>{options.tanks.map((tank) => <option key={tank} value={tank}>{tank}</option>)}</select></label>
-          <label><span>Rezultat conformitate</span><select value={detail.conformityResult} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { conformityResult: event.target.value })}><option value="">Select</option>{options.conformityResults.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span>Data/ora intrare producție</span><input inputMode="numeric" placeholder="MM/DD/YYYY HH:MM" value={displayDateTimeInput(detail.productionEntryAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productionEntryAt: storedDateTimeInput(event.target.value) })} /></label>
-          <label><span>Data/ora ieșire producție</span><input inputMode="numeric" placeholder="MM/DD/YYYY HH:MM" value={displayDateTimeInput(detail.productionExitAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productionExitAt: storedDateTimeInput(event.target.value) })} /></label>
-          <label><span>Responsabil</span><input value={detail.responsiblePerson} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { responsiblePerson: event.target.value })} /></label>
+          <label className="detail-field-compact"><span>Temp. exterior (°C)</span><input inputMode="decimal" value={detail.exteriorTemperatureC ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { exteriorTemperatureC: event.target.value })} /></label>
+          <label className="detail-field-datetime"><span>Data/ora acces</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.accessAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { accessAt: storedDateTimeInput(event.target.value) })} /></label>
+          <label className="detail-field-datetime"><span>Data/ora recepție</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.receptionAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { receptionAt: storedDateTimeInput(event.target.value) })} /></label>
+          <label className="detail-field-choice"><span>Antib. PCC</span><select value={detail.antibioticPccResult} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { antibioticPccResult: event.target.value })}><option value="">Select</option>{options.antibioticResults.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label className="detail-field-short"><span>pH</span><input inputMode="decimal" value={detail.ph ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { ph: event.target.value })} /></label>
+          <label className="detail-field-short"><span>T produs (°C)</span><input inputMode="decimal" value={detail.productTemperatureC ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productTemperatureC: event.target.value })} /></label>
+          <label className="detail-field-short"><span>Gr</span><input inputMode="decimal" value={detail.fatResult ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { fatResult: event.target.value })} /></label>
+          <label className="detail-field-short"><span>% apă</span><input inputMode="decimal" value={detail.waterPercentage ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { waterPercentage: event.target.value })} /></label>
+          <label className="detail-field-short"><span>Prot</span><input inputMode="decimal" value={detail.proteinResult ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { proteinResult: event.target.value })} /></label>
+          <label className="detail-field-tank"><span>Nr. tanc</span><select value={detail.tankNumber} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { tankNumber: event.target.value })}><option value="">Tank no</option>{options.tanks.map((tank) => <option key={tank} value={tank}>{tank}</option>)}</select></label>
+          <label className="detail-field-select"><span>Rezultat conformitate</span><select value={detail.conformityResult} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { conformityResult: event.target.value })}><option value="">Select</option>{options.conformityResults.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label className="detail-field-datetime"><span>Data/ora intrare producție</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.productionEntryAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productionEntryAt: storedDateTimeInput(event.target.value) })} /></label>
+          <label className="detail-field-datetime"><span>Data/ora ieșire producție</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.productionExitAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productionExitAt: storedDateTimeInput(event.target.value) })} /></label>
+          <label className="detail-field-select"><span>Responsabil</span><input value={detail.responsiblePerson} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { responsiblePerson: event.target.value })} /></label>
           <label className="wide"><span>Observații PCC1</span><textarea value={detail.pcc1Observations} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { pcc1Observations: event.target.value })} /></label>
         </div>
-      </section>
+      </details>
+    )
+  }
+
+  function renderReconciliationSection(record: MilkReceptionRecord) {
+    const reconciliation = record.reconciliation
+    if (!reconciliation) return null
+    return (
+      <details
+        className="detail-section-card reconciliation-detail-card"
+        open={isDetailSectionOpen(record.receptionId, 'RECONCILIATION')}
+        onToggle={(event) => updateDetailSectionOpen(record.receptionId, 'RECONCILIATION', event.currentTarget.open)}
+      >
+        <summary className="detail-section-summary">Daily aviz reconciliation</summary>
+        <div className="reconciliation-detail-grid">
+          <div>
+            <span>Aviz liters</span>
+            <strong>{formatNumber(reconciliation.avizLiters)}</strong>
+          </div>
+          <div>
+            <span>Difference</span>
+            <strong className={reconciliation.differenceLiters && Math.abs(reconciliation.differenceLiters) > 5 ? 'reconciliation-diff-warning' : ''}>{formatNumber(reconciliation.differenceLiters)}</strong>
+          </div>
+          <div>
+            <span>Diff %</span>
+            <strong className={reconciliation.differencePercent && Math.abs(reconciliation.differencePercent) > 0.25 ? 'reconciliation-diff-warning' : ''}>{reconciliation.differencePercent == null ? '-' : `${formatNumber(reconciliation.differencePercent, 2)}%`}</strong>
+          </div>
+          <div>
+            <span>Matched rows</span>
+            <strong>{reconciliation.matchedRowCount}</strong>
+          </div>
+          <div>
+            <span>Suggested routes</span>
+            <strong>{reconciliation.suggestedRoutes.length ? reconciliation.suggestedRoutes.join(', ') : '-'}</strong>
+          </div>
+        </div>
+        {reconciliation.matchedRows.length > 0 && (
+          <div className="reconciliation-match-list">
+            {reconciliation.matchedRows.slice(0, 8).map((row, index) => (
+              <span key={`${row.noticeNumber}-${row.rowNumber}-${index}`} title={row.sourceFile}>
+                <b>{row.noticeNumber || `Line ${row.rowNumber ?? '-'}`}</b>
+                <em>{row.center || '-'}</em>
+                <strong>{formatNumber(row.liters)}</strong>
+              </span>
+            ))}
+          </div>
+        )}
+      </details>
     )
   }
 
@@ -910,7 +1004,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
               <thead>
                 <tr>
                   <th></th>
-                  <th>Reception ID</th>
+                  <th>ID</th>
                   <th>Date</th>
                   <th>Truck</th>
                   <th>Driver</th>
@@ -921,6 +1015,9 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   <th>Empty kg</th>
                   <th>Net kg</th>
                   <th>Liters</th>
+                  <th>Aviz L</th>
+                  <th>Diff L</th>
+                  <th>Match</th>
                   <th>Comments</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -929,7 +1026,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
               <tbody>
                 {!visibleRecords.length && (
                   <tr>
-                    <td colSpan={15} className="reception-empty">No reception records found. Add a row to start.</td>
+                    <td colSpan={18} className="reception-empty">No reception records found. Add a row to start.</td>
                   </tr>
                 )}
                 {visibleRecords.map((record) => {
@@ -944,7 +1041,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                             {expanded ? '-' : '+'}
                           </button>
                         </td>
-                        <td className="reception-id">{record.isNew ? 'New' : record.receptionId}</td>
+                        <td className="reception-id" title={record.receptionId} aria-label={`Reception ID ${record.receptionId}`}>{compactReceptionId(record)}</td>
                         <td><input type="date" lang="en-US" value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
                         <td>
                           <select value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })}>
@@ -981,6 +1078,9 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         <td><input inputMode="decimal" value={record.emptyTruckWeightKg ?? ''} onChange={(event) => updateRecord(record.receptionId, { emptyTruckWeightKg: event.target.value })} /></td>
                         <td className="readonly-number">{formatNumber(computed.netQuantityKg)}</td>
                         <td className="readonly-number">{formatNumber(computed.calculatedLiters)}</td>
+                        <td className="readonly-number">{formatNumber(computed.reconciliation?.avizLiters ?? null)}</td>
+                        <td className={`readonly-number ${computed.reconciliation?.differenceLiters && Math.abs(computed.reconciliation.differenceLiters) > 5 ? 'reconciliation-diff-warning' : ''}`}>{formatNumber(computed.reconciliation?.differenceLiters ?? null)}</td>
+                        <td><span className={`reconciliation-status ${computed.reconciliation?.status || 'missing_info'}`}>{computed.reconciliation?.label || '-'}</span></td>
                         <td><input value={record.comments} onChange={(event) => updateRecord(record.receptionId, { comments: event.target.value })} placeholder="Comments" /></td>
                         <td><span className="reception-status">{computed.combinationDiagnosis}</span></td>
                         <td>
@@ -992,8 +1092,9 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                       </tr>
                       {expanded && (
                         <tr className="reception-detail-row">
-                          <td colSpan={15}>
+                          <td colSpan={18}>
                             <div className="reception-details">
+                              {renderReconciliationSection(computed)}
                               {renderQualitySection(record, 'ORIGINAL', 'Original values')}
                               {renderQualitySection(record, 'CUSTOM', 'Custom values')}
                             </div>

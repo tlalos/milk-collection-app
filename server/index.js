@@ -135,6 +135,153 @@ function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSou
   return restored
 }
 
+function normalizeReconciliationKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/gu, '')
+}
+
+function normalizeReconciliationDate(value) {
+  if (!value) return ''
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    const two = (part) => String(part).padStart(2, '0')
+    return `${value.getFullYear()}-${two(value.getMonth() + 1)}-${two(value.getDate())}`
+  }
+  const text = String(value || '').trim()
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/u.exec(text)
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  const displayMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/u.exec(text)
+  if (displayMatch) return `${displayMatch[3]}-${displayMatch[2].padStart(2, '0')}-${displayMatch[1].padStart(2, '0')}`
+  const timestamp = Date.parse(text)
+  if (!Number.isFinite(timestamp)) return ''
+  const date = new Date(timestamp)
+  const two = (part) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+}
+
+function finiteNumber(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function dailyAvizRowsFromJobs(jobs) {
+  return jobs
+    .filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
+    .flatMap((job) => {
+      const rows = Array.isArray(job.data?.rows) ? job.data.rows : []
+      return rows.map((row) => ({
+        jobId: job.id,
+        sourceFile: job.sourceFile,
+        date: normalizeReconciliationDate(job.data?.date),
+        truck: job.data?.vehicleRegistration || '',
+        truckKey: normalizeReconciliationKey(job.data?.vehicleRegistration),
+        route: job.data?.route || '',
+        routeKey: normalizeReconciliationKey(job.data?.route),
+        driverName: job.data?.driverName || '',
+        rowNumber: row.rowNumber ?? null,
+        collectionCenter: row.collectionCenter || '',
+        milkType: row.milkType || '',
+        noticeNumber: row.noticeNumber || '',
+        liters: finiteNumber(row.liters),
+      }))
+    })
+}
+
+function summarizeReceptionReconciliation(record, dailyRows) {
+  const receptionLiters = finiteNumber(record.calculatedLiters)
+  if (String(record.vehicleCategory || '').toUpperCase() === 'OTHER') {
+    return {
+      status: 'not_collection',
+      label: 'Other',
+      avizLiters: null,
+      differenceLiters: null,
+      differencePercent: null,
+      matchedRowCount: 0,
+      suggestedRoutes: [],
+      matchedRows: [],
+    }
+  }
+
+  const date = normalizeReconciliationDate(record.receptionDate)
+  const truckKey = normalizeReconciliationKey(record.vehicleRegistration)
+  const routeKey = normalizeReconciliationKey(record.routeId)
+  if (!date || !truckKey || !routeKey) {
+    return {
+      status: 'missing_info',
+      label: 'Missing info',
+      avizLiters: null,
+      differenceLiters: null,
+      differencePercent: null,
+      matchedRowCount: 0,
+      suggestedRoutes: [],
+      matchedRows: [],
+    }
+  }
+
+  const truckRows = dailyRows.filter((row) => row.truckKey === truckKey)
+  const truckDateRows = truckRows.filter((row) => row.date === date)
+  const matchedRows = truckDateRows.filter((row) => row.routeKey === routeKey)
+  const suggestedRoutes = [...new Set(truckDateRows.map((row) => row.route).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+
+  if (!truckRows.length) {
+    return {
+      status: 'no_truck',
+      label: 'No truck',
+      avizLiters: null,
+      differenceLiters: null,
+      differencePercent: null,
+      matchedRowCount: 0,
+      suggestedRoutes,
+      matchedRows: [],
+    }
+  }
+  if (!matchedRows.length) {
+    return {
+      status: truckDateRows.length ? 'no_route' : 'no_date',
+      label: truckDateRows.length ? 'No route' : 'No date',
+      avizLiters: null,
+      differenceLiters: null,
+      differencePercent: null,
+      matchedRowCount: 0,
+      suggestedRoutes,
+      matchedRows: [],
+    }
+  }
+
+  const avizLiters = matchedRows.reduce((total, row) => total + (row.liters ?? 0), 0)
+  const differenceLiters = receptionLiters == null ? null : receptionLiters - avizLiters
+  const differencePercent = differenceLiters == null || avizLiters === 0 ? null : (differenceLiters / avizLiters) * 100
+  const outsideTolerance = differenceLiters != null && Math.abs(differenceLiters) > 5
+  return {
+    status: outsideTolerance ? 'difference' : 'ok',
+    label: outsideTolerance ? 'Diff' : 'OK',
+    avizLiters,
+    differenceLiters,
+    differencePercent,
+    matchedRowCount: matchedRows.length,
+    suggestedRoutes,
+    matchedRows: matchedRows.map((row) => ({
+      rowNumber: row.rowNumber,
+      center: row.collectionCenter,
+      milkType: row.milkType,
+      liters: row.liters,
+      noticeNumber: row.noticeNumber,
+      sourceFile: row.sourceFile,
+    })),
+  }
+}
+
+async function attachMilkReceptionReconciliations(records) {
+  const dailyRows = dailyAvizRowsFromJobs(await listJobs())
+  return records.map((record) => ({
+    ...record,
+    reconciliation: summarizeReceptionReconciliation(record, dailyRows),
+  }))
+}
+
 app.use((request, response, next) => {
   const origin = request.headers.origin
   if (origin && localDevOrigins.has(origin)) {
@@ -369,7 +516,7 @@ app.get('/api/milk-receptions', async (request, response, next) => {
       date: request.query.date,
       search: request.query.search,
     })
-    response.json({ records })
+    response.json({ records: await attachMilkReceptionReconciliations(records) })
   } catch (error) {
     next(error)
   }
@@ -379,7 +526,8 @@ app.post('/api/milk-receptions', async (request, response, next) => {
   try {
     const user = await getSessionUser(sessionToken(request))
     const record = await createMilkReception(request.body, user?.username || '')
-    response.status(201).json({ record })
+    const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
+    response.status(201).json({ record: recordWithReconciliation })
   } catch (error) {
     next(error)
   }
@@ -390,7 +538,8 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
     const user = await getSessionUser(sessionToken(request))
     const record = await updateMilkReception(request.params.id, request.body, user?.username || '')
     if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
-    response.json({ record })
+    const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
+    response.json({ record: recordWithReconciliation })
   } catch (error) {
     next(error)
   }

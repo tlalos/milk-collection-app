@@ -212,6 +212,14 @@
   text-transform: uppercase;
 }
 
+.daily-aviz-table th:nth-child(1) { width: 58px; }
+.daily-aviz-table th:nth-child(3) { width: 88px; }
+.daily-aviz-table th:nth-child(5) { width: 70px; }
+.daily-aviz-table th:nth-child(8) { width: 88px; }
+.daily-aviz-table th:nth-child(9) { width: 74px; }
+.daily-aviz-table th:nth-child(11),
+.daily-aviz-table th:nth-child(12) { width: 78px; }
+
 .daily-aviz-table tbody tr:nth-child(even) {
   background: #f8fbf9;
 }

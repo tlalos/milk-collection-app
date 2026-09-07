@@ -1050,16 +1050,23 @@ function nullableText(value) {
 
 function isoDateValue(value) {
   const iso = isoDateString(value)
-  return iso ? new Date(`${iso}T00:00:00`) : null
+  if (!iso) return null
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
 }
 
 function isoDateString(value) {
   if (!value) return ''
-  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString().slice(0, 10)
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    const two = (part) => String(part).padStart(2, '0')
+    return `${value.getFullYear()}-${two(value.getMonth() + 1)}-${two(value.getDate())}`
+  }
   const text = String(value)
   if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) return text
   const date = new Date(text)
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : ''
+  if (!Number.isFinite(date.getTime())) return ''
+  const two = (part) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
 }
 
 function dateTimeValue(value) {
