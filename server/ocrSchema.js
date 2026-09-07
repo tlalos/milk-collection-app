@@ -35,6 +35,7 @@ export const MonthlySettlementRowSchema = z.object({
   rowNumber: z.number().int().positive(),
   producer: nullableText,
   centerName: nullableText,
+  milkType: nullableText,
   liters: nullableNumber,
   ugPercent: nullableNumber,
   gValue: nullableNumber,

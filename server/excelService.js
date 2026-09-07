@@ -209,7 +209,6 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
   const lastUsedIndex = findLastUsedTableRowIndex(tableBodyValues, columnNames, MONTHLY_SETTLEMENT_USED_ROW_COLUMNS)
   const startIndex = lastUsedIndex + 1
   const monthSerial = toExcelSerial(job.data.date)
-  const milkCode = monthlyMilkCode(job.data.milkType)
   const sentRowNumbers = previouslySentRowNumbers(job)
   const rowsToExport = job.data.rows.filter((row) => !sentRowNumbers.has(row.rowNumber))
   if (!rowsToExport.length) return { workbook: workbook.name, table: tableName, worksheet: '', rowCount: 0, range: '' }
@@ -225,6 +224,7 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
     if (row.liters === null || row.liters === undefined) throw new Error(`Cannot export monthly row ${row.rowNumber}: liters are missing.`)
     const centerName = job.headerCenterMatch?.selectedName || matchedRef?.centerName || job.data.headerCenterName || null
     const centerCode = job.headerCenterMatch?.selectedCode || matchedRef?.centerCode || null
+    const milkCode = monthlyMilkCode(row.milkType || job.data.milkType)
     const mapped = {
       Month: monthSerial,
       Producer_Name: producerName,
@@ -263,6 +263,7 @@ function monthlyMilkCode(value) {
   const milk = normalizeValue(value)
   if (milk.includes('BIVOL') || milk.includes('BUFF')) return 'MILK-BUFF'
   if (milk.includes('OAIE') || milk.includes('SHEEP')) return 'MILK-SHEEP'
+  if (milk.includes('CAPRA') || milk.includes('GOAT')) return 'MILK-GOAT'
   return 'MILK-COW'
 }
 

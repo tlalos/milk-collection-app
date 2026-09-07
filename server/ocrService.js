@@ -29,7 +29,10 @@ First identify the layout:
 
 Rules:
 - Preserve Romanian names as written. Return date as YYYY-MM-DD only when an exact calendar day is visible. When only a month is identifiable, return date as null and put its month number (1-12) in documentMonth. Otherwise documentMonth is null. The server will use the last day of that month in the current year.
-- Detect the milk type from the header (for example VACA). If no milk type is visible, return VACA.
+- Detect the document milk type from the header (for example VACA or BIVOL). If no document-level milk type is visible, return VACA.
+- Each output row must include milkType. If a row or section is labelled VACA, BIVOL, OAIE, or CAPRA, use that value on that row. If the row has no separate visible milk type, use the document milkType.
+- Some handwritten detailed journals have one producer name at the top and then dated quantity entries underneath, for example SITA - SERBAN followed by 03/07 242, 04/07 77, and TOTAL 2319. For those pages, return exactly one row for the producer using the final TOTAL as liters; do not return the individual dated entries as rows.
+- Some single-producer journals have separate milk type sections, for example a VACA total and a BIVOL total. For those pages, return one row per milk type total for that producer; do not return the individual daily date rows.
 - For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer name and the final far-right TOTAL L column into liters. Extract a true U.G. percentage into ugPercent. Extract the accumulated U.G. Total into gValue. Do not extract intermediate daily cells.
 - Some detailed forms have no handwritten U.G. percentage but do have U.G. Total. In that case leave ugPercent null and put the U.G. Total in gValue; never copy a large accumulated U.G. Total such as 1812 into ugPercent. The server will calculate U.G. % as U.G. Total divided by TOTAL L for that row.
 - Extract the document's explicitly printed or handwritten grand total liters into totalLiters for both layouts. Do not calculate totalLiters from the extracted rows as a substitute. Use null if the document total is not legible.
@@ -37,7 +40,7 @@ Rules:
 - The printed detailed layout can contain two right-side TOTAL / U.G. groups. Read them strictly from left to right as: daily cells, NEAR TOTAL L, NEAR U.G., FINAL TOTAL L, FINAL U.G. The liters field MUST come only from FINAL TOTAL L and gValue MUST come only from FINAL U.G.
 - Never substitute NEAR TOTAL L or NEAR U.G. when a FINAL value is unclear. In that situation return null for the unclear final value and add a warning. A missing value is preferable to a value from the wrong column.
 - For detailed documents, do not return an empty rows array when populated handwritten rows are visible. Return every visible producer row even when U.G. is blank or null.
-- Inspect the complete grid from top to bottom before responding. Return one output row for every visibly populated producer row; do not stop after the first few rows. Preserve the printed row number so missing rows can be detected during review.
+- Inspect the complete grid from top to bottom before responding. For standard multi-producer grids, return one output row for every visibly populated producer row; do not stop after the first few rows. Preserve the printed row number so missing rows can be detected during review. For single-producer dated quantity lists, this rule applies to producer totals only, not to each date line.
 - When both the original image and an OCR transcription are supplied, use the original image to recover rows or values omitted from the transcription. The transcription is supporting evidence, not a limit on what may be extracted.
 - Mandatory check before returning JSON: independently trace every populated detailed-journal row horizontally to the extreme right. Confirm that liters came from the second/final TOTAL L and gValue came from the extreme-right final U.G. Total. Then compare the returned row numbers with every visibly populated producer row and add any omitted rows. Do not claim completion until both checks have been performed.
 - For overview documents, extract each populated center name, liters, and G. value. Put G. in gValue.
@@ -63,6 +66,62 @@ function contentForFile(file) {
   }
 }
 
+function normalizeMonthlyMilkType(value, fallback = 'VACA') {
+  const raw = String(value || fallback || 'VACA').trim()
+  const normalized = raw.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase()
+  if (/\b(?:BIVOL|BUFFALO)\b/u.test(normalized)) return 'BIVOL'
+  if (/\b(?:OAIE|OITA|SHEEP)\b/u.test(normalized)) return 'OAIE'
+  if (/\b(?:CAPRA|GOAT)\b/u.test(normalized)) return 'CAPRA'
+  if (/\b(?:VACA|COW)\b/u.test(normalized)) return 'VACA'
+  return raw || 'VACA'
+}
+
+function normalizeMonthlyText(value) {
+  return String(value || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
+}
+
+function collapseSingleProducerDailyRows(rows, totalLiters) {
+  if (rows.length < 2) return { rows, collapsedCount: 0 }
+  const producerNames = rows.map((row) => String(row.producer || '').trim()).filter(Boolean)
+  if (!producerNames.length) return { rows, collapsedCount: 0 }
+  const producerKey = normalizeMonthlyText(producerNames[0])
+  if (!producerKey || producerNames.some((name) => normalizeMonthlyText(name) !== producerKey)) return { rows, collapsedCount: 0 }
+  if (!rows.every((row) => row.ugPercent === null && row.gValue === null)) return { rows, collapsedCount: 0 }
+  const rowsWithLiters = rows.filter((row) => typeof row.liters === 'number' && Number.isFinite(row.liters))
+  if (rowsWithLiters.length < 2) return { rows, collapsedCount: 0 }
+
+  const groups = new Map()
+  for (const row of rows) {
+    const milkType = normalizeMonthlyMilkType(row.milkType)
+    const existing = groups.get(milkType) || {
+      ...row,
+      rowNumber: groups.size + 1,
+      producer: producerNames[0],
+      centerName: row.centerName ?? null,
+      milkType,
+      liters: 0,
+      ugPercent: null,
+      gValue: null,
+      confidence: 1,
+      uncertainFields: [],
+    }
+    existing.liters += typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0
+    existing.confidence = Math.min(existing.confidence, typeof row.confidence === 'number' ? row.confidence : 0.5)
+    existing.uncertainFields = [...new Set([...(existing.uncertainFields || []), ...(row.uncertainFields || [])].filter((field) => !['rowNumber', 'liters'].includes(field)))]
+    groups.set(milkType, existing)
+  }
+
+  const collapsedRows = [...groups.values()].map((row, index) => ({
+    ...row,
+    rowNumber: index + 1,
+    liters: Number(row.liters.toFixed(3)),
+  }))
+  if (collapsedRows.length === 1 && typeof totalLiters === 'number' && Number.isFinite(totalLiters)) {
+    collapsedRows[0].liters = totalLiters
+  }
+  return { rows: collapsedRows, collapsedCount: rows.length }
+}
+
 export function normalizeMonthlyData(data) {
   if (data.documentType !== 'journal_monthly_settlement') return data
   const currentYear = new Date().getFullYear()
@@ -81,13 +140,17 @@ export function normalizeMonthlyData(data) {
     if (data.layoutType !== 'detailed') return true
     const producer = String(row.producer || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
     if (!producer) return true
+    const hasRowValues = row.liters !== null || row.gValue !== null || row.ugPercent !== null
+    if (hasRowValues) return true
     const matchesHeader = Boolean(normalizedHeaderCenter && (producer === normalizedHeaderCenter || producer.includes(normalizedHeaderCenter) || normalizedHeaderCenter.includes(producer)))
     const looksLikeHeader = /^(?:PCL|JUD|PCL JUD|CENTRU|CENTER|LUNA|TIP LAPTE)\b/iu.test(producer)
     const looksLikeYear = typeof row.liters === 'number' && row.liters >= 1900 && row.liters <= 2100
     return !(matchesHeader || looksLikeHeader || (looksLikeYear && row.gValue === null && row.ugPercent === null))
   })
-  const rows = sourceRows.map((row) => {
-    if (data.layoutType !== 'detailed') return row
+  const documentMilkType = normalizeMonthlyMilkType(data.milkType)
+  let rows = sourceRows.map((row) => {
+    const milkType = normalizeMonthlyMilkType(row.milkType, documentMilkType)
+    if (data.layoutType !== 'detailed') return { ...row, milkType }
     let ugPercent = row.ugPercent
     let ugTotal = row.gValue
     if (ugPercent !== null && ugPercent > 20 && ugTotal === null) {
@@ -98,24 +161,32 @@ export function normalizeMonthlyData(data) {
       ugPercent = Number((ugTotal / row.liters).toFixed(3))
       calculatedUgRows += 1
     }
-    return { ...row, ugPercent, gValue: ugTotal }
+    return { ...row, milkType, ugPercent, gValue: ugTotal }
   })
+  const singleProducerCollapse = data.layoutType === 'detailed'
+    ? collapseSingleProducerDailyRows(rows, data.totalLiters)
+    : { rows, collapsedCount: 0 }
+  rows = singleProducerCollapse.rows
   const calculationWarning = calculatedUgRows
     ? [`U.G. % was calculated as U.G. Total divided by TOTAL L for ${calculatedUgRows} row${calculatedUgRows === 1 ? '' : 's'}.`]
+    : []
+  const collapseWarning = singleProducerCollapse.collapsedCount
+    ? [`Single-producer dated quantity entries were collapsed into ${rows.length} milk type total row${rows.length === 1 ? '' : 's'}.`]
     : []
   return {
     ...data,
     headerCenterName,
     date: data.date || derivedMonthDate || new Date().toISOString().slice(0, 10),
     documentMonth: derivedMonthDate ? identifiedMonth : null,
-    milkType: data.milkType?.trim() || 'VACA',
+    milkType: documentMilkType,
     totalLiters: data.totalLiters ?? null,
     rows: rows.filter((row) => row.manual || (data.layoutType === 'detailed'
-      ? Boolean(row.producer?.trim() || row.liters !== null || row.ugPercent !== null)
+      ? Boolean(row.producer?.trim() || row.liters !== null || row.gValue !== null || row.ugPercent !== null)
       : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null))),
     warnings: [
       ...data.warnings.filter((warning) => !warning.startsWith('U.G. % was calculated as U.G. Total divided by TOTAL L')),
       ...calculationWarning,
+      ...collapseWarning,
       ...(derivedMonthDate ? [`Document month was identified; date was set to the last day of that month in the current year (${derivedMonthDate}).`] : []),
       ...(missingDate ? ['Document date was not found; the current server date was applied.'] : []),
     ],
@@ -196,7 +267,7 @@ async function fetchProviderJson(url, options, providerLabel) {
 
 function jsonPrompt(documentCategory) {
   if (documentCategory === 'journal_monthly_settlement') {
-    return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"documentMonth":number|null,"milkType":string,"headerCenterName":string|null,"totalLiters":number|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
+    return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"documentMonth":number|null,"milkType":string,"headerCenterName":string|null,"totalLiters":number|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"milkType":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
   }
   return `${EXTRACTION_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"daily_driver_statement","companyName":string|null,"date":string|null,"driverName":string|null,"vehicleRegistration":string|null,"route":string|null,"rows":[{"rowNumber":number,"collectionCenter":string|null,"milkType":"MILK-COW"|"MILK-SHEEP"|"MILK-GOAT"|"MILK-BUFF","liters":number|null,"fatPercent":number|null,"density":number|null,"water":number|null,"temperature":number|null,"noticeNumber":string|null,"confidence":number,"uncertainFields":string[]}],"totalLiters":number|null,"warnings":string[],"rawTranscription":string}`
 }
@@ -214,6 +285,7 @@ function prepareMonthlyRawData(rawData) {
     rowNumber: Number.isInteger(Number(row.rowNumber)) && Number(row.rowNumber) > 0 ? Number(row.rowNumber) : index + 1,
     producer: row.producer ?? (rawData.layoutType === 'detailed' ? row.centerName ?? null : null),
     centerName: row.centerName ?? (rawData.layoutType === 'overview' ? row.producer ?? null : null),
+    milkType: row.milkType ?? rawData.milkType ?? 'VACA',
     liters: row.liters ?? row.totalLiters ?? null,
     ugPercent: row.ugPercent ?? null,
     gValue: row.gValue ?? row.ugTotal ?? row.g ?? null,

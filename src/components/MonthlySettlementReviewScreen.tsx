@@ -10,6 +10,7 @@ interface MonthlyRow {
   rowNumber: number;
   producer: string | null;
   centerName: string | null;
+  milkType: string | null;
   liters: number | null;
   ugPercent: number | null;
   gValue: number | null;
@@ -84,10 +85,38 @@ interface MonthlyJob {
   };
 }
 
+const monthlyMilkTypeOptions = ["VACA", "BIVOL", "OAIE", "CAPRA"];
+
+function monthlyMilkTypeValue(row: MonthlyRow, fallback: string) {
+  return row.milkType?.trim() || fallback || "VACA";
+}
+
+function hydrateMonthlyData(data: MonthlyData) {
+  const milkType = data.milkType?.trim() || "VACA";
+  return {
+    ...data,
+    milkType,
+    rows: data.rows.map((row) => ({
+      ...row,
+      milkType: monthlyMilkTypeValue(row, milkType),
+    })),
+  };
+}
+
 function displayDate(value: string | null) {
   if (!value) return "";
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function displayMonthFilter(value: string, ro: boolean) {
+  const match = value.match(/^(\d{4})-(\d{2})$/u);
+  if (!match) return "";
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  const monthName = new Intl.DateTimeFormat(ro ? "ro-RO" : "en-GB", {
+    month: "long",
+  }).format(date);
+  return `${monthName} ${match[1]}`;
 }
 
 function displayMonth(job: MonthlyJob, ro: boolean) {
@@ -335,7 +364,7 @@ export function MonthlySettlementReviewScreen() {
     };
     if (!response.ok || !payload.job?.data)
       return setNotice(payload.error || "Could not load OCR data.");
-    const data = structuredClone(payload.job.data);
+    const data = hydrateMonthlyData(structuredClone(payload.job.data));
     if (!data.date) data.date = todayIso();
     setSelected(payload.job);
     setDraft(data);
@@ -463,8 +492,9 @@ export function MonthlySettlementReviewScreen() {
       if (selected?.id === payload.job.id) {
         setSelected(payload.job);
         if (payload.job.data) {
-          setDraft(structuredClone(payload.job.data));
-          lastSavedRef.current = JSON.stringify({ data: payload.job.data });
+          const data = hydrateMonthlyData(structuredClone(payload.job.data));
+          setDraft(data);
+          lastSavedRef.current = JSON.stringify({ data });
         }
       }
       setJobs((current) =>
@@ -555,6 +585,7 @@ export function MonthlySettlementReviewScreen() {
         rowNumber: nextRowNumber,
         producer: current.layoutType === "detailed" ? "" : null,
         centerName: current.layoutType === "overview" ? "" : null,
+        milkType: current.milkType || "VACA",
         liters: null,
         ugPercent: null,
         gValue: null,
@@ -562,7 +593,7 @@ export function MonthlySettlementReviewScreen() {
         manual: true,
         uncertainFields:
           current.layoutType === "detailed"
-            ? ["producer", "liters", "ugPercent"]
+            ? ["producer", "liters"]
             : ["centerName", "liters", "gValue"],
       };
       return { ...current, rows: [...current.rows, row] };
@@ -802,7 +833,7 @@ export function MonthlySettlementReviewScreen() {
       if (!response.ok || !payload.job?.data)
         throw new Error(payload.error || "Could not redo Excel matching.");
       setSelected(payload.job);
-      const data = structuredClone(payload.job.data);
+      const data = hydrateMonthlyData(structuredClone(payload.job.data));
       setDraft(data);
       lastSavedRef.current = JSON.stringify({ data });
       setAutoSaveStatus("saved");
@@ -1107,7 +1138,11 @@ export function MonthlySettlementReviewScreen() {
                 value={centerSearch}
                 onChange={(event) => setCenterSearch(event.target.value)}
                 placeholder={
-                  isRo
+                  monthFilter
+                    ? isRo
+                      ? `Lună: ${displayMonthFilter(monthFilter, isRo)}`
+                      : `Month: ${displayMonthFilter(monthFilter, isRo)}`
+                    : isRo
                     ? "Căutați numele centrului..."
                     : "Search collection center..."
                 }
@@ -1660,7 +1695,7 @@ export function MonthlySettlementReviewScreen() {
                               <>
                                 <th>{isRo ? "Producător" : "Producer"}</th>
                                 <th>{isRo ? "Ultimul total" : "Last total"}</th>
-                                <th>U.G. %</th>
+                                <th>{isRo ? "Tip lapte" : "Milk type"}</th>
                               </>
                             ) : (
                               <>
@@ -1706,34 +1741,23 @@ export function MonthlySettlementReviewScreen() {
                                       <span className="monthly-cell-alert" title={isRo ? "Cantitatea lipsește" : "Quantity is missing"} aria-label={isRo ? "Cantitatea lipsește" : "Quantity is missing"}>!</span>
                                     )}
                                   </td>
-                                  <td className={!hasNumber(row.ugPercent) ? "monthly-cell-warning" : ""}>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      value={row.ugPercent ?? ""}
+                                  <td>
+                                    <select
+                                      value={monthlyMilkTypeValue(row, draft.milkType)}
                                       onChange={(e) =>
                                         updateRow(
                                           index,
-                                          "ugPercent",
+                                          "milkType",
                                           e.target.value,
                                         )
                                       }
-                                    />
-                                    {!hasNumber(row.ugPercent) && (
-                                      <span className="monthly-cell-alert" title={isRo ? "U.G. lipsește" : "U.G. is missing"} aria-label={isRo ? "U.G. lipsește" : "U.G. is missing"}>!</span>
-                                    )}
-                                    {row.gValue !== null &&
-                                      row.liters !== null &&
-                                      row.liters > 0 &&
-                                      row.ugPercent !== null &&
-                                      Math.abs(
-                                        row.ugPercent - row.gValue / row.liters,
-                                      ) < 0.001 && (
-                                        <small className="monthly-calculated-value">
-                                          {isRo ? "Calculat" : "Calculated"}:{" "}
-                                          {row.gValue} ÷ {row.liters}
-                                        </small>
-                                      )}
+                                    >
+                                      {monthlyMilkTypeOptions.map((milkType) => (
+                                        <option key={milkType} value={milkType}>
+                                          {milkType}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </td>
                                 </>
                               ) : (

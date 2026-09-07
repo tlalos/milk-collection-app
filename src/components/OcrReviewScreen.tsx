@@ -1317,7 +1317,7 @@ export function OcrReviewScreen() {
           </div>
           <label className="review-job-search">
             <span aria-hidden="true">⌕</span>
-            <input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…'} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
+            <input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={jobDateFilter ? (isRo ? `Dată: ${displayDate(jobDateFilter)}` : `Date: ${displayDate(jobDateFilter)}`) : (isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…')} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
             <input className="review-job-date-picker" type="date" value={jobDateFilter} onChange={(event) => setJobDateFilter(event.target.value)} aria-label={isRo ? 'Filtrați după dată' : 'Filter by date'} title={isRo ? 'Alegeți data documentului' : 'Choose document date'} />
             {(jobSearch || jobDateFilter) && <button type="button" onClick={() => { setJobSearch(''); setJobDateFilter('') }} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
           </label>

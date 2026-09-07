@@ -699,7 +699,14 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     const isMonthlySettlement = current.documentCategory === 'journal_monthly_settlement'
     const schema = isMonthlySettlement ? MonthlySettlementEditableDocumentSchema : MilkCollectionDocumentSchema
     const submittedData = isMonthlySettlement
-      ? { ...request.body.data, documentMonth: request.body.data?.documentMonth ?? null, totalLiters: request.body.data?.totalLiters ?? null }
+      ? {
+        ...request.body.data,
+        documentMonth: request.body.data?.documentMonth ?? null,
+        totalLiters: request.body.data?.totalLiters ?? null,
+        rows: Array.isArray(request.body.data?.rows)
+          ? request.body.data.rows.map((row) => ({ ...row, milkType: row.milkType || request.body.data?.milkType || 'VACA' }))
+          : [],
+      }
       : {
         ...request.body.data,
         rows: Array.isArray(request.body.data?.rows)
