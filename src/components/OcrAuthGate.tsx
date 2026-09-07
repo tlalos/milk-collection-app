@@ -61,6 +61,9 @@ export function OcrAuthGate({ children }: { children: ReactNode }) {
           {error && <div className="ocr-auth-error" role="alert">{isRo ? 'Utilizator sau parolă incorectă.' : error}</div>}
           <button type="submit" disabled={submitting}>{submitting ? (isRo ? 'Se autentifică…' : 'Signing in…') : (isRo ? 'Autentificare' : 'Sign in')}</button>
         </form>
+        <button className="ocr-auth-menu-link" type="button" onClick={() => { window.location.href = appPath('/home') }}>
+          {isRo ? 'Deschide meniul principal' : 'Open main menu'}
+        </button>
       </section>
     </main>
   )

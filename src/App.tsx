@@ -237,7 +237,7 @@ export function App() {
       )}
 
       {screen === 'ocrDocuments' && (
-        <OcrAuthGate><OcrDocumentScreen onBack={() => { window.location.href = appPath('/') }} /></OcrAuthGate>
+        <OcrAuthGate><OcrDocumentScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrArchiveHistory' && (

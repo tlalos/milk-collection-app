@@ -156,6 +156,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             <path d="M5.5 10.5V20h13v-9.5" />
             <path d="M9.5 20v-5h5v5" />
           </svg>
+          <span>{isRo ? 'Acasă' : 'Home'}</span>
         </button>
         <div>
           <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>

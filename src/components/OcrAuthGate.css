@@ -12,6 +12,8 @@
 .ocr-auth-card label { color: #52645a; font-size: .77rem; font-weight: 750; }
 .ocr-auth-card input { min-height: 45px; box-sizing: border-box; padding: 9px 11px; border: 1px solid #cbd9d0; border-radius: 9px; font: inherit; }
 .ocr-auth-card form > button { min-height: 46px; border: 0; border-radius: 9px; background: #17613a; color: white; font-size: .92rem; font-weight: 800; }
+.ocr-auth-menu-link { width: 100%; min-height: 42px; margin-top: 12px; border: 1px solid #b8d5c6; border-radius: 9px; background: #f7fbf8; color: #17613a; font-size: .86rem; font-weight: 850; }
+.ocr-auth-menu-link:active { background: #e8f5ee; transform: scale(.99); }
 .ocr-auth-card button:disabled { opacity: .6; }
 .ocr-auth-error { padding: 9px 10px; border-radius: 8px; background: #fff0ef; color: #9d342d; font-size: .76rem; }
 .ocr-auth-content { min-height: 100vh; }
