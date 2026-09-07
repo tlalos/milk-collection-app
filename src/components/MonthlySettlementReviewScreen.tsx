@@ -243,6 +243,8 @@ export function MonthlySettlementReviewScreen() {
     Record<string, ProducerSuggestion[]>
   >({});
   const [zoom, setZoom] = useState(100);
+  const [showRowNotes, setShowRowNotes] = useState(false);
+  const [showVerificationItems, setShowVerificationItems] = useState(false);
   const lastSavedRef = useRef("");
 
   const rowLitersTotal =
@@ -646,7 +648,7 @@ export function MonthlySettlementReviewScreen() {
             </option>
           ))}
         </datalist>
-        {match?.status === "auto_replaced" && value === match.selectedName && (
+        {showRowNotes && match?.status === "auto_replaced" && value === match.selectedName && (
           <small className="monthly-system-match">
             {match.matchSource === "header_center_history"
               ? isRo
@@ -657,7 +659,7 @@ export function MonthlySettlementReviewScreen() {
                 : "Replaced from Ref_Producers"}
           </small>
         )}
-        {value.length >= 2 && suggestions[key] && (
+        {showRowNotes && value.length >= 2 && suggestions[key] && (
           <small className="monthly-result-count">
             {options.length}{" "}
             {match?.matchSource === "header_center_history"
@@ -1583,15 +1585,27 @@ export function MonthlySettlementReviewScreen() {
                       </b>
                     </div>
                     {draft.warnings.length > 0 && (
-                      <div className="monthly-warnings">
-                        <strong>
-                          {isRo ? "De verificat" : "Items to verify"}
-                        </strong>
-                        <ul>
-                          {draft.warnings.map((warning, index) => (
-                            <li key={index}>{warning}</li>
-                          ))}
-                        </ul>
+                      <div className={`monthly-warnings ${showVerificationItems ? "expanded" : "collapsed"}`}>
+                        <button
+                          type="button"
+                          onClick={() => setShowVerificationItems((current) => !current)}
+                          aria-expanded={showVerificationItems}
+                        >
+                          <strong>{isRo ? "De verificat" : "Items to verify"}</strong>
+                          <span>
+                            {draft.warnings.length} {draft.warnings.length === 1
+                              ? isRo ? "element" : "item"
+                              : isRo ? "elemente" : "items"}
+                          </span>
+                          <b>{showVerificationItems ? "-" : "+"}</b>
+                        </button>
+                        {showVerificationItems && (
+                          <ul>
+                            {draft.warnings.map((warning, index) => (
+                              <li key={index}>{warning}</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )}
                     {selected.producerMatchError && (
@@ -1600,6 +1614,21 @@ export function MonthlySettlementReviewScreen() {
                       </div>
                     )}
                     <div className="monthly-table-toolbar">
+                      <button
+                        className="monthly-notes-toggle"
+                        type="button"
+                        onClick={() => setShowRowNotes((current) => !current)}
+                        aria-pressed={showRowNotes}
+                      >
+                        <span>{showRowNotes ? "-" : "+"}</span>
+                        {showRowNotes
+                          ? isRo
+                            ? "Ascundeți notele"
+                            : "Hide notes"
+                          : isRo
+                            ? "Arătați notele"
+                            : "Show notes"}
+                      </button>
                       <button type="button" onClick={addManualRow} disabled={busy}>
                         <span>+</span>
                         {isRo ? "Adăugați rând" : "Add row"}

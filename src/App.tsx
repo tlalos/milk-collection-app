@@ -54,6 +54,7 @@ type Screen =
   | 'ocrComparison'
 
 function initialScreen(): Screen {
+  if (routePathname() === '/home') return 'home'
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
   if (routePathname() === '/ocr/review') return 'ocrReview'
@@ -61,6 +62,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
+  if (routePathname() === '/milk-reception') return 'milkReception'
   return 'startup'
 }
 
@@ -193,6 +195,7 @@ export function App() {
         <MainScreen
           onSignIn={() => setScreen('login')}
           onSettings={() => openSettings('main')}
+          onOpenMenu={() => { window.location.href = appPath('/home') }}
         />
       )}
 
@@ -226,11 +229,11 @@ export function App() {
       )}
 
       {screen === 'milkReception' && (
-        <MilkReceptionScreen onBack={() => setScreen('home')} />
+        <MilkReceptionScreen onBack={() => { window.location.href = appPath('/home') }} />
       )}
 
       {screen === 'dailyAviz' && (
-        <OcrAuthGate><DailyAvizScreen onBack={() => { window.location.href = appPath('/') }} /></OcrAuthGate>
+        <OcrAuthGate><DailyAvizScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
@@ -295,8 +298,8 @@ export function App() {
                   <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                 </svg>
               </button>
-              <button className="logout-btn" onClick={handleLogout} type="button">
-                Sign out
+              <button className="logout-btn" onClick={user ? handleLogout : () => setScreen('login')} type="button">
+                {user ? 'Sign out' : 'Sign in'}
               </button>
             </div>
           </header>
@@ -339,7 +342,7 @@ export function App() {
               <button
                 className="home-tile"
                 type="button"
-                onClick={() => setScreen('dataSync')}
+                onClick={() => user ? setScreen('dataSync') : setScreen('login')}
               >
                 <div className="home-tile-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -356,7 +359,7 @@ export function App() {
               <button
                 className="home-tile"
                 type="button"
-                onClick={() => setScreen('journal')}
+                onClick={() => user ? setScreen('journal') : setScreen('login')}
               >
                 <div className="home-tile-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -428,7 +431,7 @@ export function App() {
               <button
                 className="home-tile"
                 type="button"
-                onClick={() => setScreen('milkReception')}
+                onClick={() => { window.location.href = appPath('/milk-reception') }}
               >
                 <div className="home-tile-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"

@@ -8,11 +8,12 @@ import './MainScreen.css'
 interface MainScreenProps {
   onSignIn: () => void
   onSettings: () => void
+  onOpenMenu: () => void
 }
 
 type SyncStatus = 'idle' | 'syncing' | 'done' | 'error'
 
-export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
+export function MainScreen({ onSignIn, onSettings, onOpenMenu }: MainScreenProps) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [syncError, setSyncError] = useState('')
   const [userCount, setUserCount] = useState<number | null>(null)
@@ -180,6 +181,10 @@ export function MainScreen({ onSignIn, onSettings }: MainScreenProps) {
           title={hasSyncedUsers ? undefined : 'Sync users first'}
         >
           Sign in
+        </button>
+
+        <button className="main-menu-btn" type="button" onClick={onOpenMenu}>
+          Open main menu
         </button>
 
         <p className="main-version">MilkCollect v0.1.0</p>

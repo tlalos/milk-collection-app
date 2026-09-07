@@ -12,7 +12,20 @@
   min-width: 0;
 }
 
+.daily-aviz-home-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.daily-aviz-home-button svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
 .daily-aviz-refresh {
+  margin-right: calc(var(--ocr-header-control-width, 116px) + 12px);
   min-height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 8px;
@@ -263,5 +276,11 @@
   .daily-aviz-table-title {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .daily-aviz-refresh {
+    margin-right: 0;
   }
 }

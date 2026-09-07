@@ -578,19 +578,52 @@
 }
 .monthly-warnings {
   margin: 0 12px 8px;
-  padding: 8px 10px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid #ead99f;
   border-radius: 8px;
   background: #fff9e7;
   color: #6d571b;
   font-size: 0.67rem;
 }
+.monthly-warnings > button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  border: 0;
+  padding: 7px 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.monthly-warnings > button span {
+  color: #8a7332;
+  font-weight: 800;
+}
+.monthly-warnings > button b {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 6px;
+  background: #f2e2a8;
+  color: #6d571b;
+  font-size: 0.82rem;
+  line-height: 1;
+}
 .monthly-warnings ul {
-  margin: 4px 0 0;
-  padding-left: 17px;
+  margin: 0;
+  padding: 0 10px 8px 27px;
 }
 .monthly-table-toolbar {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
   padding: 0 12px 8px;
 }
@@ -626,6 +659,20 @@
 .monthly-table-toolbar button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.monthly-table-toolbar button.monthly-notes-toggle {
+  border-color: #c6d8cf;
+  background: #fff;
+  color: #31503d;
+}
+.monthly-table-toolbar button.monthly-notes-toggle:hover:not(:disabled) {
+  border-color: #91b7a0;
+  background: #f4faf6;
+  color: #17613a;
+}
+.monthly-table-toolbar button.monthly-notes-toggle span {
+  background: #dbece3;
+  color: #17613a;
 }
 .monthly-table-toolbar button span {
   display: grid;
