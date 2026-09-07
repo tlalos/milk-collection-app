@@ -17,6 +17,16 @@
 
 The frontend is already compiled in `dist`; no production build is required on the server.
 
+## Build the IIS package
+
+Use the package script when preparing the IIS/server ZIP:
+
+```powershell
+npm run package:iis
+```
+
+This builds the frontend with `VITE_BASE_PATH=/milk/` before zipping the release. That is important because the IIS deployment runs under `/milk`; a build made for `/` will load `/assets/...` instead of `/milk/assets/...` and can show a blank page.
+
 ## Persistent data
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.
