@@ -163,6 +163,10 @@ export async function deleteJob(id) {
 export function toPublicJob(job, includeData = true) {
   const { storedFilename: _storedFilename, ocrOriginalData: _ocrOriginalData, ...publicJob } = job
   if (!includeData) delete publicJob.data
+  const rowCount = Array.isArray(job.data?.rows) ? job.data.rows.length : null
+  const rowLitersTotal = Array.isArray(job.data?.rows)
+    ? job.data.rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0)
+    : null
   const uncertainFieldCount = job.data?.rows?.reduce(
     (total, row) => total + (row.uncertainFields?.length ?? 0),
     0,
@@ -178,6 +182,10 @@ export function toPublicJob(job, includeData = true) {
       centerName: job.data?.headerCenterName ?? null,
       driverName: job.data?.driverName ?? null,
       vehicleRegistration: job.data?.vehicleRegistration ?? null,
+      rowCount,
+      totalLiters: typeof job.data?.totalLiters === 'number' && Number.isFinite(job.data.totalLiters)
+        ? job.data.totalLiters
+        : rowLitersTotal,
     },
     attention: {
       warningCount,

@@ -6,6 +6,7 @@ import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
+import { DailyAvizScreen } from './components/DailyAvizScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
@@ -42,6 +43,7 @@ type Screen =
   | 'journal'
   | 'transport'
   | 'milkReception'
+  | 'dailyAviz'
   | 'suppliers'
   | 'entry'
   | 'ocrDocuments'
@@ -58,6 +60,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
+  if (routePathname() === '/daily-aviz') return 'dailyAviz'
   return 'startup'
 }
 
@@ -224,6 +227,10 @@ export function App() {
 
       {screen === 'milkReception' && (
         <MilkReceptionScreen onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'dailyAviz' && (
+        <OcrAuthGate><DailyAvizScreen onBack={() => { window.location.href = appPath('/') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
@@ -435,6 +442,25 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Milk Reception</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/daily-aviz') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h16" />
+                    <path d="M4 10h16" />
+                    <path d="M7 15h10" />
+                    <path d="M7 19h6" />
+                    <path d="M4 3v18" />
+                    <path d="M20 3v18" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Daily Aviz</span>
               </button>
 
             </div>

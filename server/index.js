@@ -497,6 +497,57 @@ app.get('/api/ocr/jobs', async (request, response, next) => {
   }
 })
 
+app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
+  try {
+    const jobs = (await listJobs()).filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
+    const rows = jobs.flatMap((job) => {
+      const publicJob = toPublicJob(job, false)
+      const dataRows = Array.isArray(job.data?.rows) ? job.data.rows : []
+      return dataRows.map((row) => ({
+        id: `${job.id}-${row.rowNumber}`,
+        jobId: job.id,
+        sourceFile: job.sourceFile,
+        fileUrl: publicJob.fileUrl,
+        documentDate: job.data?.date ?? null,
+        route: job.data?.route ?? null,
+        driverName: job.data?.driverName ?? null,
+        vehicleRegistration: job.data?.vehicleRegistration ?? null,
+        jobStatus: job.status,
+        reviewStatus: job.reviewStatus,
+        excelStatus: job.excelExport?.status ?? null,
+        erpStatus: job.erpExport?.status ?? null,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt ?? null,
+        rowNumber: row.rowNumber ?? null,
+        collectionCenter: row.collectionCenter ?? null,
+        milkType: row.milkType ?? null,
+        liters: row.liters ?? null,
+        fatPercent: row.fatPercent ?? null,
+        density: row.density ?? null,
+        water: row.water ?? null,
+        temperature: row.temperature ?? null,
+        noticeNumber: row.noticeNumber ?? null,
+        confidence: row.confidence ?? null,
+        uncertainFields: Array.isArray(row.uncertainFields) ? row.uncertainFields : [],
+      }))
+    })
+    const totalLiters = rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0)
+    response.json({
+      rows,
+      summary: {
+        documentCount: jobs.length,
+        rowCount: rows.length,
+        pendingDocumentCount: jobs.filter((job) => job.reviewStatus === 'pending').length,
+        reviewedDocumentCount: jobs.filter((job) => job.reviewStatus === 'reviewed').length,
+        failedDocumentCount: jobs.filter((job) => job.status === 'failed').length,
+        totalLiters,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/ocr/drivers', async (request, response, next) => {
   try {
     const drivers = await listReferenceDrivers(request.query.q)
