@@ -13,14 +13,37 @@
 .monthly-result-count { display: block; margin-top: 2px; color: #6c7b72 !important; font-size: .53rem !important; }
 .monthly-match-error { margin: 0 12px 8px; padding: 7px 9px; border-radius: 7px; background: #fce9e7; color: #9d342d; font-size: .65rem; }
 .monthly-reference-cell { vertical-align: top; }
-.monthly-reference-cell.monthly-reference-unmatched input {
+.monthly-table td.monthly-cell-warning {
+  position: relative;
+  background: #fffaf0;
+}
+.monthly-table td.monthly-cell-warning input,
+.monthly-reference-cell.monthly-cell-warning input {
   border-color: #e2b05b;
   background: #fff6df;
   box-shadow: inset 3px 0 0 #e2a238;
+  padding-right: 24px;
 }
-.monthly-reference-cell.monthly-reference-unmatched input:focus {
+.monthly-table td.monthly-cell-warning input:focus,
+.monthly-reference-cell.monthly-cell-warning input:focus {
   border-color: #c98518;
   outline-color: rgba(201, 133, 24, 0.2);
+}
+.monthly-cell-alert {
+  position: absolute;
+  top: 11px;
+  right: 9px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e3a038;
+  color: #fff;
+  font-size: .66rem;
+  font-weight: 950;
+  line-height: 1;
+  pointer-events: none;
 }
 .monthly-reference-warning {
   display: block;

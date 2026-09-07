@@ -268,6 +268,8 @@ export function MonthlySettlementReviewScreen() {
     new Intl.NumberFormat(language === "ro" ? "ro-RO" : "en-GB", {
       maximumFractionDigits: 2,
     }).format(value);
+  const hasNumber = (value: number | null) =>
+    typeof value === "number" && Number.isFinite(value);
   const normalizedCenterSearch = centerSearch.trim().toLocaleLowerCase();
   const filteredJobs = jobs.filter((job) => {
     const matchesSearch = !normalizedCenterSearch || [
@@ -628,9 +630,11 @@ export function MonthlySettlementReviewScreen() {
       (match?.status === "unmatched" ||
         match?.status === "suggested" ||
         searchedCurrentValue);
+    const missingReferenceName = value.trim().length === 0;
+    const shouldWarn = missingReferenceName || noReferenceMatch;
     return (
       <td
-        className={`monthly-reference-cell ${noReferenceMatch ? "monthly-reference-unmatched" : ""}`}
+        className={`monthly-reference-cell ${shouldWarn ? "monthly-cell-warning" : ""}`}
       >
         <input
           list={`${key}-options`}
@@ -640,6 +644,19 @@ export function MonthlySettlementReviewScreen() {
             void searchProducers(key, event.target.value);
           }}
         />
+        {shouldWarn && (
+          <span
+            className="monthly-cell-alert"
+            title={missingReferenceName
+              ? isRo ? "Numele lipsește" : "Name is missing"
+              : isRo ? "Numele nu se potrivește cu lista" : "Name does not match the reference list"}
+            aria-label={missingReferenceName
+              ? isRo ? "Numele lipsește" : "Name is missing"
+              : isRo ? "Numele nu se potrivește cu lista" : "Name does not match the reference list"}
+          >
+            !
+          </span>
+        )}
         <datalist id={`${key}-options`}>
           {options.map((item) => (
             <option key={`${item.code}-${item.name}`} value={item.name}>
@@ -1673,7 +1690,7 @@ export function MonthlySettlementReviewScreen() {
                               {draft.layoutType === "detailed" ? (
                                 <>
                                   {referenceNameCell(row, index, "producer")}
-                                  <td>
+                                  <td className={!hasNumber(row.liters) ? "monthly-cell-warning" : ""}>
                                     <input
                                       type="number"
                                       value={row.liters ?? ""}
@@ -1685,8 +1702,11 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
+                                    {!hasNumber(row.liters) && (
+                                      <span className="monthly-cell-alert" title={isRo ? "Cantitatea lipsește" : "Quantity is missing"} aria-label={isRo ? "Cantitatea lipsește" : "Quantity is missing"}>!</span>
+                                    )}
                                   </td>
-                                  <td>
+                                  <td className={!hasNumber(row.ugPercent) ? "monthly-cell-warning" : ""}>
                                     <input
                                       type="number"
                                       step="any"
@@ -1699,6 +1719,9 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
+                                    {!hasNumber(row.ugPercent) && (
+                                      <span className="monthly-cell-alert" title={isRo ? "U.G. lipsește" : "U.G. is missing"} aria-label={isRo ? "U.G. lipsește" : "U.G. is missing"}>!</span>
+                                    )}
                                     {row.gValue !== null &&
                                       row.liters !== null &&
                                       row.liters > 0 &&
@@ -1716,7 +1739,7 @@ export function MonthlySettlementReviewScreen() {
                               ) : (
                                 <>
                                   {referenceNameCell(row, index, "centerName")}
-                                  <td>
+                                  <td className={!hasNumber(row.liters) ? "monthly-cell-warning" : ""}>
                                     <input
                                       type="number"
                                       value={row.liters ?? ""}
@@ -1728,8 +1751,11 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
+                                    {!hasNumber(row.liters) && (
+                                      <span className="monthly-cell-alert" title={isRo ? "Cantitatea lipsește" : "Quantity is missing"} aria-label={isRo ? "Cantitatea lipsește" : "Quantity is missing"}>!</span>
+                                    )}
                                   </td>
-                                  <td>
+                                  <td className={!hasNumber(row.gValue) ? "monthly-cell-warning" : ""}>
                                     <input
                                       type="number"
                                       step="any"
@@ -1742,6 +1768,9 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
+                                    {!hasNumber(row.gValue) && (
+                                      <span className="monthly-cell-alert" title={isRo ? "G lipsește" : "G is missing"} aria-label={isRo ? "G lipsește" : "G is missing"}>!</span>
+                                    )}
                                    </td>
                                  </>
                                )}
