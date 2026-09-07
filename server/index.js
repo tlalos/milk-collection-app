@@ -18,7 +18,7 @@ import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
-import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
+import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, isOcrProviderConfigured, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
 import { extractMilkCollectionDocument, normalizeMonthlyData } from './ocrService.js'
@@ -26,6 +26,8 @@ import {
   clearReferenceCaches,
   enrichMissingRowValues,
   listReferenceDrivers,
+  listReferenceRoutes,
+  listReferenceVehicleRoutes,
   listReferenceVehicles,
   matchCentersForRows,
   listReferenceProducers,
@@ -34,6 +36,23 @@ import {
   matchReferenceVehicle,
   resolveReferenceRoute,
 } from './excelService.js'
+import {
+  createMilkReception,
+  deleteMilkReception,
+  deleteMilkReceptionDriver,
+  deleteMilkReceptionRouteSetting,
+  deleteMilkReceptionTruckRoutes,
+  importMilkReceptionDrivers,
+  importMilkReceptionRouteSettings,
+  listMilkReceptionDrivers,
+  listMilkReceptionRouteSettings,
+  listMilkReceptions,
+  milkReceptionOptions,
+  replaceMilkReceptionTruckRoutes,
+  updateMilkReception,
+  upsertMilkReceptionDriver,
+  upsertMilkReceptionRouteSetting,
+} from './milkReceptionStore.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -51,6 +70,24 @@ const localDevOrigins = new Set([
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
   return normalized ? `/${normalized}` : ''
+}
+
+function filterOptionValues(values, query = '') {
+  const search = normalizeOptionValue(query)
+  const filtered = search
+    ? values.filter((value) => normalizeOptionValue(value).includes(search))
+    : values
+  return [...new Set(filtered.map((value) => String(value || '').trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+}
+
+function normalizeOptionValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/gu, ' ')
+    .trim()
 }
 
 function normalizeSuggestionText(value) {
@@ -188,6 +225,187 @@ app.get('/api/ocr/health', async (_request, response) => {
   })
 })
 
+app.get('/api/milk-receptions/options', async (_request, response) => {
+  const warnings = []
+  let vehicles = []
+  let routes = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'R20']
+  let vehicleRoutes = []
+  let routeSettings = { settings: [], vehicles: [], routes: [], vehicleRoutes: [] }
+  let driverSettings = []
+  try {
+    routeSettings = await listMilkReceptionRouteSettings()
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : 'Could not load truck-route settings.')
+  }
+  try {
+    driverSettings = await listMilkReceptionDrivers()
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : 'Could not load driver settings.')
+  }
+  const drivers = driverSettings.map((driver) => driver.driverName).filter(Boolean)
+
+  if (routeSettings.vehicleRoutes.length) {
+    vehicles = routeSettings.vehicles
+    routes = routeSettings.routes
+    vehicleRoutes = routeSettings.vehicleRoutes
+    return response.json({ options: { ...milkReceptionOptions, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
+  }
+
+  try {
+    vehicles = await listReferenceVehicles()
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : 'Could not load vehicle reference list.')
+  }
+  try {
+    routes = await listReferenceRoutes()
+    vehicleRoutes = await listReferenceVehicleRoutes()
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : 'Could not load route reference list.')
+  }
+  response.json({ options: { ...milkReceptionOptions, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
+})
+
+app.get('/api/milk-receptions/driver-settings', async (_request, response, next) => {
+  try {
+    response.json({ driverSettings: await listMilkReceptionDrivers() })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-receptions/driver-settings', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const driver = await upsertMilkReceptionDriver(request.body, user?.username || '')
+    response.status(201).json({ driver, driverSettings: await listMilkReceptionDrivers() })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/milk-receptions/driver-settings/:id', async (request, response, next) => {
+  try {
+    const deleted = await deleteMilkReceptionDriver(request.params.id)
+    if (!deleted) return response.status(404).json({ error: 'Driver setting not found.' })
+    response.json({ deleted: true, driverSettings: await listMilkReceptionDrivers() })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-receptions/driver-settings/import-excel', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const drivers = await listReferenceDrivers()
+    const result = await importMilkReceptionDrivers(drivers, user?.username || '')
+    response.json({ result, driverSettings: await listMilkReceptionDrivers() })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/milk-receptions/route-settings', async (_request, response, next) => {
+  try {
+    response.json(await listMilkReceptionRouteSettings())
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-receptions/route-settings', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const setting = await upsertMilkReceptionRouteSetting(request.body, user?.username || '')
+    response.status(201).json({ setting, ...(await listMilkReceptionRouteSettings()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/milk-receptions/route-settings/:id', async (request, response, next) => {
+  try {
+    const deleted = await deleteMilkReceptionRouteSetting(request.params.id)
+    if (!deleted) return response.status(404).json({ error: 'Truck-route setting not found.' })
+    response.json({ deleted: true, ...(await listMilkReceptionRouteSettings()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/milk-receptions/route-settings/truck/:vehicle', async (request, response, next) => {
+  try {
+    const deleted = await deleteMilkReceptionTruckRoutes(request.params.vehicle)
+    if (!deleted) return response.status(404).json({ error: 'Truck route setting not found.' })
+    response.json({ deleted: true, ...(await listMilkReceptionRouteSettings()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.put('/api/milk-receptions/route-settings/truck/:vehicle', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const result = await replaceMilkReceptionTruckRoutes(request.params.vehicle, request.body.routes, request.body.vehicleCategory, user?.username || '')
+    response.json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-receptions/route-settings/import-excel', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const vehicleRoutes = await listReferenceVehicleRoutes()
+    const result = await importMilkReceptionRouteSettings(vehicleRoutes, user?.username || '')
+    response.json({ result, ...(await listMilkReceptionRouteSettings()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/milk-receptions', async (request, response, next) => {
+  try {
+    const records = await listMilkReceptions({
+      date: request.query.date,
+      search: request.query.search,
+    })
+    response.json({ records })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-receptions', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const record = await createMilkReception(request.body, user?.username || '')
+    response.status(201).json({ record })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/milk-receptions/:id', async (request, response, next) => {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    const record = await updateMilkReception(request.params.id, request.body, user?.username || '')
+    if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
+    response.json({ record })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/milk-receptions/:id', async (request, response, next) => {
+  try {
+    const deleted = await deleteMilkReception(request.params.id)
+    if (!deleted) return response.status(404).json({ error: 'Milk reception record not found.' })
+    response.json({ deleted: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.use('/api/ocr', async (request, response, next) => {
   try {
     const user = await getSessionUser(sessionToken(request))
@@ -290,8 +508,26 @@ app.get('/api/ocr/drivers', async (request, response, next) => {
 
 app.get('/api/ocr/vehicles', async (request, response, next) => {
   try {
-    const vehicles = await listReferenceVehicles(request.query.q)
+    const routeSettings = await listMilkReceptionRouteSettings()
+    const vehicles = routeSettings.vehicles.length
+      ? filterOptionValues(routeSettings.vehicles, request.query.q)
+      : await listReferenceVehicles(request.query.q)
     response.json({ vehicles })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/routes', async (request, response, next) => {
+  try {
+    const routeSettings = await listMilkReceptionRouteSettings()
+    const vehicle = String(request.query.vehicle || '').trim()
+    const savedVehicleRoutes = routeSettings.vehicleRoutes.find((item) => normalizeOptionValue(item.vehicle) === normalizeOptionValue(vehicle))
+    const savedRoutes = savedVehicleRoutes?.routes?.length ? savedVehicleRoutes.routes : routeSettings.routes
+    const routes = savedRoutes.length
+      ? filterOptionValues(savedRoutes, request.query.q)
+      : await listReferenceRoutes(vehicle)
+    response.json({ routes })
   } catch (error) {
     next(error)
   }
@@ -410,7 +646,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
 
     const isMonthlySettlement = current.documentCategory === 'journal_monthly_settlement'
-    const schema = isMonthlySettlement ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+    const schema = isMonthlySettlement ? MonthlySettlementEditableDocumentSchema : MilkCollectionDocumentSchema
     const submittedData = isMonthlySettlement
       ? { ...request.body.data, documentMonth: request.body.data?.documentMonth ?? null, totalLiters: request.body.data?.totalLiters ?? null }
       : {

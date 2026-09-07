@@ -167,6 +167,8 @@ let cachedDriverOptions: string[] | null = null
 let driverOptionsRequest: Promise<string[]> | null = null
 let cachedVehicleOptions: string[] | null = null
 let vehicleOptionsRequest: Promise<string[]> | null = null
+const cachedRouteOptions = new Map<string, string[]>()
+const routeOptionsRequests = new Map<string, Promise<string[]>>()
 
 function loadDriverOptions() {
   if (cachedDriverOptions) return Promise.resolve(cachedDriverOptions)
@@ -192,6 +194,25 @@ function loadVehicleOptions() {
     }).finally(() => { vehicleOptionsRequest = null })
   }
   return vehicleOptionsRequest
+}
+
+function loadRouteOptions(vehicleRegistration = '') {
+  const vehicle = String(vehicleRegistration || '').trim()
+  const cacheKey = vehicle.toUpperCase()
+  if (cachedRouteOptions.has(cacheKey)) return Promise.resolve(cachedRouteOptions.get(cacheKey)!)
+  if (!routeOptionsRequests.has(cacheKey)) {
+    const params = new URLSearchParams()
+    if (vehicle) params.set('vehicle', vehicle)
+    const request = fetch(appPath(`/api/ocr/routes?${params.toString()}`)).then(async (response) => {
+      const payload = await response.json() as { routes?: string[]; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not load routes.')
+      const routes = payload.routes ?? []
+      cachedRouteOptions.set(cacheKey, routes)
+      return routes
+    }).finally(() => { routeOptionsRequests.delete(cacheKey) })
+    routeOptionsRequests.set(cacheKey, request)
+  }
+  return routeOptionsRequests.get(cacheKey)!
 }
 
 function cloneData(data: ExtractedData) {
@@ -399,6 +420,7 @@ export function OcrReviewScreen() {
   const [archivingId, setArchivingId] = useState('')
   const [driverOptions, setDriverOptions] = useState<string[]>([])
   const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
+  const [routeOptions, setRouteOptions] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [reprocessingId, setReprocessingId] = useState('')
@@ -514,6 +536,11 @@ export function OcrReviewScreen() {
     void loadDriverOptions().then(setDriverOptions).catch(() => undefined)
     void loadVehicleOptions().then(setVehicleOptions).catch(() => undefined)
   }, [dataTab, Boolean(draft)])
+
+  useEffect(() => {
+    if (!draft || dataTab !== 'document') return
+    void loadRouteOptions(draft.vehicleRegistration || '').then(setRouteOptions).catch(() => setRouteOptions([]))
+  }, [dataTab, draft?.vehicleRegistration])
 
   useEffect(() => {
     if (!selected || !draft || selected.status !== 'completed' || saving || rematchingReferences) return
@@ -1467,7 +1494,8 @@ export function OcrReviewScreen() {
                       {selected.routeMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
                       {selected.routeMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
                     </span>
-                    <input value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
+                    <input list="ocr-route-options" autoComplete="off" value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
+                    <datalist id="ocr-route-options">{routeOptions.map((route) => <option value={route} key={route} />)}</datalist>
                   </label>
                   <label>{isRo ? 'Total litri' : 'Total liters'}<input inputMode="decimal" value={draft.totalLiters ?? ''} onChange={(event) => updateTotalLiters(event.target.value)} /></label>
                 </div>

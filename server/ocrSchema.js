@@ -40,7 +40,6 @@ export const MonthlySettlementRowSchema = z.object({
   gValue: nullableNumber,
   confidence: z.number().min(0).max(1),
   uncertainFields: z.array(z.string()),
-  manual: z.boolean().optional(),
 })
 
 export const MonthlySettlementDocumentSchema = z.object({
@@ -54,4 +53,10 @@ export const MonthlySettlementDocumentSchema = z.object({
   rows: z.array(MonthlySettlementRowSchema),
   warnings: z.array(z.string()),
   rawTranscription: z.string(),
+})
+
+export const MonthlySettlementEditableDocumentSchema = MonthlySettlementDocumentSchema.extend({
+  rows: z.array(MonthlySettlementRowSchema.extend({
+    manual: z.boolean().optional(),
+  })),
 })

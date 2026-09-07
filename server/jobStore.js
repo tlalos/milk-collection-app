@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  deleteSqlJob,
+  getSqlJob,
+  initializeSqlOcrStore,
+  isSqlOcrStoreEnabled,
+  listSqlJobs,
+  saveSqlJob,
+} from './sqlOcrStore.js'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = path.join(rootDir, 'data', 'ocr')
@@ -16,10 +24,12 @@ const extensions = new Map([
 ])
 
 export async function initializeJobStore() {
-  await Promise.all([
-    mkdir(filesDir, { recursive: true }),
-    mkdir(jobsDir, { recursive: true }),
-  ])
+  await mkdir(filesDir, { recursive: true })
+  if (isSqlOcrStoreEnabled()) {
+    await initializeSqlOcrStore()
+    return
+  }
+  await mkdir(jobsDir, { recursive: true })
 }
 
 function jobPath(id) {
@@ -27,6 +37,7 @@ function jobPath(id) {
 }
 
 async function writeJob(job) {
+  if (isSqlOcrStoreEnabled()) return saveSqlJob(job)
   const target = jobPath(job.id)
   const temporary = `${target}.${randomUUID()}.tmp`
   await writeFile(temporary, JSON.stringify(job, null, 2), 'utf8')
@@ -58,10 +69,12 @@ export async function createJob(file, documentCategory = 'daily_routes') {
   if (!extension) throw new Error(`Unsupported file type: ${file.mimetype}`)
 
   const storedFilename = `${id}${extension}`
-  await writeFile(path.join(filesDir, storedFilename), file.buffer)
+  const storedFilePath = path.join(filesDir, storedFilename)
+  await writeFile(storedFilePath, file.buffer)
 
   const now = new Date().toISOString()
-  return writeJob({
+  try {
+    return await writeJob({
     id,
     sourceFile: file.originalname,
     storedFilename,
@@ -95,9 +108,14 @@ export async function createJob(file, documentCategory = 'daily_routes') {
     rowValueSourceError: null,
     error: null,
   })
+  } catch (error) {
+    await rm(storedFilePath, { force: true }).catch(() => undefined)
+    throw error
+  }
 }
 
 export async function getJob(id) {
+  if (isSqlOcrStoreEnabled()) return getSqlJob(id)
   try {
     return JSON.parse(await readFile(jobPath(id), 'utf8'))
   } catch (error) {
@@ -114,6 +132,7 @@ export async function updateJob(id, updates) {
 
 export async function listJobs() {
   await initializeJobStore()
+  if (isSqlOcrStoreEnabled()) return listSqlJobs()
   const filenames = (await readdir(jobsDir)).filter((filename) => filename.endsWith('.json'))
   const jobs = await Promise.all(filenames.map(async (filename) =>
     JSON.parse(await readFile(path.join(jobsDir, filename), 'utf8')),
@@ -130,10 +149,14 @@ export async function deleteJob(id) {
   const job = await getJob(id)
   if (!job) return false
   const storedFilePath = getStoredFilePath(job)
-  await Promise.all([
-    rm(jobPath(id), { force: true }),
-    storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve(),
-  ])
+  if (isSqlOcrStoreEnabled()) {
+    await Promise.all([
+      deleteSqlJob(id),
+      storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve(),
+    ])
+    return true
+  }
+  await Promise.all([rm(jobPath(id), { force: true }), storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve()])
   return true
 }
 

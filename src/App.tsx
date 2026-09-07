@@ -5,6 +5,7 @@ import { JournalScreen } from './components/JournalScreen'
 import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
+import { MilkReceptionScreen } from './components/MilkReceptionScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
@@ -40,6 +41,7 @@ type Screen =
   | 'dataSync'
   | 'journal'
   | 'transport'
+  | 'milkReception'
   | 'suppliers'
   | 'entry'
   | 'ocrDocuments'
@@ -218,6 +220,10 @@ export function App() {
 
       {screen === 'transport' && (
         <TransportScreen onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'milkReception' && (
+        <MilkReceptionScreen onBack={() => setScreen('home')} />
       )}
 
       {screen === 'ocrDocuments' && (
@@ -410,6 +416,25 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Backup history</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => setScreen('milkReception')}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h16" />
+                    <path d="M4 10h16" />
+                    <path d="M4 15h16" />
+                    <path d="M8 5v14" />
+                    <path d="M16 5v14" />
+                    <path d="M4 19h16" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Milk Reception</span>
               </button>
 
             </div>

@@ -496,6 +496,21 @@ export async function listReferenceVehicles(query = '') {
     .map((vehicle) => vehicle.name)
 }
 
+export async function listReferenceRoutes(vehicleRegistration = '') {
+  const routeRows = await loadVehicleRouteOptions()
+  const vehicle = String(vehicleRegistration || '').trim()
+  if (vehicle) {
+    const match = routeRows.find((row) => normalizeValue(row.vehicle) === normalizeValue(vehicle))
+    if (match) return match.routes.filter(Boolean)
+  }
+  return [...new Set(routeRows.flatMap((row) => row.routes).map((route) => String(route || '').trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+}
+
+export async function listReferenceVehicleRoutes() {
+  return loadVehicleRouteOptions()
+}
+
 export async function matchReferenceVehicle(vehicleRegistration) {
   const originalValue = String(vehicleRegistration || '').trim()
   if (!originalValue) return { originalValue: vehicleRegistration || null, status: 'unmatched', selectedValue: null, score: 0 }

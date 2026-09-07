@@ -23,6 +23,32 @@ The current filesystem store uses `data/ocr/files` for uploaded documents and `d
 
 Optional cleanup can move old reviewed source documents from `data/ocr/files` to SharePoint. Enable it with `OCR_ARCHIVE_ENABLED=true`. By default it archives Daily Routes and Monthly Settlement documents that are completed, reviewed, and at least 60 days old. It uploads Daily Routes to `OCR_ARCHIVE_DAILY_FOLDER_PATH` and Monthly Settlement journals to `OCR_ARCHIVE_MONTHLY_FOLDER_PATH`; the defaults are `pictures/daily` and `pictures/journals`. Monthly settlement files are renamed with the header center and timestamp; Daily Routes files are renamed with the timestamp and truck number. The local source file is deleted only after the SharePoint upload succeeds; the job JSON remains and records `archiveStatus`. A backup history is also kept locally at `data/ocr/archive-history.json` and mirrored to SharePoint at `OCR_ARCHIVE_HISTORY_FILE_PATH`.
 
+## SQL Server storage
+
+OCR job metadata and rows can be stored in Microsoft SQL Server instead of JSON files. The Milk Reception screen also uses SQL Server and creates `dbo.MilkReceptions` automatically the first time the reception API is used. Uploaded OCR source images/PDF files still stay in `data/ocr/files` until they are archived to SharePoint.
+
+Set these values in the server `.env`:
+
+```powershell
+OCR_JOB_STORE=sql
+SQL_SERVER=localhost
+SQL_DATABASE=milkcollection
+SQL_USER=sa
+SQL_PASSWORD=your-password
+SQL_ENCRYPT=false
+SQL_TRUST_SERVER_CERTIFICATE=true
+```
+
+Before switching production to SQL, copy the current server JSON OCR jobs into SQL once:
+
+```powershell
+cd C:\inetpub\wwwroot\milk
+npm ci --omit=dev
+node .\scripts\migrateOcrJobsToSql.mjs
+```
+
+The migration reads `data\ocr\jobs\*.json`, creates or updates `dbo.OcrJobs` and `dbo.OcrJobRows`, and does not delete the JSON files. Keep the JSON files as a backup until the SQL-backed app has been verified. `dbo.MilkReceptions` has no JSON migration because new reception records are entered directly in the app.
+
 ## Required environment values
 
 - `OPENAI_API_KEY`
