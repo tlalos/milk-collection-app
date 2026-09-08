@@ -332,12 +332,22 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function isDetailSectionOpen(receptionId: string, sectionType: DetailSectionType) {
-    return detailSectionOpen[detailSectionKey(receptionId, sectionType)] ?? true
+    return detailSectionOpen[detailSectionKey(receptionId, sectionType)] ?? sectionType === 'RECONCILIATION'
   }
 
   function updateDetailSectionOpen(receptionId: string, sectionType: DetailSectionType, open: boolean) {
     const key = detailSectionKey(receptionId, sectionType)
     setDetailSectionOpen((current) => current[key] === open ? current : { ...current, [key]: open })
+  }
+
+  function expandReceptionDetails(receptionId: string) {
+    setExpandedId(receptionId)
+    setDetailSectionOpen((current) => ({
+      ...current,
+      [detailSectionKey(receptionId, 'RECONCILIATION')]: true,
+      [detailSectionKey(receptionId, 'ORIGINAL')]: false,
+      [detailSectionKey(receptionId, 'CUSTOM')]: false,
+    }))
   }
 
   async function loadLocalTrucks() {
@@ -1037,7 +1047,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                     <Fragment key={record.receptionId}>
                       <tr className={statusClass(computed.combinationDiagnosis)}>
                         <td>
-                          <button className="reception-expand" type="button" onClick={() => setExpandedId(expanded ? '' : record.receptionId)} aria-label={expanded ? 'Collapse row' : 'Expand row'}>
+                          <button className="reception-expand" type="button" onClick={() => expanded ? setExpandedId('') : expandReceptionDetails(record.receptionId)} aria-label={expanded ? 'Collapse row' : 'Expand row'}>
                             {expanded ? '-' : '+'}
                           </button>
                         </td>
