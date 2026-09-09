@@ -219,7 +219,7 @@ export async function appendMonthlySettlementToExcel(job, onProgress = async () 
     const row = rowsToExport[index]
     const match = job.producerMatches?.find((item) => item.rowNumber === row.rowNumber)
     const matchedRef = match?.suggestions?.find((item) => item.code === match.selectedCode) || null
-    const producerName = match?.selectedName || (job.data.layoutType === 'detailed' ? row.producer : row.centerName)
+    const producerName = match?.selectedName || row.producer || row.centerName
     if (!producerName) throw new Error(`Cannot export monthly row ${row.rowNumber}: producer name is missing.`)
     if (row.liters === null || row.liters === undefined) throw new Error(`Cannot export monthly row ${row.rowNumber}: liters are missing.`)
     const centerName = job.headerCenterMatch?.selectedName || matchedRef?.centerName || job.data.headerCenterName || null
@@ -420,11 +420,7 @@ export async function listReferenceProducers(query = '', kind = 'producer', head
 
 export async function matchMonthlyProducers(data) {
   const producers = await loadReferenceProducers()
-  const hasProducerRows = data.rows.some((row) => String(row.producer || '').trim())
-  const hasCenterRows = data.rows.some((row) => String(row.centerName || '').trim())
-  // Some payment-border documents contain producer rows but are labelled "overview" by OCR.
-  // Normalize from the populated row fields so matching never discards extracted producer names.
-  const layoutType = data.layoutType === 'overview' && hasProducerRows && !hasCenterRows ? 'detailed' : data.layoutType
+  const layoutType = data.layoutType
   const centers = [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
   const headerSuggestions = centers.map((item) => ({ ...item, score: similarity(data.headerCenterName, item.name) }))
     .filter((item) => item.score >= 0.32).sort((left, right) => right.score - left.score).slice(0, 5)
@@ -433,12 +429,12 @@ export async function matchMonthlyProducers(data) {
   const headerIdentified = headerBest?.score >= 0.6
   const header = { originalName: data.headerCenterName || null, status: headerIdentified ? 'auto_replaced' : headerSuggestions.length ? 'suggested' : 'unmatched', selectedCode: headerIdentified ? headerBest.code : null, selectedName: headerIdentified ? headerBest.name : null, suggestions: headerSuggestions }
   const headerCenterAffinity = (item) => {
-    if (layoutType !== 'detailed' || !headerIdentified) return 0
+    if (!headerIdentified) return 0
     if ((headerBest.code && normalizeValue(item.centerCode) === normalizeValue(headerBest.code)) || normalizeValue(item.centerName) === normalizeValue(headerBest.name)) return 2
     return centersAreRelated(headerBest.name, item.centerName) ? 1 : 0
   }
   const rows = data.rows.map((row) => {
-    const originalName = layoutType === 'detailed' ? row.producer : row.centerName
+    const originalName = row.producer || row.centerName
     const suggestions = producers
       .map((item) => {
         const score = similarity(originalName, item.producerName)

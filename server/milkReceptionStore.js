@@ -187,8 +187,20 @@ EXEC sp_executesql
   N'@truckOnlyRoute NVARCHAR(40)',
   @truckOnlyRoute = N'${TRUCK_ONLY_ROUTE}';
 
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptionRouteSettings_VehicleRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptionRouteSettings'))
+   AND NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+    WHERE i.name = N'UX_MilkReceptionRouteSettings_VehicleRoute'
+      AND i.object_id = OBJECT_ID(N'dbo.MilkReceptionRouteSettings')
+      AND c.name = N'vehicleCategory'
+  )
+  DROP INDEX UX_MilkReceptionRouteSettings_VehicleRoute ON dbo.MilkReceptionRouteSettings;
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptionRouteSettings_VehicleRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptionRouteSettings'))
-  CREATE UNIQUE INDEX UX_MilkReceptionRouteSettings_VehicleRoute ON dbo.MilkReceptionRouteSettings(vehicleRegistration, routeId);
+  CREATE UNIQUE INDEX UX_MilkReceptionRouteSettings_VehicleRoute ON dbo.MilkReceptionRouteSettings(vehicleRegistration, vehicleCategory, routeId);
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkReceptionRouteSettings_Route' AND object_id = OBJECT_ID(N'dbo.MilkReceptionRouteSettings'))
   CREATE INDEX IX_MilkReceptionRouteSettings_Route ON dbo.MilkReceptionRouteSettings(routeId);
@@ -294,15 +306,14 @@ export async function upsertMilkReceptionRouteSetting(input, username = '') {
   const result = await request.query(`
 IF EXISTS (
   SELECT 1 FROM dbo.MilkReceptionRouteSettings
-  WHERE vehicleRegistration = @vehicleRegistration AND routeId = @routeId
+  WHERE vehicleRegistration = @vehicleRegistration AND vehicleCategory = @vehicleCategory AND routeId = @routeId
 )
 BEGIN
   UPDATE dbo.MilkReceptionRouteSettings
-  SET vehicleCategory = @vehicleCategory,
-      routeOrder = @routeOrder,
+  SET routeOrder = @routeOrder,
       updatedAt = @now,
       updatedBy = @username
-  WHERE vehicleRegistration = @vehicleRegistration AND routeId = @routeId;
+  WHERE vehicleRegistration = @vehicleRegistration AND vehicleCategory = @vehicleCategory AND routeId = @routeId;
 END
 ELSE
 BEGIN
@@ -316,7 +327,7 @@ END;
 
 SELECT TOP (1) settingId, vehicleRegistration, vehicleCategory, routeId, routeOrder, createdAt, updatedAt, createdBy, updatedBy
 FROM dbo.MilkReceptionRouteSettings
-WHERE vehicleRegistration = @vehicleRegistration AND routeId = @routeId;
+WHERE vehicleRegistration = @vehicleRegistration AND vehicleCategory = @vehicleCategory AND routeId = @routeId;
 `)
   return rowToRouteSetting(result.recordset[0])
 }
@@ -343,7 +354,8 @@ export async function replaceMilkReceptionTruckRoutes(vehicleRegistration, route
   try {
     await new sql.Request(transaction)
       .input('vehicleRegistration', sql.NVarChar(80), vehicle)
-      .query('DELETE FROM dbo.MilkReceptionRouteSettings WHERE vehicleRegistration = @vehicleRegistration;')
+      .input('vehicleCategory', sql.NVarChar(40), category)
+      .query('DELETE FROM dbo.MilkReceptionRouteSettings WHERE vehicleRegistration = @vehicleRegistration AND vehicleCategory = @vehicleCategory;')
 
     const now = new Date()
     for (let index = 0; index < rowsToInsert.length; index += 1) {
@@ -372,13 +384,15 @@ VALUES (
   return listMilkReceptionRouteSettings()
 }
 
-export async function deleteMilkReceptionTruckRoutes(vehicleRegistration) {
+export async function deleteMilkReceptionTruckRoutes(vehicleRegistration, vehicleCategory = '') {
   await initializeMilkReceptionStore()
   const vehicle = String(vehicleRegistration || '').trim().toUpperCase()
   if (!vehicle) throw new Error('Truck number is required.')
+  const category = normalizeVehicleCategory(vehicleCategory)
   const result = await (await getPool()).request()
     .input('vehicleRegistration', sql.NVarChar(80), vehicle)
-    .query('DELETE FROM dbo.MilkReceptionRouteSettings WHERE vehicleRegistration = @vehicleRegistration; SELECT @@ROWCOUNT AS deleted;')
+    .input('vehicleCategory', sql.NVarChar(40), category)
+    .query('DELETE FROM dbo.MilkReceptionRouteSettings WHERE vehicleRegistration = @vehicleRegistration AND vehicleCategory = @vehicleCategory; SELECT @@ROWCOUNT AS deleted;')
   return Number(result.recordset[0]?.deleted || 0) > 0
 }
 
@@ -906,15 +920,19 @@ function routeSettingsResponse(rows) {
   const settings = rawSettings.filter((setting) => setting.routeId !== TRUCK_ONLY_ROUTE)
   const grouped = new Map()
   for (const setting of rawSettings) {
-    if (!grouped.has(setting.vehicleRegistration)) grouped.set(setting.vehicleRegistration, { vehicleCategory: setting.vehicleCategory, routes: [] })
-    const group = grouped.get(setting.vehicleRegistration)
-    if (group.vehicleCategory !== 'COLLECTION' && setting.vehicleCategory === 'COLLECTION') group.vehicleCategory = 'COLLECTION'
+    const key = routeSettingGroupKey(setting.vehicleRegistration, setting.vehicleCategory)
+    if (!grouped.has(key)) grouped.set(key, { vehicle: setting.vehicleRegistration, vehicleCategory: setting.vehicleCategory, routes: [] })
+    const group = grouped.get(key)
     if (setting.routeId !== TRUCK_ONLY_ROUTE) group.routes.push(setting.routeId)
   }
-  const vehicleRoutes = [...grouped.entries()].map(([vehicle, group]) => ({ vehicle, vehicleCategory: group.vehicleCategory, routes: uniqueSorted(group.routes) }))
+  const vehicleRoutes = [...grouped.entries()].map(([key, group]) => ({ key, vehicle: group.vehicle, vehicleCategory: group.vehicleCategory, routes: uniqueSorted(group.routes) }))
   const vehicles = uniqueSorted(rawSettings.map((setting) => setting.vehicleRegistration))
   const routes = uniqueSorted(settings.map((setting) => setting.routeId))
   return { settings, vehicleRoutes, vehicles, routes }
+}
+
+function routeSettingGroupKey(vehicleRegistration, vehicleCategory) {
+  return `${normalizeVehicleCategory(vehicleCategory)}:${String(vehicleRegistration || '').trim().toUpperCase()}`
 }
 
 function rowToRouteSetting(row) {

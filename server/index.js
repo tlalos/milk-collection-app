@@ -189,6 +189,176 @@ function dailyAvizRowsFromJobs(jobs) {
     })
 }
 
+function monthKeyFromDate(value) {
+  const date = normalizeReconciliationDate(value)
+  return date ? date.slice(0, 7) : ''
+}
+
+function monthKeyFromJob(job) {
+  const dateMonth = monthKeyFromDate(job.data?.date)
+  if (dateMonth) return dateMonth
+  const month = finiteNumber(job.data?.documentMonth)
+  if (!month || month < 1 || month > 12) return ''
+  const created = new Date(job.createdAt || Date.now())
+  const year = Number.isFinite(created.getTime()) ? created.getFullYear() : new Date().getFullYear()
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function monthlyReconciliationKey(month, center, milkType) {
+  const normalizedMilkType = normalizeMonthlyReconciliationMilkType(milkType)
+  return [
+    month,
+    normalizeSuggestionText(center),
+    normalizeSuggestionText(normalizedMilkType || 'UNSPECIFIED'),
+  ].join('|')
+}
+
+function normalizeMonthlyReconciliationMilkType(value) {
+  const normalized = normalizeSuggestionText(value)
+  if (!normalized) return ''
+  if (normalized.includes('BIVOL') || normalized.includes('BUFF')) return 'MILK-BUFF'
+  if (normalized.includes('OAIE') || normalized.includes('OITA') || normalized.includes('SHEEP')) return 'MILK-SHEEP'
+  if (normalized.includes('CAPRA') || normalized.includes('GOAT')) return 'MILK-GOAT'
+  if (normalized.includes('VACA') || normalized.includes('COW')) return 'MILK-COW'
+  if (['MILK COW', 'MILKCOW'].includes(normalized)) return 'MILK-COW'
+  if (['MILK SHEEP', 'MILKSHEEP'].includes(normalized)) return 'MILK-SHEEP'
+  if (['MILK GOAT', 'MILKGOAT'].includes(normalized)) return 'MILK-GOAT'
+  if (['MILK BUFF', 'MILKBUFF'].includes(normalized)) return 'MILK-BUFF'
+  return String(value || '').trim()
+}
+
+function addMonthlyReconciliationGroup(groups, month, center, milkType) {
+  const displayCenter = String(center || '').trim() || 'Unassigned center'
+  const displayMilkType = normalizeMonthlyReconciliationMilkType(milkType) || 'Unassigned milk type'
+  const key = monthlyReconciliationKey(month, displayCenter, displayMilkType)
+  if (!groups.has(key)) {
+    groups.set(key, {
+      id: key,
+      month,
+      center: displayCenter,
+      milkType: displayMilkType,
+      avizLiters: 0,
+      monthlyLiters: 0,
+      avizLineCount: 0,
+      monthlyRowCount: 0,
+      avizRows: [],
+      monthlyRows: [],
+    })
+  }
+  return groups.get(key)
+}
+
+function monthlyReconciliationFromJobs(jobs) {
+  const groups = new Map()
+  const dailyJobs = jobs.filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
+  const monthlyJobs = jobs.filter((job) => (job.documentCategory || 'daily_routes') === 'journal_monthly_settlement')
+
+  for (const job of dailyJobs) {
+    const month = monthKeyFromDate(job.data?.date)
+    if (!month) continue
+    const publicJob = toPublicJob(job, false)
+    const rows = Array.isArray(job.data?.rows) ? job.data.rows : []
+    for (const row of rows) {
+      const liters = finiteNumber(row.liters)
+      const group = addMonthlyReconciliationGroup(groups, month, row.collectionCenter, row.milkType)
+      group.avizLiters += liters ?? 0
+      group.avizLineCount += 1
+      group.avizRows.push({
+        id: `${job.id}-${row.rowNumber ?? group.avizRows.length + 1}`,
+        jobId: job.id,
+        sourceFile: job.sourceFile,
+        fileUrl: publicJob.fileUrl,
+        documentDate: job.data?.date ?? null,
+        route: job.data?.route ?? null,
+        driverName: job.data?.driverName ?? null,
+        vehicleRegistration: job.data?.vehicleRegistration ?? null,
+        rowNumber: row.rowNumber ?? null,
+        noticeNumber: row.noticeNumber ?? null,
+        liters,
+      })
+    }
+  }
+
+  for (const job of monthlyJobs) {
+    const data = job.data ? normalizeMonthlyData(job.data) : null
+    const month = monthKeyFromJob({ ...job, data })
+    if (!data || !month) continue
+    const publicJob = toPublicJob(job, false)
+    const savedRows = Array.isArray(data.rows) ? data.rows : []
+    const documentTotalLiters = finiteNumber(data.totalLiters)
+    const rows = savedRows.length > 0
+      ? savedRows
+      : documentTotalLiters == null
+        ? []
+        : [{
+            rowNumber: null,
+            producer: null,
+            centerName: data.headerCenterName,
+            milkType: data.milkType,
+            liters: documentTotalLiters,
+            confidence: null,
+          }]
+    for (const row of rows) {
+      const liters = finiteNumber(row.liters)
+      const center = data.headerCenterName || row.centerName
+      const group = addMonthlyReconciliationGroup(groups, month, center, row.milkType || data.milkType)
+      group.monthlyLiters += liters ?? 0
+      group.monthlyRowCount += 1
+      group.monthlyRows.push({
+        id: `${job.id}-${row.rowNumber ?? group.monthlyRows.length + 1}`,
+        jobId: job.id,
+        sourceFile: job.sourceFile,
+        fileUrl: publicJob.fileUrl,
+        documentDate: data.date ?? null,
+        rowNumber: row.rowNumber ?? null,
+        producer: row.producer || row.centerName || null,
+        centerName: center || null,
+        milkType: row.milkType || data.milkType || null,
+        liters,
+        confidence: row.confidence ?? null,
+      })
+    }
+  }
+
+  const rows = [...groups.values()].map((group) => {
+    const differenceLiters = group.monthlyLiters - group.avizLiters
+    const differencePercent = group.avizLiters ? (differenceLiters / group.avizLiters) * 100 : null
+    const status = group.avizLineCount === 0
+      ? 'missing_aviz'
+      : group.monthlyRowCount === 0
+        ? 'missing_monthly'
+        : Math.abs(differenceLiters) > 5
+          ? 'difference'
+          : 'ok'
+    return {
+      ...group,
+      avizLiters: Number(group.avizLiters.toFixed(3)),
+      monthlyLiters: Number(group.monthlyLiters.toFixed(3)),
+      differenceLiters: Number(differenceLiters.toFixed(3)),
+      differencePercent: differencePercent == null ? null : Number(differencePercent.toFixed(4)),
+      status,
+    }
+  }).sort((left, right) => {
+    if (left.month !== right.month) return right.month.localeCompare(left.month)
+    const centerOrder = left.center.localeCompare(right.center, undefined, { numeric: true })
+    if (centerOrder) return centerOrder
+    return left.milkType.localeCompare(right.milkType, undefined, { numeric: true })
+  })
+
+  return {
+    rows,
+    summary: {
+      groupCount: rows.length,
+      okCount: rows.filter((row) => row.status === 'ok').length,
+      differenceCount: rows.filter((row) => row.status === 'difference').length,
+      missingMonthlyCount: rows.filter((row) => row.status === 'missing_monthly').length,
+      missingAvizCount: rows.filter((row) => row.status === 'missing_aviz').length,
+      totalAvizLiters: Number(rows.reduce((total, row) => total + row.avizLiters, 0).toFixed(3)),
+      totalMonthlyLiters: Number(rows.reduce((total, row) => total + row.monthlyLiters, 0).toFixed(3)),
+    },
+  }
+}
+
 function summarizeReceptionReconciliation(record, dailyRows) {
   const receptionLiters = finiteNumber(record.calculatedLiters)
   if (String(record.vehicleCategory || '').toUpperCase() === 'OTHER') {
@@ -481,7 +651,7 @@ app.delete('/api/milk-receptions/route-settings/:id', async (request, response, 
 
 app.delete('/api/milk-receptions/route-settings/truck/:vehicle', async (request, response, next) => {
   try {
-    const deleted = await deleteMilkReceptionTruckRoutes(request.params.vehicle)
+    const deleted = await deleteMilkReceptionTruckRoutes(request.params.vehicle, request.query.vehicleCategory || request.body?.vehicleCategory)
     if (!deleted) return response.status(404).json({ error: 'Truck route setting not found.' })
     response.json({ deleted: true, ...(await listMilkReceptionRouteSettings()) })
   } catch (error) {
@@ -697,6 +867,14 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
   }
 })
 
+app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
+  try {
+    response.json(monthlyReconciliationFromJobs(await listJobs()))
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/ocr/drivers', async (request, response, next) => {
   try {
     const drivers = await listReferenceDrivers(request.query.q)
@@ -757,7 +935,7 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
       rows: normalizedData.rows.map((row) => {
         const match = matches.rows.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
         if (!match?.selectedName) return row
-        return matches.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+        return { ...row, producer: match.selectedName }
       }),
     }
     const job = await updateJob(current.id, { data, producerMatches: matches.rows, headerCenterMatch: matches.header, producerMatchError: null })
@@ -853,7 +1031,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         documentMonth: request.body.data?.documentMonth ?? null,
         totalLiters: request.body.data?.totalLiters ?? null,
         rows: Array.isArray(request.body.data?.rows)
-          ? request.body.data.rows.map((row) => ({ ...row, milkType: row.milkType || request.body.data?.milkType || 'VACA' }))
+          ? request.body.data.rows.map((row) => ({ ...row, milkType: row.milkType || request.body.data?.milkType || 'MILK-COW' }))
           : [],
       }
       : {
@@ -886,7 +1064,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
           rows: data.rows.map((row) => {
             const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
             if (!match?.selectedName) return row
-            return matches.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+            return { ...row, producer: match.selectedName }
           }),
         }
       } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }

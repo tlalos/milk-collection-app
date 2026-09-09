@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
 import { db } from '../db/database'
 import { settingsStore } from '../store/settingsStore'
 import { syncOfflineUsers } from '../sync/syncOfflineUsers'
+import { APP_VERSION } from '../appVersion'
 import './MainScreen.css'
 
 interface MainScreenProps {
@@ -187,7 +188,7 @@ export function MainScreen({ onSignIn, onSettings, onOpenMenu }: MainScreenProps
           Open main menu
         </button>
 
-        <p className="main-version">MilkCollect v0.1.0</p>
+        <p className="main-version">MilkCollect v{APP_VERSION}</p>
       </div>
     </div>
   )

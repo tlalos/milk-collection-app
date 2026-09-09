@@ -4,6 +4,7 @@ import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLangua
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
 import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
+import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
   { value: 'MILK-COW', label: 'MILK-COW' },
@@ -433,6 +434,7 @@ export function OcrReviewScreen() {
   const [rowNumberDrafts, setRowNumberDrafts] = useState<Record<string, string>>({})
   const [openCenterSuggestions, setOpenCenterSuggestions] = useState<number | null>(null)
   const [zoom, setZoom] = useState(100)
+  const [imageRotation, setImageRotation] = useState(0)
   const [panelSplit, setPanelSplit] = useState(50)
   const [columnsFit, setColumnsFit] = useState(false)
   const [page, setPage] = useState(1)
@@ -441,6 +443,7 @@ export function OcrReviewScreen() {
   const lastSavedRef = useRef('')
   const centerSearchTimersRef = useRef(new Map<number, number>())
   const previousLayoutRef = useRef({ queueCollapsed: false, panelSplit: 50 })
+  const sourcePreviewRef = useRef<HTMLDivElement | null>(null)
 
   function toggleColumnsFit() {
     if (columnsFit) {
@@ -592,12 +595,17 @@ export function OcrReviewScreen() {
     }
   }, [openCenterSuggestions])
 
+  useEffect(() => {
+    centerImagePreview(sourcePreviewRef.current)
+  }, [imageRotation, zoom, selected?.id])
+
   async function openJob(job: OcrJob) {
     setSelectedId(job.id)
     setSelectedSummary(job)
     setSuccess('')
     setRowNumberDrafts({})
     setZoom(100)
+    setImageRotation(0)
     setDataTab('document')
     if (job.status !== 'completed') {
       setSelected(null)
@@ -1278,8 +1286,6 @@ export function OcrReviewScreen() {
         <div className="review-header-actions">
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/upload') }}>{isRo ? 'Încărcare' : 'Upload'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Decont lunar' : 'Monthly Review'}</button>
-          <button type="button" onClick={() => { window.location.href = appPath('/ocr/compare') }}>{isRo ? 'Comparare OCR' : 'OCR Compare'}</button>
-          <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=review') }}>{isRo ? 'Setări OCR' : 'OCR settings'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/archive-history') }}>{isRo ? 'Istoric backup' : 'Backup history'}</button>
           <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
           <OcrLanguageSwitch language={language} onChange={setLanguage} />
@@ -1399,6 +1405,7 @@ export function OcrReviewScreen() {
                     <span>{zoom}%</span>
                     <button type="button" onClick={() => setZoom((current) => Math.min(250, current + 25))} aria-label="Zoom in">+</button>
                     <button type="button" onClick={() => setZoom(100)}>{isRo ? 'Potrivire' : 'Fit'}</button>
+                    <button type="button" disabled={selected.mimeType === 'application/pdf'} onClick={() => setImageRotation((current) => (current + 90) % 360)}>{isRo ? 'Rotire' : 'Rotate'}</button>
                   </div>
                 </div>
                 {selected.archiveStatus?.status === 'archived' ? (
@@ -1407,7 +1414,7 @@ export function OcrReviewScreen() {
                     <span>{selected.archiveStatus.folderPath || (isRo ? 'Fișierul sursă nu mai este stocat local.' : 'The source file is no longer stored locally.')}</span>
                     {selected.archiveStatus.webUrl && <a href={selected.archiveStatus.webUrl} target="_blank" rel="noreferrer">{isRo ? 'Deschideți în SharePoint' : 'Open in SharePoint'}</a>}
                   </div>
-                ) : selected.mimeType === 'application/pdf' ? <iframe key={`${selected.id}-${zoom}`} src={`${selected.fileUrl}#zoom=${zoom}`} title={`Source document ${selected.sourceFile}`} /> : <div className="review-image-wrap"><img style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none' }} src={selected.fileUrl} alt={`Source document ${selected.sourceFile}`} /></div>}
+                ) : selected.mimeType === 'application/pdf' ? <iframe key={`${selected.id}-${zoom}`} src={`${selected.fileUrl}#zoom=${zoom}`} title={`Source document ${selected.sourceFile}`} /> : <div className="review-image-wrap" ref={sourcePreviewRef}><img style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none', transform: getImageRotationTransform(imageRotation) }} src={selected.fileUrl} alt={`Source document ${selected.sourceFile}`} /></div>}
               </div>
 
               <div className="review-panel-splitter" role="separator" aria-orientation="vertical" aria-label={isRo ? 'Redimensionați panourile documentului' : 'Resize document panels'} aria-valuemin={28} aria-valuemax={72} aria-valuenow={Math.round(panelSplit)} title={isRo ? 'Trageți pentru a ajusta lățimea' : 'Drag to adjust width'} onPointerDown={startPanelResize}>

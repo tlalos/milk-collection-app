@@ -55,7 +55,7 @@ async function processNext() {
           rows: data.rows.map((row) => {
             const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
             if (!match?.selectedName) return row
-            return matches.layoutType === 'detailed' ? { ...row, producer: match.selectedName } : { ...row, centerName: match.selectedName }
+            return { ...row, producer: match.selectedName }
           }),
         }
       } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }

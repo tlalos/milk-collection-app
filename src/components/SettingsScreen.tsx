@@ -3,6 +3,7 @@ import { settingsStore } from '../store/settingsStore'
 import { testConnection } from '../api/client'
 import { db } from '../db/database'
 import type { AppSettings } from '../types/settings'
+import { APP_VERSION } from '../appVersion'
 import './SettingsScreen.css'
 
 interface SettingsScreenProps {
@@ -10,8 +11,6 @@ interface SettingsScreenProps {
 }
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
-
-const APP_VERSION = '0.1.0'
 
 export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [settings, setSettings] = useState<AppSettings>(() => settingsStore.get())

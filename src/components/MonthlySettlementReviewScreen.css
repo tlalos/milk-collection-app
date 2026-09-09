@@ -403,6 +403,8 @@
   max-width: none;
   width: 100%;
   height: auto;
+  transform-origin: top left;
+  transition: transform .15s ease;
   background: #fff;
 }
 .monthly-source iframe {
@@ -718,6 +720,9 @@
 .monthly-table th:first-child {
   width: 42px;
 }
+.monthly-table th.monthly-milk-type-column {
+  width: 88px;
+}
 .monthly-table th.monthly-row-actions {
   width: 58px;
   text-align: center;
@@ -885,6 +890,9 @@
   background: #f8fbf9;
   color: #17613a;
   font-weight: 900;
+}
+.monthly-zoom-controls button:disabled {
+  opacity: 0.45;
 }
 .monthly-zoom-controls span {
   min-width: 40px;

@@ -112,12 +112,28 @@ function statusLabel(status: string | null | undefined) {
   return status.replace('_', ' ')
 }
 
+function normalizedSearch(value: unknown) {
+  return String(value || '').trim().toLocaleLowerCase()
+}
+
+function includesFilter(value: unknown, needle: string) {
+  return normalizedSearch(value).includes(needle)
+}
+
+function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => string | null) {
+  return [...new Set(rows.map(selector).map((value) => String(value || '').trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+}
+
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<DailyAvizRow[]>([])
   const [summary, setSummary] = useState<DailyAvizSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [truckFilter, setTruckFilter] = useState('')
+  const [centerFilter, setCenterFilter] = useState('')
+  const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all')
 
@@ -142,30 +158,37 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
     void loadRows()
   }, [])
 
+  const truckOptions = useMemo(() => uniqueValues(rows, (row) => row.vehicleRegistration), [rows])
+  const centerOptions = useMemo(() => uniqueValues(rows, (row) => row.collectionCenter), [rows])
+  const milkTypeOptions = useMemo(() => uniqueValues(rows, (row) => row.milkType), [rows])
+  const hasActiveFilters = Boolean(search || truckFilter || centerFilter || milkTypeFilter || selectedDate || reviewFilter !== 'all')
+
   const filteredRows = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase()
+    const needle = normalizedSearch(search)
+    const truckNeedle = normalizedSearch(truckFilter)
+    const centerNeedle = normalizedSearch(centerFilter)
     return [...rows].sort(compareRows).filter((row) => {
       if (selectedDate && filterDateValue(row.documentDate) !== selectedDate) return false
       if (reviewFilter === 'pending' && row.reviewStatus !== 'pending') return false
       if (reviewFilter === 'reviewed' && row.reviewStatus !== 'reviewed') return false
       if (reviewFilter === 'failed' && row.jobStatus !== 'failed') return false
       if (reviewFilter === 'processing' && row.jobStatus !== 'queued' && row.jobStatus !== 'processing') return false
+      if (truckNeedle && !includesFilter(row.vehicleRegistration, truckNeedle)) return false
+      if (centerNeedle && !includesFilter(row.collectionCenter, centerNeedle)) return false
+      if (milkTypeFilter && row.milkType !== milkTypeFilter) return false
       if (!needle) return true
       return [
         row.sourceFile,
         row.documentDate,
         row.route,
         row.driverName,
-        row.vehicleRegistration,
-        row.collectionCenter,
-        row.milkType,
         row.noticeNumber,
         row.jobStatus,
         row.reviewStatus,
         row.excelStatus,
-      ].some((value) => String(value || '').toLocaleLowerCase().includes(needle))
+      ].some((value) => includesFilter(value, needle))
     })
-  }, [reviewFilter, rows, search, selectedDate])
+  }, [centerFilter, milkTypeFilter, reviewFilter, rows, search, selectedDate, truckFilter])
 
   const filteredLiters = filteredRows.reduce(
     (total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0),
@@ -211,8 +234,39 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Center, notice, route, truck, driver..."
+              placeholder="Notice, route, driver, file..."
             />
+          </label>
+          <label>
+            <span>Truck</span>
+            <input
+              list="daily-aviz-truck-options"
+              value={truckFilter}
+              onChange={(event) => setTruckFilter(event.target.value)}
+              placeholder="Truck no..."
+            />
+            <datalist id="daily-aviz-truck-options">
+              {truckOptions.map((truck) => <option key={truck} value={truck} />)}
+            </datalist>
+          </label>
+          <label>
+            <span>Center</span>
+            <input
+              list="daily-aviz-center-options"
+              value={centerFilter}
+              onChange={(event) => setCenterFilter(event.target.value)}
+              placeholder="Collection center..."
+            />
+            <datalist id="daily-aviz-center-options">
+              {centerOptions.map((center) => <option key={center} value={center} />)}
+            </datalist>
+          </label>
+          <label>
+            <span>Milk type</span>
+            <select value={milkTypeFilter} onChange={(event) => setMilkTypeFilter(event.target.value)}>
+              <option value="">All milk types</option>
+              {milkTypeOptions.map((milkType) => <option key={milkType} value={milkType}>{milkType}</option>)}
+            </select>
           </label>
           <label>
             <span>Aviz date</span>
@@ -233,6 +287,21 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               <option value="failed">Failed documents</option>
             </select>
           </label>
+          <button
+            className="daily-aviz-clear-filters"
+            type="button"
+            onClick={() => {
+              setSearch('')
+              setTruckFilter('')
+              setCenterFilter('')
+              setMilkTypeFilter('')
+              setSelectedDate('')
+              setReviewFilter('all')
+            }}
+            disabled={!hasActiveFilters}
+          >
+            Clear
+          </button>
         </section>
 
         {error && <div className="daily-aviz-error" role="alert">{error}</div>}

@@ -86,7 +86,7 @@
 
 .daily-aviz-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px) minmax(180px, 220px);
+  grid-template-columns: minmax(220px, 1.25fr) minmax(150px, 0.9fr) minmax(220px, 1.2fr) minmax(150px, 0.9fr) minmax(160px, 0.8fr) minmax(160px, 0.8fr) auto;
   gap: 10px;
   align-items: end;
 }
@@ -115,6 +115,26 @@
 .daily-aviz-toolbar select:focus {
   border-color: var(--color-green-mid);
   outline: 3px solid rgba(35, 122, 80, 0.14);
+}
+
+.daily-aviz-clear-filters {
+  min-height: 42px;
+  border: 1px solid #cddbd3;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #fff;
+  color: #155938;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.daily-aviz-clear-filters:hover:not(:disabled) {
+  background: #e8f5ee;
+}
+
+.daily-aviz-clear-filters:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .daily-aviz-error {

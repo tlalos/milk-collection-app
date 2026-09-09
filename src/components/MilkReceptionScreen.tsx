@@ -24,7 +24,7 @@ interface MilkReceptionOptions {
   vehicles: string[]
   routes: string[]
   drivers: string[]
-  vehicleRoutes: Array<{ vehicle: string; vehicleCategory?: VehicleCategory; routes: string[] }>
+  vehicleRoutes: Array<{ key?: string; vehicle: string; vehicleCategory?: VehicleCategory; routes: string[] }>
   routeSettings: RouteSetting[]
   driverSettings: DriverSetting[]
   vehicleCategories: VehicleCategory[]
@@ -267,7 +267,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       const next: Record<string, string> = {}
       for (const group of options.vehicleRoutes) {
         if (!group.vehicle) continue
-        next[group.vehicle] = current[group.vehicle] ?? group.routes.join(', ')
+        const key = vehicleRouteGroupKey(group)
+        next[key] = current[key] ?? group.routes.join(', ')
       }
       return next
     })
@@ -275,7 +276,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       const next: Record<string, VehicleCategory> = {}
       for (const group of options.vehicleRoutes) {
         if (!group.vehicle) continue
-        next[group.vehicle] = current[group.vehicle] ?? normalizeVehicleCategory(group.vehicleCategory)
+        const key = vehicleRouteGroupKey(group)
+        next[key] = current[key] ?? normalizeVehicleCategory(group.vehicleCategory)
       }
       return next
     })
@@ -471,24 +473,24 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         }
       }
       if (patch.vehicleRegistration !== undefined) {
-        const vehicleSetting = vehicleSettingFor(patch.vehicleRegistration)
-        if (vehicleSetting?.vehicleCategory) next.vehicleCategory = normalizeVehicleCategory(vehicleSetting.vehicleCategory)
-        const routes = routeOptionsForVehicle(patch.vehicleRegistration)
+        const vehicleSetting = vehicleSettingFor(patch.vehicleRegistration, next.vehicleCategory)
+        const routes = routeOptionsForVehicle(patch.vehicleRegistration, next.vehicleCategory)
         if (routes.length && !routes.includes(String(next.routeId || '').trim())) next.routeId = routes[0]
-        if (!routes.length && next.vehicleCategory === 'OTHER') next.routeId = ''
+        if (vehicleSetting && !routes.length) next.routeId = ''
       }
       if (patch.vehicleCategory !== undefined) {
         next.vehicleCategory = normalizeVehicleCategory(patch.vehicleCategory)
         next.deliveryCategory = next.vehicleCategory === 'OTHER' ? 'OTHERS' : 'COLLECTION'
-        const selectedVehicle = vehicleSettingFor(next.vehicleRegistration)
-        if (selectedVehicle && normalizeVehicleCategory(selectedVehicle.vehicleCategory) !== next.vehicleCategory) {
+        const hasSavedSettingsForType = savedVehicleRoutes.some((group) => normalizeVehicleCategory(group.vehicleCategory) === next.vehicleCategory)
+        const selectedVehicle = vehicleSettingFor(next.vehicleRegistration, next.vehicleCategory)
+        if (hasSavedSettingsForType && next.vehicleRegistration && !selectedVehicle) {
           next.vehicleRegistration = ''
           next.routeId = ''
         }
         if (next.vehicleCategory === 'OTHER') {
           next.routeId = ''
         } else {
-          const routes = routeOptionsForVehicle(next.vehicleRegistration)
+          const routes = routeOptionsForVehicle(next.vehicleRegistration, next.vehicleCategory)
           if (routes.length && !routes.includes(String(next.routeId || '').trim())) next.routeId = routes[0]
         }
       }
@@ -515,13 +517,17 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }))
   }
 
-  function vehicleSettingFor(vehicleRegistration: string) {
+  function vehicleSettingFor(vehicleRegistration: string, vehicleCategory?: VehicleCategory) {
     const normalizedVehicle = normalizeText(vehicleRegistration)
-    return options.vehicleRoutes.find((item) => normalizeText(item.vehicle) === normalizedVehicle)
+    const normalizedCategory = vehicleCategory ? normalizeVehicleCategory(vehicleCategory) : null
+    return options.vehicleRoutes.find((item) => (
+      normalizeText(item.vehicle) === normalizedVehicle &&
+      (!normalizedCategory || normalizeVehicleCategory(item.vehicleCategory) === normalizedCategory)
+    ))
   }
 
-  function routeOptionsForVehicle(vehicleRegistration: string) {
-    const vehicleSetting = vehicleSettingFor(vehicleRegistration)
+  function routeOptionsForVehicle(vehicleRegistration: string, vehicleCategory?: VehicleCategory) {
+    const vehicleSetting = vehicleSettingFor(vehicleRegistration, vehicleCategory)
     const specificRoutes = vehicleSetting?.routes?.filter(Boolean) || []
     if (vehicleSetting && !specificRoutes.length) return []
     return specificRoutes.length ? specificRoutes : options.routes
@@ -530,18 +536,20 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   async function saveTruckRoutes(vehicleRegistration: string, routesText: string, vehicleCategory: VehicleCategory) {
     const truck = vehicleRegistration.trim()
     const routes = routesTextToArray(routesText)
+    const category = normalizeVehicleCategory(vehicleCategory)
+    const busyKey = vehicleRouteSettingKey(truck, category)
     if (!truck) {
       setError('Truck ID is required.')
       return
     }
-    setSettingsBusy(truck)
+    setSettingsBusy(busyKey)
     setError('')
     setNotice('')
     try {
       const response = await fetch(appPath(`/api/milk-receptions/route-settings/truck/${encodeURIComponent(truck)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ routes, vehicleCategory }),
+        body: JSON.stringify({ routes, vehicleCategory: category }),
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not save truck routes.')
@@ -549,7 +557,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       setNewSettingsTruck('')
       setNewSettingsRoutes('')
       setNewSettingsCategory('OTHER')
-      setNotice(`Routes saved for truck ${truck.toUpperCase()}.`)
+      setNotice(`Routes saved for ${vehicleCategoryLabel(category)} truck ${truck.toUpperCase()}.`)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save truck routes.')
     } finally {
@@ -557,18 +565,21 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }
   }
 
-  async function deleteTruckRoutes(vehicleRegistration: string) {
+  async function deleteTruckRoutes(vehicleRegistration: string, vehicleCategory: VehicleCategory) {
     const truck = vehicleRegistration.trim()
     if (!truck) return
-    setSettingsBusy(`delete-${truck}`)
+    const category = normalizeVehicleCategory(vehicleCategory)
+    const busyKey = vehicleRouteSettingKey(truck, category)
+    setSettingsBusy(`delete-${busyKey}`)
     setError('')
     setNotice('')
     try {
-      const response = await fetch(appPath(`/api/milk-receptions/route-settings/truck/${encodeURIComponent(truck)}`), { method: 'DELETE' })
+      const params = new URLSearchParams({ vehicleCategory: category })
+      const response = await fetch(appPath(`/api/milk-receptions/route-settings/truck/${encodeURIComponent(truck)}?${params.toString()}`), { method: 'DELETE' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not delete truck routes.')
       await loadOptions()
-      setNotice(`Truck ${truck.toUpperCase()} removed from route settings.`)
+      setNotice(`${vehicleCategoryLabel(category)} truck ${truck.toUpperCase()} removed from route settings.`)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete truck routes.')
     } finally {
@@ -930,29 +941,34 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         </td>
                       </tr>
                     )}
-                    {visibleVehicleRoutes.map((group) => (
-                      <tr key={group.vehicle}>
+                    {visibleVehicleRoutes.map((group) => {
+                      const groupKey = vehicleRouteGroupKey(group)
+                      const groupCategory = categoryDrafts[groupKey] ?? normalizeVehicleCategory(group.vehicleCategory)
+                      const groupRoutes = routeDrafts[groupKey] ?? group.routes.join(', ')
+                      return (
+                      <tr key={groupKey}>
                         <td className="reception-settings-truck">{group.vehicle}</td>
                         <td>
-                          <select value={categoryDrafts[group.vehicle] ?? normalizeVehicleCategory(group.vehicleCategory)} onChange={(event) => setCategoryDrafts((current) => ({ ...current, [group.vehicle]: normalizeVehicleCategory(event.target.value) }))}>
+                          <select value={groupCategory} onChange={(event) => setCategoryDrafts((current) => ({ ...current, [groupKey]: normalizeVehicleCategory(event.target.value) }))}>
                             {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
                           </select>
                         </td>
                         <td>
-                          <input value={routeDrafts[group.vehicle] ?? group.routes.join(', ')} onChange={(event) => setRouteDrafts((current) => ({ ...current, [group.vehicle]: event.target.value }))} />
+                          <input value={groupRoutes} onChange={(event) => setRouteDrafts((current) => ({ ...current, [groupKey]: event.target.value }))} />
                         </td>
                         <td>
                           <div className="reception-settings-row-actions">
-                            <button type="button" onClick={() => void saveTruckRoutes(group.vehicle, routeDrafts[group.vehicle] ?? group.routes.join(', '), categoryDrafts[group.vehicle] ?? normalizeVehicleCategory(group.vehicleCategory))} disabled={Boolean(settingsBusy)}>
-                              {settingsBusy === group.vehicle ? 'Saving...' : 'Save'}
+                            <button type="button" onClick={() => void saveTruckRoutes(group.vehicle, groupRoutes, groupCategory)} disabled={Boolean(settingsBusy)}>
+                              {settingsBusy === vehicleRouteSettingKey(group.vehicle, groupCategory) ? 'Saving...' : 'Save'}
                             </button>
-                            <button className="danger" type="button" onClick={() => void deleteTruckRoutes(group.vehicle)} disabled={Boolean(settingsBusy)}>
-                              {settingsBusy === `delete-${group.vehicle}` ? 'Deleting...' : 'Delete'}
+                            <button className="danger" type="button" onClick={() => void deleteTruckRoutes(group.vehicle, normalizeVehicleCategory(group.vehicleCategory))} disabled={Boolean(settingsBusy)}>
+                              {settingsBusy === `delete-${groupKey}` ? 'Deleting...' : 'Delete'}
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1073,10 +1089,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           </select>
                         </td>
                         <td>
-                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration).length}>
-                            <option value="">{record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration).length ? 'No route' : 'Route'}</option>
-                            {record.routeId && !routeOptionsForVehicle(record.vehicleRegistration).includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
-                            {routeOptionsForVehicle(record.vehicleRegistration).map((route) => <option key={route} value={route}>{route}</option>)}
+                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).length}>
+                            <option value="">{record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).length ? 'No route' : 'Route'}</option>
+                            {record.routeId && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
+                            {routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).map((route) => <option key={route} value={route}>{route}</option>)}
                           </select>
                         </td>
                         <td>
@@ -1162,4 +1178,12 @@ function normalizeVehicleCategory(value: unknown): VehicleCategory {
 
 function vehicleCategoryLabel(value: unknown) {
   return normalizeVehicleCategory(value) === 'OTHER' ? 'OTHERS' : 'COLLECTION'
+}
+
+function vehicleRouteGroupKey(group: { key?: string; vehicle: string; vehicleCategory?: VehicleCategory }) {
+  return group.key || vehicleRouteSettingKey(group.vehicle, normalizeVehicleCategory(group.vehicleCategory))
+}
+
+function vehicleRouteSettingKey(vehicle: string, vehicleCategory: VehicleCategory) {
+  return `${normalizeVehicleCategory(vehicleCategory)}:${normalizeText(vehicle)}`
 }

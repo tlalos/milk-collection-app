@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
 import { OcrLanguageSwitch, useOcrLanguage } from "./OcrLanguage";
+import { centerImagePreview, getImageRotationTransform } from "./ocrImageRotation";
 import "./MonthlySettlementReviewScreen.css";
 import "./MonthlySettlementBadges.css";
 import "./MonthlySettlementReference.css";
@@ -41,6 +42,7 @@ interface ProducerMatch {
   rowNumber: number;
   originalName: string | null;
   status: string;
+  selectedCode?: string | null;
   selectedName: string | null;
   suggestions: ProducerSuggestion[];
   matchSource?: "header_center_history" | "all_producers";
@@ -85,19 +87,40 @@ interface MonthlyJob {
   };
 }
 
-const monthlyMilkTypeOptions = ["VACA", "BIVOL", "OAIE", "CAPRA"];
+const monthlyMilkTypeOptions = ["MILK-COW", "MILK-SHEEP", "MILK-GOAT", "MILK-BUFF"];
+
+function normalizeMonthlyMilkType(value: string | null | undefined, fallback = "MILK-COW") {
+  const raw = String(value || fallback || "MILK-COW").trim();
+  const normalized = raw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/gu, " ")
+    .trim();
+  if (normalized.includes("BIVOL") || normalized.includes("BUFF")) return "MILK-BUFF";
+  if (normalized.includes("OAIE") || normalized.includes("OITA") || normalized.includes("SHEEP")) return "MILK-SHEEP";
+  if (normalized.includes("CAPRA") || normalized.includes("GOAT")) return "MILK-GOAT";
+  if (normalized.includes("VACA") || normalized.includes("COW")) return "MILK-COW";
+  return monthlyMilkTypeOptions.includes(raw) ? raw : fallback;
+}
 
 function monthlyMilkTypeValue(row: MonthlyRow, fallback: string) {
-  return row.milkType?.trim() || fallback || "VACA";
+  return normalizeMonthlyMilkType(row.milkType, fallback);
 }
 
 function hydrateMonthlyData(data: MonthlyData) {
-  const milkType = data.milkType?.trim() || "VACA";
+  const milkType = normalizeMonthlyMilkType(data.milkType);
   return {
     ...data,
     milkType,
     rows: data.rows.map((row) => ({
       ...row,
+      ...(data.layoutType === "overview"
+        ? {
+            producer: row.centerName || row.producer || "",
+            centerName: null,
+          }
+        : {}),
       milkType: monthlyMilkTypeValue(row, milkType),
     })),
   };
@@ -142,6 +165,20 @@ function normalizeReferenceName(value: string) {
     .replace(/\s+/gu, " ")
     .trim()
     .toLocaleLowerCase();
+}
+
+function referenceCentersMatch(
+  leftName?: string | null,
+  leftCode?: string | null,
+  rightName?: string | null,
+  rightCode?: string | null,
+) {
+  const normalizedLeftCode = normalizeReferenceName(leftCode || "");
+  const normalizedRightCode = normalizeReferenceName(rightCode || "");
+  if (normalizedLeftCode && normalizedRightCode && normalizedLeftCode === normalizedRightCode) return true;
+  const normalizedLeftName = normalizeReferenceName(leftName || "");
+  const normalizedRightName = normalizeReferenceName(rightName || "");
+  return Boolean(normalizedLeftName && normalizedRightName && normalizedLeftName === normalizedRightName);
 }
 
 function storeDate(value: string) {
@@ -272,9 +309,11 @@ export function MonthlySettlementReviewScreen() {
     Record<string, ProducerSuggestion[]>
   >({});
   const [zoom, setZoom] = useState(100);
+  const [imageRotation, setImageRotation] = useState(0);
   const [showRowNotes, setShowRowNotes] = useState(false);
   const [showVerificationItems, setShowVerificationItems] = useState(false);
   const lastSavedRef = useRef("");
+  const sourcePreviewRef = useRef<HTMLDivElement | null>(null);
 
   const rowLitersTotal =
     draft?.rows.reduce(
@@ -353,6 +392,7 @@ export function MonthlySettlementReviewScreen() {
     setNotice("");
     setAutoSaveStatus("idle");
     setZoom(100);
+    setImageRotation(0);
     if (job.status !== "completed") {
       lastSavedRef.current = "";
       return;
@@ -414,6 +454,10 @@ export function MonthlySettlementReviewScreen() {
     }, 800);
     return () => window.clearTimeout(timer);
   }, [busy, draft, selected?.id, selected?.status]);
+
+  useEffect(() => {
+    centerImagePreview(sourcePreviewRef.current);
+  }, [imageRotation, zoom, selected?.id]);
 
   async function deleteDocument(job: MonthlyJob) {
     const exported = job.excelExport?.status === "exported";
@@ -583,18 +627,15 @@ export function MonthlySettlementReviewScreen() {
         ) + 1;
       const row: MonthlyRow = {
         rowNumber: nextRowNumber,
-        producer: current.layoutType === "detailed" ? "" : null,
-        centerName: current.layoutType === "overview" ? "" : null,
-        milkType: current.milkType || "VACA",
+        producer: "",
+        centerName: null,
+        milkType: normalizeMonthlyMilkType(current.milkType),
         liters: null,
         ugPercent: null,
         gValue: null,
         confidence: 1,
         manual: true,
-        uncertainFields:
-          current.layoutType === "detailed"
-            ? ["producer", "liters"]
-            : ["centerName", "liters", "gValue"],
+        uncertainFields: ["producer", "liters"],
       };
       return { ...current, rows: [...current.rows, row] };
     });
@@ -609,10 +650,7 @@ export function MonthlySettlementReviewScreen() {
     if (value.trim().length < 2)
       return setSuggestions((current) => ({ ...current, [key]: [] }));
     try {
-      const headerCenter =
-        kind === "producer" && draft?.layoutType === "detailed"
-          ? draft.headerCenterName || ""
-          : "";
+      const headerCenter = kind === "producer" ? draft?.headerCenterName || "" : "";
       const response = await fetch(
         appPath(
           `/api/ocr/producers?q=${encodeURIComponent(value)}&kind=${kind}&headerCenter=${encodeURIComponent(headerCenter)}`,
@@ -651,6 +689,9 @@ export function MonthlySettlementReviewScreen() {
       options.some(
         (option) => normalizeReferenceName(option.name) === normalizedValue,
       );
+    const exactReferenceOptions = normalizedValue.length >= 2
+      ? options.filter((option) => normalizeReferenceName(option.name) === normalizedValue)
+      : [];
     const wasAutoReplaced =
       match?.status === "auto_replaced" &&
       normalizeReferenceName(match.selectedName || "") === normalizedValue;
@@ -663,9 +704,25 @@ export function MonthlySettlementReviewScreen() {
         searchedCurrentValue);
     const missingReferenceName = value.trim().length === 0;
     const shouldWarn = missingReferenceName || noReferenceMatch;
+    const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
+    const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
+    const selectedReference = match?.selectedCode
+      ? options.find((option) => option.code === match.selectedCode)
+      : null;
+    const referencesToCheck = selectedReference ? [selectedReference] : exactReferenceOptions;
+    const producerBelongsToHeaderCenter = referencesToCheck.some((option) =>
+      referenceCentersMatch(option.centerName, option.centerCode, headerCenterName, headerCenterCode),
+    );
+    const producerCenterMismatch =
+      Boolean(headerCenterName.trim()) &&
+      referencesToCheck.length > 0 &&
+      !producerBelongsToHeaderCenter;
+    const warningIconTitle = isRo
+      ? "Producătorul nu aparține centrului din antet"
+      : "Producer does not belong to the header center";
     return (
       <td
-        className={`monthly-reference-cell ${shouldWarn ? "monthly-cell-warning" : ""}`}
+        className={`monthly-reference-cell ${shouldWarn || producerCenterMismatch ? "monthly-cell-warning" : ""}`}
       >
         <input
           list={`${key}-options`}
@@ -675,15 +732,11 @@ export function MonthlySettlementReviewScreen() {
             void searchProducers(key, event.target.value);
           }}
         />
-        {shouldWarn && (
+        {producerCenterMismatch && (
           <span
             className="monthly-cell-alert"
-            title={missingReferenceName
-              ? isRo ? "Numele lipsește" : "Name is missing"
-              : isRo ? "Numele nu se potrivește cu lista" : "Name does not match the reference list"}
-            aria-label={missingReferenceName
-              ? isRo ? "Numele lipsește" : "Name is missing"
-              : isRo ? "Numele nu se potrivește cu lista" : "Name does not match the reference list"}
+            title={warningIconTitle}
+            aria-label={warningIconTitle}
           >
             !
           </span>
@@ -719,9 +772,16 @@ export function MonthlySettlementReviewScreen() {
                 : "results"}
             </small>
           )}
-        {noReferenceMatch && (
+        {showRowNotes && noReferenceMatch && (
           <small className="monthly-reference-warning">
             {isRo ? "Fără potrivire în listă" : "No match in reference list"}
+          </small>
+        )}
+        {showRowNotes && producerCenterMismatch && (
+          <small className="monthly-reference-warning">
+            {isRo
+              ? `Producătorul aparține altui centru (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "Ref_Producers"})`
+              : `Producer belongs to another center (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "Ref_Producers"})`}
           </small>
         )}
       </td>
@@ -1053,20 +1113,6 @@ export function MonthlySettlementReviewScreen() {
           </button>
           <button
             onClick={() => {
-              window.location.href = appPath("/ocr/compare");
-            }}
-          >
-            {isRo ? "Comparare OCR" : "OCR Compare"}
-          </button>
-          <button
-            onClick={() => {
-              window.location.href = appPath("/ocr/settings?from=review");
-            }}
-          >
-            {isRo ? "Setări OCR" : "OCR Settings"}
-          </button>
-          <button
-            onClick={() => {
               window.location.href = appPath("/ocr/archive-history");
             }}
           >
@@ -1377,6 +1423,15 @@ export function MonthlySettlementReviewScreen() {
                     <button type="button" onClick={() => setZoom(100)}>
                       {isRo ? "Potrivire" : "Fit"}
                     </button>
+                    <button
+                      type="button"
+                      disabled={selected.mimeType === "application/pdf"}
+                      onClick={() =>
+                        setImageRotation((current) => (current + 90) % 360)
+                      }
+                    >
+                      {isRo ? "Rotire" : "Rotate"}
+                    </button>
                   </div>
                 </div>
                 {selected.archiveStatus?.status === "archived" ? (
@@ -1404,11 +1459,12 @@ export function MonthlySettlementReviewScreen() {
                     src={`${selected.fileUrl}#zoom=${zoom}`}
                   />
                 ) : (
-                  <div className="monthly-source-document">
+                  <div className="monthly-source-document" ref={sourcePreviewRef}>
                     <img
                       style={{
                         width: `${zoom}%`,
                         maxWidth: zoom <= 100 ? "100%" : "none",
+                        transform: getImageRotationTransform(imageRotation),
                       }}
                       src={selected.fileUrl}
                       alt={selected.sourceFile}
@@ -1695,17 +1751,15 @@ export function MonthlySettlementReviewScreen() {
                               <>
                                 <th>{isRo ? "Producător" : "Producer"}</th>
                                 <th>{isRo ? "Ultimul total" : "Last total"}</th>
-                                <th>{isRo ? "Tip lapte" : "Milk type"}</th>
+                                <th className="monthly-milk-type-column">{isRo ? "Tip lapte" : "Milk type"}</th>
                               </>
                             ) : (
                               <>
-                                <th>
-                                  {isRo
-                                    ? "Centru / producător"
-                                    : "Center / producer"}
-                                </th>
+                                <th>{isRo ? "Producător" : "Producer"}</th>
                                 <th>{isRo ? "Litri" : "Liters"}</th>
-                                <th>G</th>
+                                <th className="monthly-milk-type-column">
+                                  {isRo ? "Tip lapte" : "Milk type"}
+                                </th>
                               </>
                             )}
                             <th className="monthly-row-actions">
@@ -1737,9 +1791,6 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
-                                    {!hasNumber(row.liters) && (
-                                      <span className="monthly-cell-alert" title={isRo ? "Cantitatea lipsește" : "Quantity is missing"} aria-label={isRo ? "Cantitatea lipsește" : "Quantity is missing"}>!</span>
-                                    )}
                                   </td>
                                   <td>
                                     <select
@@ -1762,7 +1813,7 @@ export function MonthlySettlementReviewScreen() {
                                 </>
                               ) : (
                                 <>
-                                  {referenceNameCell(row, index, "centerName")}
+                                  {referenceNameCell(row, index, "producer")}
                                   <td className={!hasNumber(row.liters) ? "monthly-cell-warning" : ""}>
                                     <input
                                       type="number"
@@ -1775,27 +1826,25 @@ export function MonthlySettlementReviewScreen() {
                                         )
                                       }
                                     />
-                                    {!hasNumber(row.liters) && (
-                                      <span className="monthly-cell-alert" title={isRo ? "Cantitatea lipsește" : "Quantity is missing"} aria-label={isRo ? "Cantitatea lipsește" : "Quantity is missing"}>!</span>
-                                    )}
                                   </td>
-                                  <td className={!hasNumber(row.gValue) ? "monthly-cell-warning" : ""}>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      value={row.gValue ?? ""}
+                                  <td>
+                                    <select
+                                      value={monthlyMilkTypeValue(row, draft.milkType)}
                                       onChange={(e) =>
                                         updateRow(
                                           index,
-                                          "gValue",
+                                          "milkType",
                                           e.target.value,
                                         )
                                       }
-                                    />
-                                    {!hasNumber(row.gValue) && (
-                                      <span className="monthly-cell-alert" title={isRo ? "G lipsește" : "G is missing"} aria-label={isRo ? "G lipsește" : "G is missing"}>!</span>
-                                    )}
-                                   </td>
+                                    >
+                                      {monthlyMilkTypeOptions.map((milkType) => (
+                                        <option key={milkType} value={milkType}>
+                                          {milkType}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
                                  </>
                                )}
                               <td>

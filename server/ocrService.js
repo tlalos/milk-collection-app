@@ -25,12 +25,12 @@ const MONTHLY_SETTLEMENT_PROMPT = `Extract this Romanian milk collection JOURNAL
 
 First identify the layout:
 - detailed: a wide handwritten daily grid with producer names in the first column, day columns, and final TOTAL / U.G. columns.
-- overview: a printed summary grid with center/producer name, liters, G. and U.G. columns.
+- overview: a printed summary grid with a collection center in the header and producer rows with liters, G. and U.G. columns.
 
 Rules:
 - Preserve Romanian names as written. Return date as YYYY-MM-DD only when an exact calendar day is visible. When only a month is identifiable, return date as null and put its month number (1-12) in documentMonth. Otherwise documentMonth is null. The server will use the last day of that month in the current year.
-- Detect the document milk type from the header (for example VACA or BIVOL). If no document-level milk type is visible, return VACA.
-- Each output row must include milkType. If a row or section is labelled VACA, BIVOL, OAIE, or CAPRA, use that value on that row. If the row has no separate visible milk type, use the document milkType.
+- Detect the document milk type from the header. Return milkType using exactly one of MILK-COW, MILK-SHEEP, MILK-GOAT, MILK-BUFF. For example, VACA means MILK-COW, OAIE means MILK-SHEEP, CAPRA means MILK-GOAT, and BIVOL means MILK-BUFF. If no document-level milk type is visible, return MILK-COW.
+- Each output row must include milkType using the same MILK-* codes. If a row or section is labelled VACA, BIVOL, OAIE, or CAPRA, convert it to the matching MILK-* code on that row. If the row has no separate visible milk type, use the document milkType.
 - Some handwritten detailed journals have one producer name at the top and then dated quantity entries underneath, for example SITA - SERBAN followed by 03/07 242, 04/07 77, and TOTAL 2319. For those pages, return exactly one row for the producer using the final TOTAL as liters; do not return the individual dated entries as rows.
 - Some single-producer journals have separate milk type sections, for example a VACA total and a BIVOL total. For those pages, return one row per milk type total for that producer; do not return the individual daily date rows.
 - For detailed documents, headerCenterName is the collection center written above the grid on the left. For each populated producer row extract the producer name and the final far-right TOTAL L column into liters. Extract a true U.G. percentage into ugPercent. Extract the accumulated U.G. Total into gValue. Do not extract intermediate daily cells.
@@ -43,8 +43,8 @@ Rules:
 - Inspect the complete grid from top to bottom before responding. For standard multi-producer grids, return one output row for every visibly populated producer row; do not stop after the first few rows. Preserve the printed row number so missing rows can be detected during review. For single-producer dated quantity lists, this rule applies to producer totals only, not to each date line.
 - When both the original image and an OCR transcription are supplied, use the original image to recover rows or values omitted from the transcription. The transcription is supporting evidence, not a limit on what may be extracted.
 - Mandatory check before returning JSON: independently trace every populated detailed-journal row horizontally to the extreme right. Confirm that liters came from the second/final TOTAL L and gValue came from the extreme-right final U.G. Total. Then compare the returned row numbers with every visibly populated producer row and add any omitted rows. Do not claim completion until both checks have been performed.
-- For overview documents, extract each populated center name, liters, and G. value. Put G. in gValue.
-- Exclude TOTAL summary rows. For overview documents, exclude rows whose center/producer name and numeric values are all empty.
+- For overview documents, extract each populated producer name into producer, liters, and G. value. Put G. in gValue. The collection center belongs in headerCenterName, not in row centerName.
+- Exclude TOTAL summary rows. For overview documents, exclude rows whose producer name and numeric values are all empty.
 - Romanian decimal commas become JSON decimal points. Never invent illegible values; use null and record uncertainty.
 - rawTranscription is concise and warnings describe material ambiguity.`
 
@@ -66,14 +66,14 @@ function contentForFile(file) {
   }
 }
 
-function normalizeMonthlyMilkType(value, fallback = 'VACA') {
-  const raw = String(value || fallback || 'VACA').trim()
+function normalizeMonthlyMilkType(value, fallback = 'MILK-COW') {
+  const raw = String(value || fallback || 'MILK-COW').trim()
   const normalized = raw.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase()
-  if (/\b(?:BIVOL|BUFFALO)\b/u.test(normalized)) return 'BIVOL'
-  if (/\b(?:OAIE|OITA|SHEEP)\b/u.test(normalized)) return 'OAIE'
-  if (/\b(?:CAPRA|GOAT)\b/u.test(normalized)) return 'CAPRA'
-  if (/\b(?:VACA|COW)\b/u.test(normalized)) return 'VACA'
-  return raw || 'VACA'
+  if (/\b(?:BIVOL|BUFFALO|BUFF)\b/u.test(normalized)) return 'MILK-BUFF'
+  if (/\b(?:OAIE|OITA|SHEEP)\b/u.test(normalized)) return 'MILK-SHEEP'
+  if (/\b(?:CAPRA|GOAT)\b/u.test(normalized)) return 'MILK-GOAT'
+  if (/\b(?:VACA|COW)\b/u.test(normalized)) return 'MILK-COW'
+  return raw || 'MILK-COW'
 }
 
 function normalizeMonthlyText(value) {
@@ -136,7 +136,14 @@ export function normalizeMonthlyData(data) {
     .trim()
     .replace(/[\s:;,_-]+$/u, '') || null
   const normalizedHeaderCenter = String(headerCenterName || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
-  const sourceRows = data.rows.filter((row) => {
+  const canonicalRows = data.rows.map((row) => data.layoutType === 'overview'
+    ? {
+        ...row,
+        producer: row.centerName || row.producer || null,
+        centerName: null,
+      }
+    : row)
+  const sourceRows = canonicalRows.filter((row) => {
     if (data.layoutType !== 'detailed') return true
     const producer = String(row.producer || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9]+/giu, ' ').trim().toUpperCase()
     if (!producer) return true
@@ -182,7 +189,7 @@ export function normalizeMonthlyData(data) {
     totalLiters: data.totalLiters ?? null,
     rows: rows.filter((row) => row.manual || (data.layoutType === 'detailed'
       ? Boolean(row.producer?.trim() || row.liters !== null || row.gValue !== null || row.ugPercent !== null)
-      : Boolean(row.centerName?.trim() || row.liters !== null || row.gValue !== null))),
+      : Boolean(row.producer?.trim() || row.centerName?.trim() || row.liters !== null || row.gValue !== null))),
     warnings: [
       ...data.warnings.filter((warning) => !warning.startsWith('U.G. % was calculated as U.G. Total divided by TOTAL L')),
       ...calculationWarning,
@@ -273,7 +280,7 @@ function jsonPrompt(documentCategory) {
 }
 
 function prepareMonthlyRawData(rawData) {
-  if (!rawData.milkType) rawData.milkType = 'VACA'
+  if (!rawData.milkType) rawData.milkType = 'MILK-COW'
   if (rawData.documentMonth === undefined) rawData.documentMonth = null
   if (rawData.date === undefined) rawData.date = null
   if (rawData.headerCenterName === undefined) rawData.headerCenterName = null
@@ -283,9 +290,9 @@ function prepareMonthlyRawData(rawData) {
   rawData.rows = (Array.isArray(rawData.rows) ? rawData.rows : []).map((row, index) => ({
     ...row,
     rowNumber: Number.isInteger(Number(row.rowNumber)) && Number(row.rowNumber) > 0 ? Number(row.rowNumber) : index + 1,
-    producer: row.producer ?? (rawData.layoutType === 'detailed' ? row.centerName ?? null : null),
-    centerName: row.centerName ?? (rawData.layoutType === 'overview' ? row.producer ?? null : null),
-    milkType: row.milkType ?? rawData.milkType ?? 'VACA',
+    producer: row.producer ?? row.centerName ?? null,
+    centerName: rawData.layoutType === 'overview' ? null : row.centerName ?? null,
+    milkType: row.milkType ?? rawData.milkType ?? 'MILK-COW',
     liters: row.liters ?? row.totalLiters ?? null,
     ugPercent: row.ugPercent ?? null,
     gValue: row.gValue ?? row.ugTotal ?? row.g ?? null,
@@ -550,7 +557,7 @@ async function extractWithCompatibleProvider(file, settings, documentCategory) {
   const cleaned = String(text).replace(/^```(?:json)?\s*|\s*```$/gu, '').trim()
   const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
   const rawData = JSON.parse(cleaned)
-  if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'VACA'
+  if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'MILK-COW'
   if (documentCategory === 'journal_monthly_settlement' && rawData.documentMonth === undefined) rawData.documentMonth = null
   if (documentCategory === 'journal_monthly_settlement' && rawData.totalLiters === undefined) rawData.totalLiters = null
   if (documentCategory !== 'journal_monthly_settlement') prepareDailyRawData(rawData)

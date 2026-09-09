@@ -7,6 +7,7 @@ import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
 import { DailyAvizScreen } from './components/DailyAvizScreen'
+import { MonthlyReconciliationScreen } from './components/MonthlyReconciliationScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
@@ -44,6 +45,7 @@ type Screen =
   | 'transport'
   | 'milkReception'
   | 'dailyAviz'
+  | 'monthlyReconciliation'
   | 'suppliers'
   | 'entry'
   | 'ocrDocuments'
@@ -62,6 +64,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
+  if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
   return 'startup'
 }
@@ -234,6 +237,10 @@ export function App() {
 
       {screen === 'dailyAviz' && (
         <OcrAuthGate><DailyAvizScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+      )}
+
+      {screen === 'monthlyReconciliation' && (
+        <OcrAuthGate><MonthlyReconciliationScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
@@ -464,6 +471,24 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Daily Aviz</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/monthly-reconciliation') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h16" />
+                    <path d="M4 11h16" />
+                    <path d="M4 17h8" />
+                    <path d="M15 16l2 2 4-5" />
+                    <path d="M8 5v12" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Monthly Reconciliation</span>
               </button>
 
             </div>
