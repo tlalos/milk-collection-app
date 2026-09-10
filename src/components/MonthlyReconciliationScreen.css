@@ -187,11 +187,114 @@
   font-weight: 900;
 }
 
+.monthly-recon-journals-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 1px solid #bcd5c7;
+  border-radius: 8px;
+  padding: 0 9px;
+  background: #f7fbf8;
+  color: #155938;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.monthly-recon-journals-toggle:hover {
+  border-color: #82ad95;
+  background: #e8f5ee;
+}
+
+.monthly-recon-journals-toggle[aria-expanded="true"] {
+  border-color: #237a50;
+  background: #dff1e7;
+}
+
+.monthly-recon-journals-toggle strong {
+  display: inline-grid;
+  min-width: 20px;
+  min-height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: #155938;
+  color: #fff;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
 .monthly-recon-table-title p {
   margin-top: 4px;
   color: var(--color-text-muted);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.monthly-recon-journal-centers {
+  border-top: 1px solid #dce8e1;
+  padding: 10px 16px 12px;
+  background: #f7fbf8;
+}
+
+.monthly-recon-journal-centers p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.monthly-recon-journal-centers ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 7px;
+  max-height: 230px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.monthly-recon-journal-centers li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+  border: 1px solid #d4e2da;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #fff;
+}
+
+.monthly-recon-journal-centers li span {
+  min-width: 0;
+  overflow: hidden;
+  color: #143f2b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-recon-journal-centers li small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-recon-journal-centers li b {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  color: #003f28;
+  font-size: 0.76rem;
+  font-weight: 950;
+  white-space: nowrap;
 }
 
 .monthly-recon-table-wrap {

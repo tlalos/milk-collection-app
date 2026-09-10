@@ -122,6 +122,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showJournalCenters, setShowJournalCenters] = useState(false)
 
   async function loadRows() {
     setLoading(true)
@@ -175,6 +176,27 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const tableAvizLiters = tableRows.reduce((total, row) => total + row.avizLiters, 0)
   const tableMonthlyLiters = tableRows.reduce((total, row) => total + row.monthlyLiters, 0)
   const tableDifference = tableMonthlyLiters - tableAvizLiters
+  const journalCenters = useMemo(() => {
+    const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string> }>()
+    for (const row of rows) {
+      if (monthFilter && row.month !== monthFilter) continue
+      if (row.monthlyRowCount <= 0) continue
+      const key = normalizedSearch(row.center)
+      if (!key) continue
+      const current = centers.get(key) ?? { center: row.center, liters: 0, rowCount: 0, milkTypes: new Set<string>() }
+      current.liters += row.monthlyLiters
+      current.rowCount += row.monthlyRowCount
+      if (row.milkType) current.milkTypes.add(row.milkType)
+      centers.set(key, current)
+    }
+    return [...centers.values()]
+      .map((item) => ({
+        ...item,
+        liters: Number(item.liters.toFixed(3)),
+        milkTypeLabel: [...item.milkTypes].sort().join(', '),
+      }))
+      .sort((left, right) => left.center.localeCompare(right.center, undefined, { numeric: true }))
+  }, [monthFilter, rows])
 
   function openFile(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -196,6 +218,13 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
           <h1>Monthly Reconciliation</h1>
         </div>
         <div className="monthly-recon-actions">
+          <button
+            className="monthly-recon-header-button"
+            type="button"
+            onClick={() => { window.location.href = appPath('/ocr/review') }}
+          >
+            Daily OCR
+          </button>
           <button
             className="monthly-recon-header-button"
             type="button"
@@ -281,12 +310,38 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               <h2>
                 Monthly journals Vs Aviz
                 {monthFilter && <span>{displayMonth(monthFilter)}</span>}
+                <button
+                  className="monthly-recon-journals-toggle"
+                  type="button"
+                  onClick={() => setShowJournalCenters((current) => !current)}
+                  aria-expanded={showJournalCenters}
+                >
+                  Journals
+                  <strong>{journalCenters.length}</strong>
+                </button>
               </h2>
               <p>
                 {tableRows.length} aviz centers shown · {formatNumber(tableAvizLiters)} aviz L · {formatNumber(tableMonthlyLiters)} monthly L · {formatNumber(tableDifference)} diff L
               </p>
             </div>
           </div>
+          {showJournalCenters && (
+            <div className="monthly-recon-journal-centers" aria-label="Received journal centers">
+              {journalCenters.length === 0 ? (
+                <p>No journal centers for this month.</p>
+              ) : (
+                <ul>
+                  {journalCenters.map((item) => (
+                    <li key={normalizedSearch(item.center)}>
+                      <span title={item.center}>{item.center}</span>
+                      {item.milkTypeLabel && <small>{item.milkTypeLabel}</small>}
+                      <b>{formatNumber(item.liters)} L</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div className="monthly-recon-table-wrap">
             <table className="monthly-recon-table">
               <thead>

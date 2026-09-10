@@ -356,8 +356,16 @@ function rowHasRequiredAttention(row: ExtractedRow, centerNeedsReview: boolean) 
     || centerNeedsReview
 }
 
-function rowTextFieldNeedsReview(row: ExtractedRow, field: RowTextField) {
+function acceptedCenterMatch(match?: CenterMatch) {
+  return Boolean(
+    match?.selectedName &&
+    (match.status === 'auto_replaced' || match.status === 'confirmed'),
+  )
+}
+
+function rowTextFieldNeedsReview(row: ExtractedRow, field: RowTextField, match?: CenterMatch) {
   if (field === 'milkType') return false
+  if (field === 'collectionCenter' && acceptedCenterMatch(match)) return false
   const value = row[field]
   return !value?.trim() || row.uncertainFields.includes(field)
 }
@@ -407,10 +415,16 @@ function applyAutomaticCenterReplacements(job: OcrJob) {
     rows: job.data.rows.map((row) => {
       const match = centerMatches.find((item) =>
         item.rowNumber === row.rowNumber &&
-        (item.status === 'auto_replaced' || item.status === 'confirmed') &&
+        acceptedCenterMatch(item) &&
         item.selectedName
       )
-      return match?.selectedName ? { ...row, collectionCenter: match.selectedName } : row
+      return match?.selectedName
+        ? {
+            ...row,
+            collectionCenter: match.selectedName,
+            uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter'),
+          }
+        : row
     }),
   }
   return { ...job, data, centerMatches }
@@ -1574,7 +1588,7 @@ export function OcrReviewScreen() {
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
                           const needsReview = centerNameNeedsReview(row, match)
-                          const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter')
+                          const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter', match)
                           return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : needsSoftReview ? 'review-cell-warning' : ''}`}>
                             <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
                             {match ? <>
