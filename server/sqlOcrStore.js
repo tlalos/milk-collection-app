@@ -106,6 +106,29 @@ BEGIN
   );
 END;
 
+IF OBJECT_ID(N'dbo.MonthlyProducerPricing', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.MonthlyProducerPricing (
+    pricingId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_MonthlyProducerPricing PRIMARY KEY,
+    monthKey CHAR(7) NOT NULL,
+    producerCode NVARCHAR(80) NOT NULL,
+    milkType NVARCHAR(40) NOT NULL,
+    producerName NVARCHAR(240) NULL,
+    centerCode NVARCHAR(80) NULL,
+    centerName NVARCHAR(240) NULL,
+    responsiblePrice DECIMAL(18,4) NULL,
+    receiverCommission DECIMAL(18,4) NULL,
+    electricity DECIMAL(18,4) NULL,
+    responsibleComment NVARCHAR(1000) NULL,
+    pricingStatus NVARCHAR(40) NOT NULL CONSTRAINT DF_MonthlyProducerPricing_Status DEFAULT N'DRAFT',
+    lastSaved DATETIMEOFFSET NULL,
+    createdAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_MonthlyProducerPricing_CreatedAt DEFAULT SYSDATETIMEOFFSET(),
+    updatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_MonthlyProducerPricing_UpdatedAt DEFAULT SYSDATETIMEOFFSET(),
+    CONSTRAINT UQ_MonthlyProducerPricing_MonthProducerMilk UNIQUE (monthKey, producerCode, milkType),
+    CONSTRAINT CK_MonthlyProducerPricing_MonthKey CHECK (monthKey LIKE '[0-9][0-9][0-9][0-9]-[0-9][0-9]')
+  );
+END;
+
 IF OBJECT_ID(N'dbo.OcrJobRows', N'U') IS NOT NULL
   AND OBJECT_ID(N'dbo.OcrJobs', N'U') IS NOT NULL
   AND NOT EXISTS (
@@ -122,6 +145,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_OcrJobs_CategoryStatu
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_OcrJobRows_JobRow' AND object_id = OBJECT_ID(N'dbo.OcrJobRows'))
   CREATE INDEX IX_OcrJobRows_JobRow ON dbo.OcrJobRows(jobId, rowNumber);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MonthlyProducerPricing_Month' AND object_id = OBJECT_ID(N'dbo.MonthlyProducerPricing'))
+  CREATE INDEX IX_MonthlyProducerPricing_Month ON dbo.MonthlyProducerPricing(monthKey, milkType, producerCode);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MonthlyProducerPricing_Producer' AND object_id = OBJECT_ID(N'dbo.MonthlyProducerPricing'))
+  CREATE INDEX IX_MonthlyProducerPricing_Producer ON dbo.MonthlyProducerPricing(producerCode, milkType, monthKey);
 `)
   initialized = true
 }
@@ -227,6 +256,107 @@ export async function deleteSqlJob(id) {
   return Number(result.recordset[0]?.deleted || 0) > 0
 }
 
+export async function upsertMonthlyProducerPricingRows(rows) {
+  await initializeSqlOcrStore()
+  const pool = await getPool()
+  const tx = new sql.Transaction(pool)
+  await tx.begin()
+  try {
+    let inserted = 0
+    let updated = 0
+    for (const row of rows) {
+      const request = new sql.Request(tx)
+      bindMonthlyProducerPricing(request, row)
+      const result = await request.query(`
+MERGE dbo.MonthlyProducerPricing AS target
+USING (
+  SELECT
+    @monthKey AS monthKey,
+    @producerCode AS producerCode,
+    @milkType AS milkType
+) AS source
+ON target.monthKey = source.monthKey
+  AND target.producerCode = source.producerCode
+  AND target.milkType = source.milkType
+WHEN MATCHED THEN
+  UPDATE SET
+    producerName = @producerName,
+    centerCode = @centerCode,
+    centerName = @centerName,
+    responsiblePrice = @responsiblePrice,
+    receiverCommission = @receiverCommission,
+    electricity = @electricity,
+    responsibleComment = @responsibleComment,
+    pricingStatus = @pricingStatus,
+    lastSaved = @lastSaved,
+    updatedAt = SYSDATETIMEOFFSET()
+WHEN NOT MATCHED THEN
+  INSERT (
+    monthKey, producerCode, milkType, producerName, centerCode, centerName,
+    responsiblePrice, receiverCommission, electricity, responsibleComment,
+    pricingStatus, lastSaved
+  ) VALUES (
+    @monthKey, @producerCode, @milkType, @producerName, @centerCode, @centerName,
+    @responsiblePrice, @receiverCommission, @electricity, @responsibleComment,
+    @pricingStatus, @lastSaved
+  )
+OUTPUT $action AS action;
+`)
+      for (const item of result.recordset || []) {
+        if (item.action === 'INSERT') inserted += 1
+        if (item.action === 'UPDATE') updated += 1
+      }
+    }
+    await tx.commit()
+    return { inserted, updated, total: rows.length }
+  } catch (error) {
+    await tx.rollback().catch(() => undefined)
+    throw error
+  }
+}
+
+export async function listMonthlyProducerPricingRows(monthKeys = []) {
+  await initializeSqlOcrStore()
+  const pool = await getPool()
+  const cleanedMonthKeys = [...new Set(
+    monthKeys.map((monthKey) => String(monthKey || '').trim()).filter((monthKey) => /^\d{4}-\d{2}$/u.test(monthKey)),
+  )]
+  if (!cleanedMonthKeys.length) return []
+  const request = pool.request()
+  const placeholders = cleanedMonthKeys.map((monthKey, index) => {
+    const name = `monthKey${index}`
+    request.input(name, sql.Char(7), monthKey)
+    return `@${name}`
+  })
+  const result = await request.query(`
+SELECT
+  pricingId,
+  monthKey,
+  producerCode,
+  milkType,
+  producerName,
+  centerCode,
+  centerName,
+  responsiblePrice,
+  receiverCommission,
+  electricity,
+  responsibleComment,
+  pricingStatus,
+  lastSaved,
+  createdAt,
+  updatedAt
+FROM dbo.MonthlyProducerPricing
+WHERE monthKey IN (${placeholders.join(', ')})
+ORDER BY monthKey DESC, producerCode, milkType;
+`)
+  return result.recordset.map((row) => ({
+    ...row,
+    responsiblePrice: row.responsiblePrice == null ? null : Number(row.responsiblePrice),
+    receiverCommission: row.receiverCommission == null ? null : Number(row.receiverCommission),
+    electricity: row.electricity == null ? null : Number(row.electricity),
+  }))
+}
+
 function bindJob(request, job, summary, jobJson) {
   request
     .input('id', sql.NVarChar(64), job.id)
@@ -269,6 +399,22 @@ function bindRow(request, job, row) {
     .input('noticeNumber', sql.NVarChar(80), row.noticeNumber == null ? null : String(row.noticeNumber))
     .input('confidence', sql.Decimal(9, 6), decimalValue(row.confidence))
     .input('rowJson', sql.NVarChar(sql.MAX), JSON.stringify(row))
+}
+
+function bindMonthlyProducerPricing(request, row) {
+  request
+    .input('monthKey', sql.Char(7), row.monthKey)
+    .input('producerCode', sql.NVarChar(80), row.producerCode)
+    .input('milkType', sql.NVarChar(40), row.milkType)
+    .input('producerName', sql.NVarChar(240), textOrNull(row.producerName))
+    .input('centerCode', sql.NVarChar(80), textOrNull(row.centerCode))
+    .input('centerName', sql.NVarChar(240), textOrNull(row.centerName))
+    .input('responsiblePrice', sql.Decimal(18, 4), decimalValue(row.responsiblePrice))
+    .input('receiverCommission', sql.Decimal(18, 4), decimalValue(row.receiverCommission))
+    .input('electricity', sql.Decimal(18, 4), decimalValue(row.electricity))
+    .input('responsibleComment', sql.NVarChar(1000), textOrNull(row.responsibleComment))
+    .input('pricingStatus', sql.NVarChar(40), textOrNull(row.pricingStatus) || 'DRAFT')
+    .input('lastSaved', sql.DateTimeOffset, dateValue(row.lastSaved))
 }
 
 function jobSummary(job) {

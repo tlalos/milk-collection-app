@@ -3,7 +3,7 @@ import { appPath } from '../ocrPaths'
 import './MonthClosureScreen.css'
 
 type ReconciliationStatus = 'ok' | 'difference' | 'missing_monthly' | 'missing_aviz'
-type PricingStatus = 'needs_price' | 'blocked'
+type PricingStatus = 'needs_price' | 'blocked' | 'saved'
 type StatusFilter = 'all' | PricingStatus
 
 interface MonthClosurePricingRow {
@@ -16,6 +16,12 @@ interface MonthClosurePricingRow {
   sourceRowCount: number
   previousMonthLiters: number | null
   previousMonthRowCount: number
+  previousMonthPrice?: number | null
+  previousMonthCommission?: number | null
+  previousMonthElectricity?: number | null
+  price?: number | null
+  commission?: number | null
+  electricity?: number | null
   reconciliationStatus: ReconciliationStatus
   reconciliationDifferenceLiters: number
   centerAvizLiters: number
@@ -42,6 +48,9 @@ interface MonthClosurePayload {
   selectedMonth: string
 }
 
+type PricingDraftField = 'price' | 'commission' | 'electricity'
+type PricingDrafts = Record<string, Partial<Record<PricingDraftField, string>>>
+
 const emptySummary: MonthClosureSummary = {
   rowCount: 0,
   centerCount: 0,
@@ -62,6 +71,15 @@ function displayMonth(value: string) {
   return `${match[2]}/${match[1]}`
 }
 
+function displayMilkType(value: string | null | undefined) {
+  if (!value) return '-'
+  return value.replace(/^MILK[-_\s]*/iu, '').trim() || value
+}
+
+function hasMeaningfulPreviousValue(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) && value !== 0
+}
+
 function normalizedSearch(value: unknown) {
   return String(value || '').trim().toLocaleLowerCase()
 }
@@ -79,6 +97,7 @@ function reconciliationLabel(status: ReconciliationStatus) {
 }
 
 function pricingLabel(status: PricingStatus) {
+  if (status === 'saved') return 'Saved'
   return status === 'blocked' ? 'Blocked' : 'Needs price'
 }
 
@@ -86,6 +105,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
   const [summary, setSummary] = useState<MonthClosureSummary>(emptySummary)
   const [monthOptions, setMonthOptions] = useState<string[]>([])
+  const [pricingDrafts, setPricingDrafts] = useState<PricingDrafts>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [monthFilter, setMonthFilter] = useState(() => new URLSearchParams(window.location.search).get('month') || '')
@@ -117,6 +137,23 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   function handleMonthChange(nextMonth: string) {
     setMonthFilter(nextMonth)
     void loadRows(nextMonth)
+  }
+
+  function updatePricingDraft(rowId: string, field: PricingDraftField, value: string) {
+    setPricingDrafts((current) => ({
+      ...current,
+      [rowId]: {
+        ...current[rowId],
+        [field]: value,
+      },
+    }))
+  }
+
+  function pricingDraftValue(row: MonthClosurePricingRow, field: PricingDraftField) {
+    const draft = pricingDrafts[row.id]?.[field]
+    if (draft !== undefined) return draft
+    const savedValue = field === 'price' ? row.price : field === 'commission' ? row.commission : row.electricity
+    return savedValue === null || savedValue === undefined ? '' : String(savedValue)
   }
 
   useEffect(() => {
@@ -209,7 +246,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
             <span>Milk type</span>
             <select value={milkTypeFilter} onChange={(event) => setMilkTypeFilter(event.target.value)}>
               <option value="">All milk types</option>
-              {milkTypeOptions.map((milkType) => <option key={milkType} value={milkType}>{milkType}</option>)}
+              {milkTypeOptions.map((milkType) => <option key={milkType} value={milkType}>{displayMilkType(milkType)}</option>)}
             </select>
           </label>
           <label>
@@ -217,6 +254,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
               <option value="all">All rows</option>
               <option value="needs_price">Needs price</option>
+              <option value="saved">Saved</option>
               <option value="blocked">Blocked</option>
             </select>
           </label>
@@ -261,6 +299,10 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                   <th>Producer</th>
                   <th>Milk type</th>
                   <th>Qty L</th>
+                  <th>Price</th>
+                  <th>Comm.</th>
+                  <th>Electricity</th>
+                  <th>Prev price</th>
                   <th>Prev L</th>
                   <th>Journal rows</th>
                   <th>Recon</th>
@@ -269,15 +311,55 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={10} className="month-closure-empty">Loading pricing rows...</td></tr>}
-                {!loading && filteredRows.length === 0 && <tr><td colSpan={10} className="month-closure-empty">No pricing rows found for this view.</td></tr>}
+                {loading && <tr><td colSpan={14} className="month-closure-empty">Loading pricing rows...</td></tr>}
+                {!loading && filteredRows.length === 0 && <tr><td colSpan={14} className="month-closure-empty">No pricing rows found for this view.</td></tr>}
                 {!loading && filteredRows.map((row) => (
                   <tr key={row.id} className={row.readyForPricing ? 'ready' : 'blocked'}>
                     <td>{displayMonth(row.month)}</td>
                     <td title={row.center}>{row.center}</td>
                     <td title={row.producer}>{row.producer}</td>
-                    <td>{row.milkType}</td>
+                    <td title={row.milkType}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
+                    <td className="month-closure-entry-cell">
+                      <div className="month-closure-entry-stack">
+                        <input
+                          className="month-closure-price-input"
+                          inputMode="decimal"
+                          aria-label={`Price for ${row.producer}`}
+                          value={pricingDraftValue(row, 'price')}
+                          onChange={(event) => updatePricingDraft(row.id, 'price', event.target.value)}
+                        />
+                      </div>
+                    </td>
+                    <td className="month-closure-entry-cell">
+                      <div className="month-closure-entry-stack">
+                        <input
+                          className="month-closure-price-input"
+                          inputMode="decimal"
+                          aria-label={`Commission for ${row.producer}`}
+                          value={pricingDraftValue(row, 'commission')}
+                          onChange={(event) => updatePricingDraft(row.id, 'commission', event.target.value)}
+                        />
+                        {hasMeaningfulPreviousValue(row.previousMonthCommission) && (
+                          <span className="month-closure-previous-hint">Prev {formatNumber(row.previousMonthCommission, 3)}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="month-closure-entry-cell">
+                      <div className="month-closure-entry-stack">
+                        <input
+                          className="month-closure-price-input"
+                          inputMode="decimal"
+                          aria-label={`Electricity for ${row.producer}`}
+                          value={pricingDraftValue(row, 'electricity')}
+                          onChange={(event) => updatePricingDraft(row.id, 'electricity', event.target.value)}
+                        />
+                        {hasMeaningfulPreviousValue(row.previousMonthElectricity) && (
+                          <span className="month-closure-previous-hint">Prev {formatNumber(row.previousMonthElectricity, 3)}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>{formatNumber(row.previousMonthPrice, 3)}</td>
                     <td>{formatNumber(row.previousMonthLiters)}</td>
                     <td>{row.sourceRowCount}</td>
                     <td><span className={`month-closure-recon-badge ${row.reconciliationStatus}`}>{reconciliationLabel(row.reconciliationStatus)}</span></td>

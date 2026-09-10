@@ -11,6 +11,7 @@
 
 .month-closure-topbar .app-title-block {
   flex: 1;
+  min-width: 0;
 }
 
 .month-closure-home-button {
@@ -27,9 +28,11 @@
 }
 
 .month-closure-actions {
+  margin-right: calc(var(--ocr-header-control-width, 116px) + 12px);
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
 }
 
 .month-closure-actions button {
@@ -40,6 +43,7 @@
   background: rgba(255, 255, 255, 0.13);
   color: #fff;
   font-weight: 900;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -50,6 +54,35 @@
 .month-closure-actions button:disabled {
   opacity: 0.58;
   cursor: wait;
+}
+
+@media (max-width: 760px) {
+  .month-closure-topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 10px 12px;
+  }
+
+  .month-closure-topbar .app-title-block {
+    padding-right: calc(var(--ocr-header-control-width, 100px) + 8px);
+  }
+
+  .month-closure-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-right: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 7px;
+  }
+
+  .month-closure-actions button {
+    width: 100%;
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 0.78rem;
+  }
 }
 
 .month-closure-content {
@@ -220,7 +253,7 @@
 
 .month-closure-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1450px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 0.73rem;
@@ -247,13 +280,17 @@
 .month-closure-table th:nth-child(1) { width: 86px; }
 .month-closure-table th:nth-child(2) { width: 210px; }
 .month-closure-table th:nth-child(3) { width: 240px; }
-.month-closure-table th:nth-child(4) { width: 100px; }
+.month-closure-table th:nth-child(4) { width: 86px; }
 .month-closure-table th:nth-child(5),
 .month-closure-table th:nth-child(6),
 .month-closure-table th:nth-child(7),
-.month-closure-table th:nth-child(9) { width: 86px; }
 .month-closure-table th:nth-child(8),
-.month-closure-table th:nth-child(10) { width: 112px; }
+.month-closure-table th:nth-child(9),
+.month-closure-table th:nth-child(10),
+.month-closure-table th:nth-child(11),
+.month-closure-table th:nth-child(13) { width: 86px; }
+.month-closure-table th:nth-child(12),
+.month-closure-table th:nth-child(14) { width: 112px; }
 
 .month-closure-table td {
   color: #001f15;
@@ -267,6 +304,51 @@
 .month-closure-table tr.ready td:nth-child(2),
 .month-closure-table tr.ready td:nth-child(3) {
   background: #dff4e8;
+}
+
+.month-closure-price-input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid #cddbd3;
+  border-radius: 7px;
+  padding: 0 8px;
+  background: #fff;
+  color: #001f15;
+  font: inherit;
+  font-weight: 850;
+}
+
+.month-closure-price-input:focus {
+  border-color: #1f7a49;
+  box-shadow: 0 0 0 2px rgba(31, 122, 73, 0.14);
+  outline: none;
+}
+
+.month-closure-entry-cell {
+  vertical-align: middle;
+}
+
+.month-closure-entry-stack {
+  display: grid;
+  gap: 3px;
+}
+
+.month-closure-previous-hint {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 18px;
+  box-sizing: border-box;
+  border-radius: 5px;
+  padding: 0 5px;
+  background: #edf4ff;
+  color: #2b5b88;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .month-closure-recon-badge,
@@ -298,6 +380,11 @@
 .month-closure-pricing-badge.needs_price {
   background: #dff4e8;
   color: #0d5a33;
+}
+
+.month-closure-pricing-badge.saved {
+  background: #dcedff;
+  color: #164f86;
 }
 
 .month-closure-pricing-badge.blocked {

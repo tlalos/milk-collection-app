@@ -62,6 +62,12 @@ function displayDate(value: string | null | undefined) {
   return value
 }
 
+function displayMonth(value: string) {
+  const monthMatch = value.match(/^(\d{4})-(\d{2})$/u)
+  if (!monthMatch) return value || '-'
+  return `${monthMatch[2]}/${monthMatch[1]}`
+}
+
 function filterDateValue(value: string | null | undefined) {
   if (!value) return ''
   const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
@@ -71,6 +77,10 @@ function filterDateValue(value: string | null | undefined) {
   const day = displayMatch[1].padStart(2, '0')
   const month = displayMatch[2].padStart(2, '0')
   return `${displayMatch[3]}-${month}-${day}`
+}
+
+function filterMonthValue(value: string | null | undefined) {
+  return filterDateValue(value).slice(0, 7)
 }
 
 function dateSortValue(value: string | null | undefined) {
@@ -112,6 +122,16 @@ function statusLabel(status: string | null | undefined) {
   return status.replace('_', ' ')
 }
 
+function displayMilkType(value: string | null | undefined) {
+  if (!value) return '-'
+  return value.replace(/^MILK[-_\s]*/iu, '').trim() || value
+}
+
+function initialMonthFilter() {
+  if (typeof window === 'undefined') return ''
+  return new URLSearchParams(window.location.search).get('month') || ''
+}
+
 function normalizedSearch(value: unknown) {
   return String(value || '').trim().toLocaleLowerCase()
 }
@@ -130,10 +150,10 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const [summary, setSummary] = useState<DailyAvizSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [search, setSearch] = useState('')
   const [truckFilter, setTruckFilter] = useState('')
   const [centerFilter, setCenterFilter] = useState('')
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(initialMonthFilter)
   const [selectedDate, setSelectedDate] = useState('')
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all')
 
@@ -161,13 +181,14 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const truckOptions = useMemo(() => uniqueValues(rows, (row) => row.vehicleRegistration), [rows])
   const centerOptions = useMemo(() => uniqueValues(rows, (row) => row.collectionCenter), [rows])
   const milkTypeOptions = useMemo(() => uniqueValues(rows, (row) => row.milkType), [rows])
-  const hasActiveFilters = Boolean(search || truckFilter || centerFilter || milkTypeFilter || selectedDate || reviewFilter !== 'all')
+  const monthOptions = useMemo(() => uniqueValues(rows, (row) => filterMonthValue(row.documentDate)), [rows])
+  const hasActiveFilters = Boolean(truckFilter || centerFilter || milkTypeFilter || selectedMonth || selectedDate || reviewFilter !== 'all')
 
   const filteredRows = useMemo(() => {
-    const needle = normalizedSearch(search)
     const truckNeedle = normalizedSearch(truckFilter)
     const centerNeedle = normalizedSearch(centerFilter)
     return [...rows].sort(compareRows).filter((row) => {
+      if (selectedMonth && filterMonthValue(row.documentDate) !== selectedMonth) return false
       if (selectedDate && filterDateValue(row.documentDate) !== selectedDate) return false
       if (reviewFilter === 'pending' && row.reviewStatus !== 'pending') return false
       if (reviewFilter === 'reviewed' && row.reviewStatus !== 'reviewed') return false
@@ -176,19 +197,9 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
       if (truckNeedle && !includesFilter(row.vehicleRegistration, truckNeedle)) return false
       if (centerNeedle && !includesFilter(row.collectionCenter, centerNeedle)) return false
       if (milkTypeFilter && row.milkType !== milkTypeFilter) return false
-      if (!needle) return true
-      return [
-        row.sourceFile,
-        row.documentDate,
-        row.route,
-        row.driverName,
-        row.noticeNumber,
-        row.jobStatus,
-        row.reviewStatus,
-        row.excelStatus,
-      ].some((value) => includesFilter(value, needle))
+      return true
     })
-  }, [centerFilter, milkTypeFilter, reviewFilter, rows, search, selectedDate, truckFilter])
+  }, [centerFilter, milkTypeFilter, reviewFilter, rows, selectedDate, selectedMonth, truckFilter])
 
   const filteredLiters = filteredRows.reduce(
     (total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0),
@@ -230,14 +241,6 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
 
         <section className="daily-aviz-toolbar" aria-label="Daily aviz filters">
           <label>
-            <span>Search</span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Notice, route, driver, file..."
-            />
-          </label>
-          <label>
             <span>Truck</span>
             <input
               list="daily-aviz-truck-options"
@@ -265,8 +268,21 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
             <span>Milk type</span>
             <select value={milkTypeFilter} onChange={(event) => setMilkTypeFilter(event.target.value)}>
               <option value="">All milk types</option>
-              {milkTypeOptions.map((milkType) => <option key={milkType} value={milkType}>{milkType}</option>)}
+              {milkTypeOptions.map((milkType) => <option key={milkType} value={milkType}>{displayMilkType(milkType)}</option>)}
             </select>
+          </label>
+          <label>
+            <span>Month</span>
+            <input
+              type="month"
+              value={selectedMonth}
+              onInput={(event) => setSelectedMonth(event.currentTarget.value)}
+              onChange={(event) => setSelectedMonth(event.currentTarget.value)}
+              list="daily-aviz-month-options"
+            />
+            <datalist id="daily-aviz-month-options">
+              {monthOptions.map((month) => <option key={month} value={month} />)}
+            </datalist>
           </label>
           <label>
             <span>Aviz date</span>
@@ -291,10 +307,10 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
             className="daily-aviz-clear-filters"
             type="button"
             onClick={() => {
-              setSearch('')
               setTruckFilter('')
               setCenterFilter('')
               setMilkTypeFilter('')
+              setSelectedMonth('')
               setSelectedDate('')
               setReviewFilter('all')
             }}
@@ -310,7 +326,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
           <div className="daily-aviz-table-title">
             <div>
               <h2>Recognized aviz lines</h2>
-              <p>{filteredRows.length} rows shown · {formatNumber(filteredLiters)} liters</p>
+              <p>{filteredRows.length} rows shown{selectedMonth ? ` · ${displayMonth(selectedMonth)}` : ''} · {formatNumber(filteredLiters)} liters</p>
             </div>
             <button type="button" onClick={() => { window.location.href = appPath('/ocr/review') }}>
               Open OCR review
@@ -329,9 +345,9 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                   <th>Center</th>
                   <th>Milk type</th>
                   <th>Liters</th>
-                  <th>Fat %</th>
-                  <th>Temp C</th>
-                  <th>Water %</th>
+                  <th>Fat%</th>
+                  <th>Temp</th>
+                  <th>W%</th>
                   <th>Review</th>
                   <th>Excel</th>
                   <th>File</th>
@@ -354,7 +370,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                     <td>{row.route || '-'}</td>
                     <td>{row.driverName || '-'}</td>
                     <td title={row.collectionCenter || ''}>{row.collectionCenter || '-'}</td>
-                    <td>{row.milkType || '-'}</td>
+                    <td title={row.milkType || ''}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
                     <td>{formatNumber(row.fatPercent, 2)}</td>
                     <td>{formatNumber(row.temperature, 1)}</td>

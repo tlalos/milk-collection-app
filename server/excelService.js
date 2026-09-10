@@ -418,6 +418,32 @@ export async function listReferenceProducers(query = '', kind = 'producer', head
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
 }
 
+export async function listAllReferenceProducers() {
+  return loadReferenceProducers()
+}
+
+export async function readPricingEntryManualStore() {
+  const config = await loadConfig()
+  assertExcelOnlineConfigured(config, 'Pricing manual store import')
+  const token = await refreshAccessToken(config)
+  const workbook = await resolveWorkbook(config, token)
+  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+  const tableName = 'tblPricingEntryManualStore'
+  const tablePath = `${workbookPath}/tables/${encodeURIComponent(tableName)}`
+  const [columns, range] = await Promise.all([
+    graphFetch(`${tablePath}/columns`, token),
+    graphFetch(`${tablePath}/dataBodyRange`, token),
+  ])
+  const columnNames = (columns.value || []).map((column) => column.name)
+  const values = Array.isArray(range.values) ? range.values : []
+  return {
+    workbook: workbook.name,
+    tableName,
+    columnNames,
+    rows: values.map((row) => Object.fromEntries(columnNames.map((name, index) => [name, row[index] ?? null]))),
+  }
+}
+
 export async function matchMonthlyProducers(data) {
   const producers = await loadReferenceProducers()
   const layoutType = data.layoutType

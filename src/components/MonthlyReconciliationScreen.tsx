@@ -65,6 +65,18 @@ interface MonthlyReconciliationPayload {
 
 type StatusFilter = 'all' | ReconciliationStatus
 
+interface AvizCenterCorrectionDraft {
+  row: MonthlyReconciliationRow
+  targetCenter: string
+}
+
+interface AvizCenterCorrectionPayload {
+  updatedJobs: number
+  updatedRows: number
+  reconciliation: MonthlyReconciliationPayload
+  error?: string
+}
+
 const emptySummary: MonthlyReconciliationSummary = {
   groupCount: 0,
   okCount: 0,
@@ -113,20 +125,29 @@ function statusLabel(status: ReconciliationStatus) {
   return 'OK'
 }
 
+function initialMonthFilter() {
+  if (typeof window === 'undefined') return ''
+  return new URLSearchParams(window.location.search).get('month') || ''
+}
+
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<MonthlyReconciliationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [monthFilter, setMonthFilter] = useState('')
+  const [monthFilter, setMonthFilter] = useState(initialMonthFilter)
   const [centerFilter, setCenterFilter] = useState('')
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showJournalCenters, setShowJournalCenters] = useState(false)
+  const [correctionDraft, setCorrectionDraft] = useState<AvizCenterCorrectionDraft | null>(null)
+  const [correctionSaving, setCorrectionSaving] = useState(false)
+  const [notice, setNotice] = useState('')
 
   async function loadRows() {
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const response = await fetch(appPath('/api/ocr/monthly-reconciliation/rows'))
       const text = await response.text()
@@ -177,16 +198,17 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const tableMonthlyLiters = tableRows.reduce((total, row) => total + row.monthlyLiters, 0)
   const tableDifference = tableMonthlyLiters - tableAvizLiters
   const journalCenters = useMemo(() => {
-    const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string> }>()
+    const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean }>()
     for (const row of rows) {
       if (monthFilter && row.month !== monthFilter) continue
       if (row.monthlyRowCount <= 0) continue
       const key = normalizedSearch(row.center)
       if (!key) continue
-      const current = centers.get(key) ?? { center: row.center, liters: 0, rowCount: 0, milkTypes: new Set<string>() }
+      const current = centers.get(key) ?? { center: row.center, liters: 0, rowCount: 0, milkTypes: new Set<string>(), hasAvizMatch: false }
       current.liters += row.monthlyLiters
       current.rowCount += row.monthlyRowCount
       if (row.milkType) current.milkTypes.add(row.milkType)
+      if (row.avizLineCount > 0) current.hasAvizMatch = true
       centers.set(key, current)
     }
     return [...centers.values()]
@@ -197,6 +219,68 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
       }))
       .sort((left, right) => left.center.localeCompare(right.center, undefined, { numeric: true }))
   }, [monthFilter, rows])
+
+  function sortedJournalCenterOptions(row: MonthlyReconciliationRow) {
+    return journalCenters
+      .filter((item) => normalizedSearch(item.center) !== normalizedSearch(row.center))
+      .sort((left, right) => {
+        const leftMissing = left.hasAvizMatch ? 1 : 0
+        const rightMissing = right.hasAvizMatch ? 1 : 0
+        if (leftMissing !== rightMissing) return leftMissing - rightMissing
+        const leftSameMilk = left.milkTypes.has(row.milkType) ? 0 : 1
+        const rightSameMilk = right.milkTypes.has(row.milkType) ? 0 : 1
+        if (leftSameMilk !== rightSameMilk) return leftSameMilk - rightSameMilk
+        return left.center.localeCompare(right.center, undefined, { numeric: true })
+      })
+  }
+
+  function bestJournalCenterTarget(row: MonthlyReconciliationRow) {
+    const rowCenter = normalizedSearch(row.center)
+    return sortedJournalCenterOptions(row).find((item) => {
+      const optionCenter = normalizedSearch(item.center)
+      return !item.hasAvizMatch && item.milkTypes.has(row.milkType) && (optionCenter.includes(rowCenter) || rowCenter.includes(optionCenter))
+    })?.center || ''
+  }
+
+  function openCorrectionDialog(row: MonthlyReconciliationRow) {
+    setError('')
+    setNotice('')
+    setCorrectionDraft({ row, targetCenter: bestJournalCenterTarget(row) })
+  }
+
+  async function applyAvizCenterCorrection() {
+    if (!correctionDraft || correctionSaving) return
+    const targetCenter = correctionDraft.targetCenter.trim()
+    if (!targetCenter) {
+      setError('Choose the new center name.')
+      return
+    }
+    setCorrectionSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await fetch(appPath('/api/ocr/monthly-reconciliation/aviz-center'), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: correctionDraft.row.month,
+          fromCenter: correctionDraft.row.center,
+          milkType: correctionDraft.row.milkType,
+          toCenter: targetCenter,
+        }),
+      })
+      const payload = await response.json() as AvizCenterCorrectionPayload
+      if (!response.ok) throw new Error(payload.error || 'Could not update the aviz center.')
+      setRows(payload.reconciliation.rows || [])
+      setExpandedId(null)
+      setCorrectionDraft(null)
+      setNotice(`Updated ${payload.updatedRows} daily aviz row${payload.updatedRows === 1 ? '' : 's'} in ${payload.updatedJobs} document${payload.updatedJobs === 1 ? '' : 's'}.`)
+    } catch (saveError) {
+      setError((saveError as Error).message || 'Could not update the aviz center.')
+    } finally {
+      setCorrectionSaving(false)
+    }
+  }
 
   function openFile(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -252,7 +336,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
             <input
               type="month"
               value={monthFilter}
-              onChange={(event) => setMonthFilter(event.target.value)}
+              onInput={(event) => setMonthFilter(event.currentTarget.value)}
+              onChange={(event) => setMonthFilter(event.currentTarget.value)}
               list="monthly-recon-month-options"
             />
             <datalist id="monthly-recon-month-options">
@@ -303,6 +388,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
         </section>
 
         {error && <div className="monthly-recon-error" role="alert">{error}</div>}
+        {notice && <div className="monthly-recon-success" role="status">{notice}</div>}
 
         <section className="monthly-recon-table-card">
           <div className="monthly-recon-table-title">
@@ -332,8 +418,15 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               ) : (
                 <ul>
                   {journalCenters.map((item) => (
-                    <li key={normalizedSearch(item.center)}>
-                      <span title={item.center}>{item.center}</span>
+                    <li
+                      key={normalizedSearch(item.center)}
+                      className={item.hasAvizMatch ? '' : 'missing-aviz'}
+                      title={item.hasAvizMatch ? item.center : `${item.center}: no matching aviz center for this month`}
+                    >
+                      <span>
+                        {!item.hasAvizMatch && <em aria-hidden="true">!</em>}
+                        {item.center}
+                      </span>
                       {item.milkTypeLabel && <small>{item.milkTypeLabel}</small>}
                       <b>{formatNumber(item.liters)} L</b>
                     </li>
@@ -396,7 +489,12 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                         <td colSpan={10} className="monthly-recon-detail-cell">
                           <div className="monthly-recon-detail-grid">
                             <section className="monthly-recon-detail-panel">
-                              <h3>Daily aviz rows</h3>
+                              <div className="monthly-recon-detail-heading">
+                                <h3>Daily aviz rows</h3>
+                                {row.avizRows.length > 0 && (
+                                  <button type="button" onClick={() => openCorrectionDialog(row)}>Change aviz center</button>
+                                )}
+                              </div>
                               {row.avizRows.length === 0 ? (
                                 <p>No daily aviz rows for this center.</p>
                               ) : (
@@ -463,6 +561,44 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
             </table>
           </div>
         </section>
+
+        {correctionDraft && (
+          <div className="monthly-recon-modal-backdrop" role="presentation">
+            <section className="monthly-recon-modal" role="dialog" aria-modal="true" aria-labelledby="monthly-recon-correction-title">
+              <h2 id="monthly-recon-correction-title">Change aviz center</h2>
+              <p>
+                Change {correctionDraft.row.avizLineCount} daily aviz row{correctionDraft.row.avizLineCount === 1 ? '' : 's'} for {displayMonth(correctionDraft.row.month)}.
+              </p>
+              <div className="monthly-recon-correction-from">
+                <span>From</span>
+                <b>{correctionDraft.row.center}</b>
+                <small>{correctionDraft.row.milkType}</small>
+              </div>
+              <label>
+                <span>New center</span>
+                <input
+                  list="monthly-recon-correction-options"
+                  value={correctionDraft.targetCenter}
+                  onChange={(event) => setCorrectionDraft((current) => current ? { ...current, targetCenter: event.currentTarget.value } : current)}
+                  placeholder="Choose or type center name..."
+                />
+              </label>
+              <datalist id="monthly-recon-correction-options">
+                {sortedJournalCenterOptions(correctionDraft.row).map((item) => (
+                  <option key={normalizedSearch(item.center)} value={item.center}>
+                    {`${item.hasAvizMatch ? 'Has aviz' : 'No aviz match'} · ${item.milkTypeLabel || 'Milk type unknown'} · ${formatNumber(item.liters)} L`}
+                  </option>
+                ))}
+              </datalist>
+              <div className="monthly-recon-modal-actions">
+                <button type="button" onClick={() => setCorrectionDraft(null)} disabled={correctionSaving}>Cancel</button>
+                <button type="button" onClick={() => void applyAvizCenterCorrection()} disabled={correctionSaving || !correctionDraft.targetCenter.trim()}>
+                  {correctionSaving ? 'Updating...' : `Update ${correctionDraft.row.avizLineCount} rows`}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </main>
     </div>
   )

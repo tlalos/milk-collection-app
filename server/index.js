@@ -53,6 +53,7 @@ import {
   upsertMilkReceptionDriver,
   upsertMilkReceptionRouteSetting,
 } from './milkReceptionStore.js'
+import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows } from './sqlOcrStore.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -194,6 +195,15 @@ function monthKeyFromDate(value) {
   return date ? date.slice(0, 7) : ''
 }
 
+function compareReconciliationDetailRows(left, right) {
+  const leftDate = normalizeReconciliationDate(left.documentDate)
+  const rightDate = normalizeReconciliationDate(right.documentDate)
+  if (leftDate && rightDate && leftDate !== rightDate) return leftDate.localeCompare(rightDate)
+  if (leftDate && !rightDate) return -1
+  if (!leftDate && rightDate) return 1
+  return Number(left.rowNumber ?? 0) - Number(right.rowNumber ?? 0)
+}
+
 function monthKeyFromJob(job) {
   const dateMonth = monthKeyFromDate(job.data?.date)
   if (dateMonth) return dateMonth
@@ -255,8 +265,102 @@ function resolvedDailyAvizCenter(job, row) {
   return match?.selectedName || row.collectionCenter
 }
 
+function originalDailyAvizCenter(job, row) {
+  const originalRow = Array.isArray(job.ocrOriginalData?.rows)
+    ? job.ocrOriginalData.rows.find((item) => Number(item.rowNumber) === Number(row.rowNumber))
+    : null
+  return originalRow?.collectionCenter || row.collectionCenter || null
+}
+
+function confirmedCenterMatchForRow(existingMatch, rowNumber, originalName, selectedName) {
+  const suggestions = Array.isArray(existingMatch?.suggestions) ? existingMatch.suggestions : []
+  const selectedSuggestion = suggestions.find((suggestion) => normalizeSuggestionText(suggestion.name) === normalizeSuggestionText(selectedName))
+  return {
+    ...(existingMatch || {}),
+    rowNumber,
+    originalName: existingMatch?.originalName || originalName || null,
+    status: 'confirmed',
+    selectedCode: selectedSuggestion?.code ? String(selectedSuggestion.code) : existingMatch?.selectedCode || null,
+    selectedName,
+    suggestions,
+  }
+}
+
+function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter }) {
+  if ((job.documentCategory || 'daily_routes') !== 'daily_routes') return { updates: null, updatedRows: 0 }
+  if (monthKeyFromDate(job.data?.date) !== month) return { updates: null, updatedRows: 0 }
+  if (!Array.isArray(job.data?.rows)) return { updates: null, updatedRows: 0 }
+
+  const fromKey = normalizeSuggestionText(fromCenter)
+  const milkTypeKey = normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(milkType))
+  const affectedRows = []
+  const rows = job.data.rows.map((row) => {
+    const currentCenterKey = normalizeSuggestionText(resolvedDailyAvizCenter(job, row))
+    const currentMilkTypeKey = normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(row.milkType))
+    if (currentCenterKey !== fromKey || currentMilkTypeKey !== milkTypeKey) return row
+    affectedRows.push(row)
+    return {
+      ...row,
+      collectionCenter: toCenter,
+      uncertainFields: Array.isArray(row.uncertainFields)
+        ? row.uncertainFields.filter((field) => field !== 'collectionCenter')
+        : [],
+    }
+  })
+
+  if (!affectedRows.length) return { updates: null, updatedRows: 0 }
+
+  const matchesByRowNumber = new Map(
+    (Array.isArray(job.centerMatches) ? job.centerMatches : []).map((match) => [Number(match.rowNumber), match]),
+  )
+  for (const row of affectedRows) {
+    const rowNumber = Number(row.rowNumber)
+    matchesByRowNumber.set(
+      rowNumber,
+      confirmedCenterMatchForRow(matchesByRowNumber.get(rowNumber), rowNumber, originalDailyAvizCenter(job, row), toCenter),
+    )
+  }
+
+  const nextData = {
+    ...job.data,
+    rows,
+  }
+  return {
+    updates: {
+      data: {
+        ...nextData,
+        warnings: rebuildVerificationWarnings(nextData, {
+          driverMatch: job.driverMatch,
+          vehicleMatch: job.vehicleMatch,
+          routeMatch: job.routeMatch,
+          rowValueSources: job.rowValueSources,
+        }),
+      },
+      ocrOriginalData: job.ocrOriginalData || job.data,
+      centerMatches: [...matchesByRowNumber.values()].sort((left, right) => Number(left.rowNumber) - Number(right.rowNumber)),
+    },
+    updatedRows: affectedRows.length,
+  }
+}
+
 function resolvedMonthlyJournalCenter(job, data, row) {
   return job.headerCenterMatch?.selectedName || data.headerCenterName || row.centerName
+}
+
+function monthlyProducerReferenceForRow(job, row) {
+  const match = Array.isArray(job.producerMatches)
+    ? job.producerMatches.find((item) => Number(item.rowNumber) === Number(row.rowNumber))
+    : null
+  const selectedCode = match?.selectedCode ? String(match.selectedCode).trim() : ''
+  const selectedReference = selectedCode
+    ? match?.suggestions?.find((item) => String(item.code).trim().toLocaleLowerCase() === selectedCode.toLocaleLowerCase())
+    : null
+  return {
+    producerCode: selectedCode || null,
+    producerName: match?.selectedName || selectedReference?.name || null,
+    centerCode: selectedReference?.centerCode || null,
+    centerName: selectedReference?.centerName || null,
+  }
 }
 
 function monthlyReconciliationFromJobs(jobs) {
@@ -313,6 +417,7 @@ function monthlyReconciliationFromJobs(jobs) {
     for (const row of rows) {
       const liters = finiteNumber(row.liters)
       const center = resolvedMonthlyJournalCenter(job, data, row)
+      const producerReference = monthlyProducerReferenceForRow(job, row)
       const group = addMonthlyReconciliationGroup(groups, month, center, row.milkType || data.milkType)
       group.monthlyLiters += liters ?? 0
       group.monthlyRowCount += 1
@@ -323,7 +428,8 @@ function monthlyReconciliationFromJobs(jobs) {
         fileUrl: publicJob.fileUrl,
         documentDate: data.date ?? null,
         rowNumber: row.rowNumber ?? null,
-        producer: row.producer || row.centerName || null,
+        producer: producerReference.producerName || row.producer || row.centerName || null,
+        producerCode: producerReference.producerCode,
         centerName: center || null,
         milkType: row.milkType || data.milkType || null,
         liters,
@@ -344,6 +450,8 @@ function monthlyReconciliationFromJobs(jobs) {
           : 'ok'
     return {
       ...group,
+      avizRows: [...group.avizRows].sort(compareReconciliationDetailRows),
+      monthlyRows: [...group.monthlyRows].sort(compareReconciliationDetailRows),
       avizLiters: Number(group.avizLiters.toFixed(3)),
       monthlyLiters: Number(group.monthlyLiters.toFixed(3)),
       differenceLiters: Number(differenceLiters.toFixed(3)),
@@ -381,13 +489,29 @@ function previousMonthKey(month) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-function producerPricingKey(month, center, producer, milkType) {
+function producerPricingKey(month, producerCode, producer, milkType) {
+  const producerIdentity = producerCode
+    ? `CODE:${normalizeSuggestionText(producerCode)}`
+    : `NAME:${normalizeSuggestionText(producer)}`
   return [
     month,
-    normalizeSuggestionText(center),
-    normalizeSuggestionText(producer),
+    producerIdentity,
     normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(milkType) || 'UNSPECIFIED'),
   ].join('|')
+}
+
+function savedPricingKey(month, producerCode, milkType) {
+  const code = String(producerCode || '').trim()
+  if (!month || !code) return ''
+  return [
+    month,
+    code.toLocaleLowerCase(),
+    normalizeMonthlyReconciliationMilkType(milkType) || 'MILK-COW',
+  ].join('|')
+}
+
+function pricingRowsByKey(rows) {
+  return new Map(rows.map((row) => [savedPricingKey(row.monthKey, row.producerCode, row.milkType), row]).filter(([key]) => key))
 }
 
 function monthClosureSummary(rows) {
@@ -401,16 +525,18 @@ function monthClosureSummary(rows) {
   }
 }
 
-function monthClosurePricingFromJobs(jobs, filters = {}) {
+function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = []) {
   const reconciliation = monthlyReconciliationFromJobs(jobs)
   const reconciliationByGroup = new Map(reconciliation.rows.map((row) => [monthlyReconciliationKey(row.month, row.center, row.milkType), row]))
   const rowsByProducer = new Map()
+  const savedPricing = pricingRowsByKey(pricingRows)
 
   for (const group of reconciliation.rows) {
     for (const journalRow of group.monthlyRows || []) {
       const producer = String(journalRow.producer || journalRow.centerName || group.center || '').trim() || 'Unassigned producer'
       const milkType = normalizeMonthlyReconciliationMilkType(journalRow.milkType || group.milkType) || group.milkType
-      const key = producerPricingKey(group.month, group.center, producer, milkType)
+      const producerCode = String(journalRow.producerCode || '').trim()
+      const key = producerPricingKey(group.month, producerCode, producer, milkType)
       if (!rowsByProducer.has(key)) {
         rowsByProducer.set(key, {
           id: key,
@@ -419,6 +545,7 @@ function monthClosurePricingFromJobs(jobs, filters = {}) {
           centerKey: normalizeSuggestionText(group.center),
           milkType,
           producer,
+          producerCode,
           producerKey: normalizeSuggestionText(producer),
           liters: 0,
           sourceRowCount: 0,
@@ -439,8 +566,11 @@ function monthClosurePricingFromJobs(jobs, filters = {}) {
   }
 
   const rows = [...rowsByProducer.values()].map((row) => {
-    const previousKey = producerPricingKey(previousMonthKey(row.month), row.center, row.producer, row.milkType)
+    const previousMonth = previousMonthKey(row.month)
+    const previousKey = producerPricingKey(previousMonth, row.producerCode, row.producer, row.milkType)
     const previous = rowsByProducer.get(previousKey)
+    const pricing = savedPricing.get(savedPricingKey(row.month, row.producerCode, row.milkType))
+    const previousPricing = savedPricing.get(savedPricingKey(previousMonth, row.producerCode, row.milkType))
     const group = reconciliationByGroup.get(monthlyReconciliationKey(row.month, row.center, row.milkType))
     const blocked = !group || group.status !== 'ok'
     return {
@@ -448,7 +578,14 @@ function monthClosurePricingFromJobs(jobs, filters = {}) {
       liters: Number(row.liters.toFixed(3)),
       previousMonthLiters: previous ? Number(previous.liters.toFixed(3)) : null,
       previousMonthRowCount: previous?.sourceRowCount || 0,
-      pricingStatus: blocked ? 'blocked' : 'needs_price',
+      price: pricing?.responsiblePrice ?? null,
+      commission: pricing?.receiverCommission ?? null,
+      electricity: pricing?.electricity ?? null,
+      responsibleComment: pricing?.responsibleComment ?? '',
+      previousMonthPrice: previousPricing?.responsiblePrice ?? null,
+      previousMonthCommission: previousPricing?.receiverCommission ?? null,
+      previousMonthElectricity: previousPricing?.electricity ?? null,
+      pricingStatus: blocked ? 'blocked' : pricing?.pricingStatus?.toLowerCase() === 'saved' ? 'saved' : 'needs_price',
       readyForPricing: !blocked,
     }
   }).sort((left, right) => {
@@ -990,9 +1127,53 @@ app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next)
   }
 })
 
+app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, response, next) => {
+  try {
+    const month = String(request.body?.month || '').trim()
+    const fromCenter = String(request.body?.fromCenter || '').trim()
+    const milkType = String(request.body?.milkType || '').trim()
+    const toCenter = String(request.body?.toCenter || '').trim()
+    if (!/^\d{4}-\d{2}$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
+    if (!fromCenter) return response.status(400).json({ error: 'Choose the aviz center to change.' })
+    if (!milkType) return response.status(400).json({ error: 'Choose the milk type to change.' })
+    if (!toCenter) return response.status(400).json({ error: 'Choose the new center name.' })
+    if (normalizeSuggestionText(fromCenter) === normalizeSuggestionText(toCenter)) {
+      return response.status(400).json({ error: 'The new center name must be different.' })
+    }
+
+    let updatedJobs = 0
+    let updatedRows = 0
+    const jobs = await listJobs()
+    for (const job of jobs) {
+      const correction = correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter })
+      if (!correction.updates || correction.updatedRows <= 0) continue
+      await updateJob(job.id, correction.updates)
+      updatedJobs += 1
+      updatedRows += correction.updatedRows
+    }
+
+    if (!updatedRows) {
+      return response.status(404).json({ error: 'No matching daily aviz rows were found for this correction.' })
+    }
+
+    response.json({
+      updatedJobs,
+      updatedRows,
+      reconciliation: monthlyReconciliationFromJobs(await listJobs()),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/month-closure/pricing-rows', async (request, response, next) => {
   try {
-    response.json(monthClosurePricingFromJobs(await listJobs(), { month: request.query.month }))
+    const jobs = await listJobs()
+    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month })
+    const pricingRows = isSqlOcrStoreEnabled() && basePricing.selectedMonth
+      ? await listMonthlyProducerPricingRows([basePricing.selectedMonth, previousMonthKey(basePricing.selectedMonth)])
+      : []
+    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows))
   } catch (error) {
     next(error)
   }
