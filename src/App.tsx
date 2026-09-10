@@ -7,6 +7,7 @@ import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
 import { DailyAvizScreen } from './components/DailyAvizScreen'
+import { MonthClosureScreen } from './components/MonthClosureScreen'
 import { MonthlyReconciliationScreen } from './components/MonthlyReconciliationScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
 import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
@@ -45,6 +46,7 @@ type Screen =
   | 'transport'
   | 'milkReception'
   | 'dailyAviz'
+  | 'monthClosure'
   | 'monthlyReconciliation'
   | 'suppliers'
   | 'entry'
@@ -64,6 +66,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
+  if (routePathname() === '/month-closure') return 'monthClosure'
   if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
   return 'startup'
@@ -241,6 +244,10 @@ export function App() {
 
       {screen === 'monthlyReconciliation' && (
         <OcrAuthGate><MonthlyReconciliationScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+      )}
+
+      {screen === 'monthClosure' && (
+        <OcrAuthGate><MonthClosureScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
@@ -489,6 +496,24 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Monthly Reconciliation</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/month-closure') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h16" />
+                    <path d="M7 9h10" />
+                    <path d="M7 13h6" />
+                    <path d="M7 17h4" />
+                    <path d="M15 16l2 2 4-5" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Month Closure & Payments</span>
               </button>
 
             </div>

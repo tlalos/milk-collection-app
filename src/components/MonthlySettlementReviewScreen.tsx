@@ -1180,7 +1180,7 @@ export function MonthlySettlementReviewScreen() {
             <span>{isRo ? "Căutare centru" : "Search center"}</span>
             <div className="monthly-search-control">
               <input
-                type="search"
+                type="text"
                 value={centerSearch}
                 onChange={(event) => setCenterSearch(event.target.value)}
                 placeholder={
@@ -1209,6 +1209,7 @@ export function MonthlySettlementReviewScreen() {
                     setMonthFilter("");
                   }}
                   aria-label={isRo ? "Ștergeți căutarea" : "Clear search"}
+                  title={isRo ? "Ștergeți centrul și luna" : "Clear center and month filters"}
                 >
                   ×
                 </button>

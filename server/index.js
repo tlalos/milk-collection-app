@@ -371,6 +371,109 @@ function monthlyReconciliationFromJobs(jobs) {
   }
 }
 
+function previousMonthKey(month) {
+  const match = /^(\d{4})-(\d{2})$/u.exec(String(month || ''))
+  if (!match) return ''
+  const year = Number(match[1])
+  const monthNumber = Number(match[2])
+  if (!Number.isFinite(year) || !Number.isFinite(monthNumber)) return ''
+  const date = new Date(Date.UTC(year, monthNumber - 2, 1))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function producerPricingKey(month, center, producer, milkType) {
+  return [
+    month,
+    normalizeSuggestionText(center),
+    normalizeSuggestionText(producer),
+    normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(milkType) || 'UNSPECIFIED'),
+  ].join('|')
+}
+
+function monthClosureSummary(rows) {
+  return {
+    rowCount: rows.length,
+    centerCount: new Set(rows.map((row) => `${row.month}|${row.centerKey}`)).size,
+    producerCount: new Set(rows.map((row) => `${row.month}|${row.producerKey}`)).size,
+    totalLiters: Number(rows.reduce((total, row) => total + row.liters, 0).toFixed(3)),
+    readyRowCount: rows.filter((row) => row.readyForPricing).length,
+    blockedRowCount: rows.filter((row) => !row.readyForPricing).length,
+  }
+}
+
+function monthClosurePricingFromJobs(jobs, filters = {}) {
+  const reconciliation = monthlyReconciliationFromJobs(jobs)
+  const reconciliationByGroup = new Map(reconciliation.rows.map((row) => [monthlyReconciliationKey(row.month, row.center, row.milkType), row]))
+  const rowsByProducer = new Map()
+
+  for (const group of reconciliation.rows) {
+    for (const journalRow of group.monthlyRows || []) {
+      const producer = String(journalRow.producer || journalRow.centerName || group.center || '').trim() || 'Unassigned producer'
+      const milkType = normalizeMonthlyReconciliationMilkType(journalRow.milkType || group.milkType) || group.milkType
+      const key = producerPricingKey(group.month, group.center, producer, milkType)
+      if (!rowsByProducer.has(key)) {
+        rowsByProducer.set(key, {
+          id: key,
+          month: group.month,
+          center: group.center,
+          centerKey: normalizeSuggestionText(group.center),
+          milkType,
+          producer,
+          producerKey: normalizeSuggestionText(producer),
+          liters: 0,
+          sourceRowCount: 0,
+          journalRows: [],
+          reconciliationStatus: group.status,
+          reconciliationDifferenceLiters: group.differenceLiters,
+          centerAvizLiters: group.avizLiters,
+          centerMonthlyLiters: group.monthlyLiters,
+          centerJournalRows: group.monthlyRowCount,
+          centerAvizLines: group.avizLineCount,
+        })
+      }
+      const pricingRow = rowsByProducer.get(key)
+      pricingRow.liters += finiteNumber(journalRow.liters) ?? 0
+      pricingRow.sourceRowCount += 1
+      pricingRow.journalRows.push(journalRow)
+    }
+  }
+
+  const rows = [...rowsByProducer.values()].map((row) => {
+    const previousKey = producerPricingKey(previousMonthKey(row.month), row.center, row.producer, row.milkType)
+    const previous = rowsByProducer.get(previousKey)
+    const group = reconciliationByGroup.get(monthlyReconciliationKey(row.month, row.center, row.milkType))
+    const blocked = !group || group.status !== 'ok'
+    return {
+      ...row,
+      liters: Number(row.liters.toFixed(3)),
+      previousMonthLiters: previous ? Number(previous.liters.toFixed(3)) : null,
+      previousMonthRowCount: previous?.sourceRowCount || 0,
+      pricingStatus: blocked ? 'blocked' : 'needs_price',
+      readyForPricing: !blocked,
+    }
+  }).sort((left, right) => {
+    if (left.month !== right.month) return right.month.localeCompare(left.month)
+    const centerOrder = left.center.localeCompare(right.center, undefined, { numeric: true })
+    if (centerOrder) return centerOrder
+    const producerOrder = left.producer.localeCompare(right.producer, undefined, { numeric: true })
+    if (producerOrder) return producerOrder
+    return left.milkType.localeCompare(right.milkType, undefined, { numeric: true })
+  })
+
+  const monthOptions = [...new Set(rows.map((row) => row.month).filter(Boolean))]
+    .sort((left, right) => right.localeCompare(left))
+  const requestedMonth = /^\d{4}-\d{2}$/u.test(String(filters.month || '')) ? String(filters.month) : ''
+  const selectedMonth = requestedMonth || monthOptions[0] || ''
+  const visibleRows = selectedMonth ? rows.filter((row) => row.month === selectedMonth) : rows
+
+  return {
+    rows: visibleRows,
+    summary: monthClosureSummary(visibleRows),
+    monthOptions,
+    selectedMonth,
+  }
+}
+
 function summarizeReceptionReconciliation(record, dailyRows) {
   const receptionLiters = finiteNumber(record.calculatedLiters)
   if (String(record.vehicleCategory || '').toUpperCase() === 'OTHER') {
@@ -882,6 +985,14 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
 app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
   try {
     response.json(monthlyReconciliationFromJobs(await listJobs()))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/month-closure/pricing-rows', async (request, response, next) => {
+  try {
+    response.json(monthClosurePricingFromJobs(await listJobs(), { month: request.query.month }))
   } catch (error) {
     next(error)
   }
