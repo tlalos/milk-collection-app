@@ -356,6 +356,17 @@ function rowHasRequiredAttention(row: ExtractedRow, centerNeedsReview: boolean) 
     || centerNeedsReview
 }
 
+function rowTextFieldNeedsReview(row: ExtractedRow, field: RowTextField) {
+  if (field === 'milkType') return false
+  const value = row[field]
+  return !value?.trim() || row.uncertainFields.includes(field)
+}
+
+function rowNumberFieldNeedsReview(row: ExtractedRow, field: RowNumberField) {
+  if (!DAILY_REQUIRED_FIELDS.has(field)) return false
+  return !hasRequiredNumber(row[field]) || row.uncertainFields.includes(field)
+}
+
 function storedDate(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u)
   return match ? `${match[3]}-${match[2]}-${match[1]}` : value
@@ -394,7 +405,11 @@ function applyAutomaticCenterReplacements(job: OcrJob) {
   const data = {
     ...job.data,
     rows: job.data.rows.map((row) => {
-      const match = centerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+      const match = centerMatches.find((item) =>
+        item.rowNumber === row.rowNumber &&
+        (item.status === 'auto_replaced' || item.status === 'confirmed') &&
+        item.selectedName
+      )
       return match?.selectedName ? { ...row, collectionCenter: match.selectedName } : row
     }),
   }
@@ -740,14 +755,17 @@ export function OcrReviewScreen() {
   }
 
   function selectCenter(rowNumber: number, code: string) {
+    const selectedMatch = centerMatches
+      .find((match) => match.rowNumber === rowNumber)
+      ?.suggestions
+      .find((suggestion) => String(suggestion.code) === String(code))
     setCenterMatches((current) => current.map((match) => {
       if (match.rowNumber !== rowNumber) return match
-      const selected = match.suggestions.find((suggestion) => suggestion.code === code)
+      const selected = match.suggestions.find((suggestion) => String(suggestion.code) === String(code))
       if (!selected) return { ...match, selectedCode: null, selectedName: null, status: match.suggestions.length ? 'suggested' : 'unmatched' }
       if (selected.code === '__OCR_ORIGINAL__') return { ...match, selectedCode: null, selectedName: selected.name, status: 'confirmed' }
       return { ...match, selectedCode: selected.code, selectedName: selected.name, status: 'confirmed' }
     }))
-    const selectedMatch = centerMatches.find((match) => match.rowNumber === rowNumber)?.suggestions.find((suggestion) => suggestion.code === code)
     if (selectedMatch) setDraft((current) => current ? { ...current, rows: current.rows.map((row) => row.rowNumber === rowNumber ? { ...row, collectionCenter: selectedMatch.name, uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter') } : row) } : current)
     setOpenCenterSuggestions(null)
   }
@@ -1550,13 +1568,14 @@ export function OcrReviewScreen() {
                       <tr className={`${rowHasRequiredAttention(row, centerNameNeedsReview(row, centerMatches.find((item) => item.rowNumber === row.rowNumber))) ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small>{(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
-                          const needsAttention = rowHasRequiredAttention(row, centerNameNeedsReview(row, match))
-                          return needsAttention ? <b className="review-row-attention" title={isRo ? 'Rândul necesită verificare' : 'Row needs review'}>!</b> : null
+                          const hasReferenceMismatch = centerNameNeedsReview(row, match)
+                          return hasReferenceMismatch ? <b className="review-row-attention" title={isRo ? 'Centrul nu se potrivește cu lista de referință' : 'Center does not match the reference list'}>!</b> : null
                         })()}</span></td>
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
                           const needsReview = centerNameNeedsReview(row, match)
-                          return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : ''}`}>
+                          const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter')
+                          return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : needsSoftReview ? 'review-cell-warning' : ''}`}>
                             <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
                             {match ? <>
                               {openCenterSuggestions !== row.rowNumber && <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
@@ -1586,11 +1605,11 @@ export function OcrReviewScreen() {
                             {DAILY_MILK_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                           </select>
                         </td>
-                        <td><input inputMode="decimal" value={rowNumberInputValue(row, 'liters')} onBlur={() => commitRowNumberInput(index, row, 'liters')} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'fatPercent')} onBlur={() => commitRowNumberInput(index, row, 'fatPercent')} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'liters') ? 'review-cell-warning' : ''}><input inputMode="decimal" value={rowNumberInputValue(row, 'liters')} onBlur={() => commitRowNumberInput(index, row, 'liters')} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'fatPercent') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'fatPercent')} onBlur={() => commitRowNumberInput(index, row, 'fatPercent')} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'temperature') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'water')} onBlur={() => commitRowNumberInput(index, row, 'water')} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td className={rowTextFieldNeedsReview(row, 'noticeNumber') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
                     ))}</tbody>

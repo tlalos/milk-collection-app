@@ -248,6 +248,17 @@ function addMonthlyReconciliationGroup(groups, month, center, milkType) {
   return groups.get(key)
 }
 
+function resolvedDailyAvizCenter(job, row) {
+  const match = Array.isArray(job.centerMatches)
+    ? job.centerMatches.find((item) => item.rowNumber === row.rowNumber)
+    : null
+  return match?.selectedName || row.collectionCenter
+}
+
+function resolvedMonthlyJournalCenter(job, data, row) {
+  return job.headerCenterMatch?.selectedName || data.headerCenterName || row.centerName
+}
+
 function monthlyReconciliationFromJobs(jobs) {
   const groups = new Map()
   const dailyJobs = jobs.filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
@@ -260,7 +271,8 @@ function monthlyReconciliationFromJobs(jobs) {
     const rows = Array.isArray(job.data?.rows) ? job.data.rows : []
     for (const row of rows) {
       const liters = finiteNumber(row.liters)
-      const group = addMonthlyReconciliationGroup(groups, month, row.collectionCenter, row.milkType)
+      const center = resolvedDailyAvizCenter(job, row)
+      const group = addMonthlyReconciliationGroup(groups, month, center, row.milkType)
       group.avizLiters += liters ?? 0
       group.avizLineCount += 1
       group.avizRows.push({
@@ -300,7 +312,7 @@ function monthlyReconciliationFromJobs(jobs) {
           }]
     for (const row of rows) {
       const liters = finiteNumber(row.liters)
-      const center = data.headerCenterName || row.centerName
+      const center = resolvedMonthlyJournalCenter(job, data, row)
       const group = addMonthlyReconciliationGroup(groups, month, center, row.milkType || data.milkType)
       group.monthlyLiters += liters ?? 0
       group.monthlyRowCount += 1
