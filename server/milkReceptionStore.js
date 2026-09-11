@@ -7,10 +7,10 @@ const QUALITY_DETAIL_TYPES = ['ORIGINAL', 'CUSTOM']
 
 export const milkReceptionOptions = {
   milkTypes: [
-    { code: 'MILK-COW', label: 'Lapte de vacă', displayName: 'Cow milk', densityFactor: 1.03 },
-    { code: 'MILK-SHEEP', label: 'Lapte de oaie', displayName: 'Sheep milk', densityFactor: 1.036 },
-    { code: 'MILK-GOAT', label: 'Lapte de capră', displayName: 'Goat milk', densityFactor: 1.03 },
-    { code: 'MILK-BUFF', label: 'Lapte de bivoliță', displayName: 'Buffalo milk', densityFactor: 1.04 },
+    { code: 'MILK-COW', label: 'Cow', displayName: 'Cow', densityFactor: 1.03 },
+    { code: 'MILK-SHEEP', label: 'Sheep', displayName: 'Sheep', densityFactor: 1.036 },
+    { code: 'MILK-GOAT', label: 'Goat', displayName: 'Goat', densityFactor: 1.03 },
+    { code: 'MILK-BUFF', label: 'Buff', displayName: 'Buff', densityFactor: 1.04 },
   ],
   categories: ['COLLECTION', 'OTHERS'],
   vehicleCategories: ['COLLECTION', 'OTHER'],

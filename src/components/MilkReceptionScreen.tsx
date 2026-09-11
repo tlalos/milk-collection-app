@@ -141,10 +141,10 @@ interface MilkReceptionRecord {
 
 const defaultOptions: MilkReceptionOptions = {
   milkTypes: [
-    { code: 'MILK-COW', label: 'Lapte de vacă', displayName: 'Cow milk', densityFactor: 1.03 },
-    { code: 'MILK-SHEEP', label: 'Lapte de oaie', displayName: 'Sheep milk', densityFactor: 1.036 },
-    { code: 'MILK-GOAT', label: 'Lapte de capră', displayName: 'Goat milk', densityFactor: 1.03 },
-    { code: 'MILK-BUFF', label: 'Lapte de bivoliță', displayName: 'Buffalo milk', densityFactor: 1.04 },
+    { code: 'MILK-COW', label: 'Cow', displayName: 'Cow', densityFactor: 1.03 },
+    { code: 'MILK-SHEEP', label: 'Sheep', displayName: 'Sheep', densityFactor: 1.036 },
+    { code: 'MILK-GOAT', label: 'Goat', displayName: 'Goat', densityFactor: 1.03 },
+    { code: 'MILK-BUFF', label: 'Buff', displayName: 'Buff', densityFactor: 1.04 },
   ],
   categories: ['COLLECTION', 'OTHERS'],
   antibioticResults: ['Negative / Pass', 'Positive / Fail', 'Pending', 'Not Tested'],
@@ -196,6 +196,41 @@ function localDateTimeText(value: unknown) {
   const usable = Number.isFinite(date.getTime()) ? date : new Date()
   const two = (part: number) => String(part).padStart(2, '0')
   return `${usable.getFullYear()}-${two(usable.getMonth() + 1)}-${two(usable.getDate())}T${two(usable.getHours())}:${two(usable.getMinutes())}:${two(usable.getSeconds())}`
+}
+
+function SaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 3h12l2 2v16H5z" />
+      <path d="M8 3v6h8V3" />
+      <path d="M8 21v-7h8v7" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 7h16" />
+      <path d="M9 7V4h6v3" />
+      <path d="M7 7l1 14h8l1-14" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function ScaleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6 20h12" />
+      <path d="M8 20l2-9h4l2 9" />
+      <path d="M12 11V5" />
+      <path d="M8 5h8" />
+      <path d="M7 5 4 11h6z" />
+      <path d="M17 5l-3 6h6z" />
+    </svg>
+  )
 }
 
 function emptyQualityDetail(detailType: QualityDetailType): QualityDetail {
@@ -255,12 +290,6 @@ function storedDateTimeInput(value: string) {
     if (Number.isFinite(date.getTime())) return date.toISOString()
   }
   return text
-}
-
-function compactReceptionId(record: MilkReceptionRecord) {
-  if (record.isNew) return 'New'
-  const parts = record.receptionId.split('-').filter(Boolean)
-  return parts[parts.length - 1] || record.receptionId.slice(-6)
 }
 
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
@@ -945,7 +974,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
           disabled={Boolean(scaleReadingTarget)}
           onClick={() => void readScaleWeight(record.receptionId, field)}
         >
-          {scaleReadingTarget === target ? '...' : 'Scale'}
+          {scaleReadingTarget === target ? '...' : <ScaleIcon />}
         </button>
       </div>
     )
@@ -1148,11 +1177,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
               <thead>
                 <tr>
                   <th></th>
-                  <th>ID</th>
+                  <th>Truck type</th>
                   <th>Date</th>
                   <th>Truck</th>
                   <th>Driver</th>
-                  <th>Truck type</th>
                   <th>Route</th>
                   <th>Milk type</th>
                   <th>Full kg</th>
@@ -1167,16 +1195,17 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   <th>Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {!visibleRecords.length && (
-                  <tr>
-                    <td colSpan={18} className="reception-empty">No reception records found. Add a row to start.</td>
-                  </tr>
-                )}
+                <tbody>
+                  {!visibleRecords.length && (
+                    <tr>
+                      <td colSpan={17} className="reception-empty">No reception records found. Add a row to start.</td>
+                    </tr>
+                  )}
                 {visibleRecords.map((record) => {
                   const computed = withCalculations(record)
                   const expanded = expandedId === record.receptionId
                   const filteredTruckOptions = truckOptionsForCategory(record.vehicleCategory)
+                  const routeOptions = routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory)
                   return (
                     <Fragment key={record.receptionId}>
                       <tr className={statusClass(computed.combinationDiagnosis)}>
@@ -1185,14 +1214,22 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                             {expanded ? '-' : '+'}
                           </button>
                         </td>
-                        <td className="reception-id" title={record.receptionId} aria-label={`Reception ID ${record.receptionId}`}>{compactReceptionId(record)}</td>
+                        <td>
+                          <select value={record.vehicleCategory} onChange={(event) => updateRecord(record.receptionId, { vehicleCategory: normalizeVehicleCategory(event.target.value) })}>
+                            {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
+                          </select>
+                        </td>
                         <td><input type="date" lang="en-US" value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
                         <td>
-                          <select value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })}>
-                            <option value="">Select truck</option>
-                            {record.vehicleRegistration && !filteredTruckOptions.some((truck) => truck.value === record.vehicleRegistration) && <option value={record.vehicleRegistration}>{record.vehicleRegistration}</option>}
-                            {filteredTruckOptions.map((truck) => <option key={truck.value} value={truck.value}>{truck.label}</option>)}
-                          </select>
+                          {record.vehicleCategory === 'OTHER' ? (
+                            <input value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })} placeholder="Truck plates" />
+                          ) : (
+                            <select value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })}>
+                              <option value="">Select truck</option>
+                              {record.vehicleRegistration && !filteredTruckOptions.some((truck) => truck.value === record.vehicleRegistration) && <option value={record.vehicleRegistration}>{record.vehicleRegistration}</option>}
+                              {filteredTruckOptions.map((truck) => <option key={truck.value} value={truck.value}>{truck.label}</option>)}
+                            </select>
+                          )}
                         </td>
                         <td>
                           <select value={record.driverName} onChange={(event) => updateRecord(record.receptionId, { driverName: event.target.value })}>
@@ -1202,15 +1239,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           </select>
                         </td>
                         <td>
-                          <select value={record.vehicleCategory} onChange={(event) => updateRecord(record.receptionId, { vehicleCategory: normalizeVehicleCategory(event.target.value) })}>
-                            {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
-                          </select>
-                        </td>
-                        <td>
-                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).length}>
-                            <option value="">{record.vehicleCategory === 'OTHER' && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).length ? 'No route' : 'Route'}</option>
-                            {record.routeId && !routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
-                            {routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory).map((route) => <option key={route} value={route}>{route}</option>)}
+                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER' && !routeOptions.length}>
+                            <option value="">{record.vehicleCategory === 'OTHER' && !routeOptions.length ? 'No route' : 'Route'}</option>
+                            {record.routeId && !routeOptions.includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
+                            {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
                           </select>
                         </td>
                         <td>
@@ -1229,14 +1261,16 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         <td><span className="reception-status">{computed.combinationDiagnosis}</span></td>
                         <td>
                           <div className="reception-actions">
-                            <button type="button" onClick={() => void saveRecord(computed)} disabled={savingId === record.receptionId}>{savingId === record.receptionId ? 'Saving...' : 'Save'}</button>
-                            <button type="button" className="danger" onClick={() => void deleteRecord(record)} disabled={savingId === record.receptionId}>Delete</button>
+                            <button type="button" title="Save" aria-label="Save reception row" onClick={() => void saveRecord(computed)} disabled={savingId === record.receptionId}>
+                              {savingId === record.receptionId ? '...' : <SaveIcon />}
+                            </button>
+                            <button type="button" className="danger" title="Delete" aria-label="Delete reception row" onClick={() => void deleteRecord(record)} disabled={savingId === record.receptionId}><TrashIcon /></button>
                           </div>
                         </td>
                       </tr>
                       {expanded && (
                         <tr className="reception-detail-row">
-                          <td colSpan={18}>
+                          <td colSpan={17}>
                             <div className="reception-details">
                               {renderReconciliationSection(computed)}
                               {renderQualitySection(record, 'ORIGINAL', 'Original values')}
