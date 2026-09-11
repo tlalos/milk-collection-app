@@ -191,6 +191,13 @@ function formatWeightTime(value: string) {
   })
 }
 
+function localDateTimeText(value: unknown) {
+  const date = value ? new Date(String(value)) : new Date()
+  const usable = Number.isFinite(date.getTime()) ? date : new Date()
+  const two = (part: number) => String(part).padStart(2, '0')
+  return `${usable.getFullYear()}-${two(usable.getMonth() + 1)}-${two(usable.getDate())}T${two(usable.getHours())}:${two(usable.getMinutes())}:${two(usable.getSeconds())}`
+}
+
 function emptyQualityDetail(detailType: QualityDetailType): QualityDetail {
   return {
     detailType,
@@ -569,7 +576,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
       updateRecord(id, {
         [field]: String(weight),
-        [timestampField]: String(reading.capturedAt || new Date().toISOString()),
+        [timestampField]: localDateTimeText(reading.capturedAt),
       } as Partial<MilkReceptionRecord>)
       setNotice(`${label} filled from scale: ${formatNumber(weight, 0)} kg.`)
     } catch (readError) {

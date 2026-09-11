@@ -651,9 +651,9 @@ function normalizeReception(input) {
     driverName: normalizeDriverName(input.driverName),
     densityFactor,
     fullTruckWeightKg,
-    fullTruckWeighedAt: dateTimeValue(input.fullTruckWeighedAt),
+    fullTruckWeighedAt: dateTimeLocalText(input.fullTruckWeighedAt),
     emptyTruckWeightKg,
-    emptyTruckWeighedAt: dateTimeValue(input.emptyTruckWeighedAt),
+    emptyTruckWeighedAt: dateTimeLocalText(input.emptyTruckWeighedAt),
     netQuantityKg,
     calculatedLiters,
     deliveryCategory: String(input.deliveryCategory || 'COLLECTION').trim().toUpperCase(),
@@ -792,9 +792,9 @@ function bindReception(request, record) {
     .input('driverName', sql.NVarChar(160), record.driverName)
     .input('densityFactor', sql.Decimal(18, 6), record.densityFactor)
     .input('fullTruckWeightKg', sql.Decimal(18, 3), record.fullTruckWeightKg)
-    .input('fullTruckWeighedAt', sql.DateTime2, record.fullTruckWeighedAt)
+    .input('fullTruckWeighedAt', sql.NVarChar(40), record.fullTruckWeighedAt)
     .input('emptyTruckWeightKg', sql.Decimal(18, 3), record.emptyTruckWeightKg)
-    .input('emptyTruckWeighedAt', sql.DateTime2, record.emptyTruckWeighedAt)
+    .input('emptyTruckWeighedAt', sql.NVarChar(40), record.emptyTruckWeighedAt)
     .input('netQuantityKg', sql.Decimal(18, 3), record.netQuantityKg)
     .input('calculatedLiters', sql.Decimal(18, 3), record.calculatedLiters)
     .input('deliveryCategory', sql.NVarChar(40), record.deliveryCategory)
@@ -832,7 +832,7 @@ INSERT INTO dbo.MilkReceptions (
   productionExitAt, responsiblePerson, pcc1Observations, createdAt, updatedAt, createdBy, updatedBy
 ) VALUES (
   @receptionId, @receptionDate, @vehicleRegistration, @vehicleCategory, @routeId, @milkType, @milkTypeLabel, @driverName, @densityFactor,
-  @fullTruckWeightKg, @fullTruckWeighedAt, @emptyTruckWeightKg, @emptyTruckWeighedAt, @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
+  @fullTruckWeightKg, CONVERT(datetime2, @fullTruckWeighedAt, 126), @emptyTruckWeightKg, CONVERT(datetime2, @emptyTruckWeighedAt, 126), @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
   @dailyRoutesLiters, @differenceLiters, @vehicleCountSource, @routeCountSource, @combinationDiagnosis,
   @exteriorTemperatureC, @accessTime, @receptionTime, @antibioticPccResult, @ph, @productTemperatureC,
   @fatResult, @waterPercentage, @proteinResult, @tankNumber, @conformityResult, @productionEntryAt,
@@ -852,9 +852,9 @@ UPDATE dbo.MilkReceptions SET
   driverName = @driverName,
   densityFactor = @densityFactor,
   fullTruckWeightKg = @fullTruckWeightKg,
-  fullTruckWeighedAt = @fullTruckWeighedAt,
+  fullTruckWeighedAt = CONVERT(datetime2, @fullTruckWeighedAt, 126),
   emptyTruckWeightKg = @emptyTruckWeightKg,
-  emptyTruckWeighedAt = @emptyTruckWeighedAt,
+  emptyTruckWeighedAt = CONVERT(datetime2, @emptyTruckWeighedAt, 126),
   netQuantityKg = @netQuantityKg,
   calculatedLiters = @calculatedLiters,
   deliveryCategory = @deliveryCategory,
@@ -896,9 +896,9 @@ function rowToRecord(row, qualityDetailsRows = []) {
     driverName: row.driverName || '',
     densityFactor: numberOrNull(row.densityFactor),
     fullTruckWeightKg: numberOrNull(row.fullTruckWeightKg),
-    fullTruckWeighedAt: dateTimeString(row.fullTruckWeighedAt),
+    fullTruckWeighedAt: dateTimeSqlLocalString(row.fullTruckWeighedAt),
     emptyTruckWeightKg: numberOrNull(row.emptyTruckWeightKg),
-    emptyTruckWeighedAt: dateTimeString(row.emptyTruckWeighedAt),
+    emptyTruckWeighedAt: dateTimeSqlLocalString(row.emptyTruckWeighedAt),
     netQuantityKg: numberOrNull(row.netQuantityKg),
     calculatedLiters: numberOrNull(row.calculatedLiters),
     deliveryCategory: row.deliveryCategory,
@@ -1116,10 +1116,38 @@ function dateTimeValue(value) {
   return Number.isFinite(date.getTime()) ? date : null
 }
 
+function dateTimeLocalText(value) {
+  if (!value) return null
+  const text = String(value).trim()
+  const localMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,7})?)?$/u.exec(text)
+  if (localMatch) {
+    const [, year, month, day, hour, minute, second = '00'] = localMatch
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}`
+  }
+  const displayMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/u.exec(text)
+  if (displayMatch) {
+    const [, month, day, year, hour = '00', minute = '00', second = '00'] = displayMatch
+    const two = (part) => String(part).padStart(2, '0')
+    return `${year}-${two(month)}-${two(day)}T${two(hour)}:${two(minute)}:${two(second)}`
+  }
+  const date = new Date(text)
+  if (!Number.isFinite(date.getTime())) return null
+  const two = (part) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
+}
+
 function dateTimeString(value) {
   if (!value) return ''
   const date = value instanceof Date ? value : new Date(value)
   return Number.isFinite(date.getTime()) ? date.toISOString() : ''
+}
+
+function dateTimeSqlLocalString(value) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  const two = (part) => String(part).padStart(2, '0')
+  return `${date.getUTCFullYear()}-${two(date.getUTCMonth() + 1)}-${two(date.getUTCDate())}T${two(date.getUTCHours())}:${two(date.getUTCMinutes())}:${two(date.getUTCSeconds())}`
 }
 
 function compactDate(value) {
