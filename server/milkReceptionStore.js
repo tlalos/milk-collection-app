@@ -75,7 +75,9 @@ BEGIN
     driverName NVARCHAR(160) NULL,
     densityFactor DECIMAL(18,6) NOT NULL,
     fullTruckWeightKg DECIMAL(18,3) NULL,
+    fullTruckWeighedAt DATETIME2 NULL,
     emptyTruckWeightKg DECIMAL(18,3) NULL,
+    emptyTruckWeighedAt DATETIME2 NULL,
     netQuantityKg DECIMAL(18,3) NULL,
     calculatedLiters DECIMAL(18,3) NULL,
     deliveryCategory NVARCHAR(40) NOT NULL,
@@ -176,6 +178,12 @@ IF COL_LENGTH(N'dbo.MilkReceptions', N'vehicleCategory') IS NULL
 
 IF COL_LENGTH(N'dbo.MilkReceptions', N'driverName') IS NULL
   ALTER TABLE dbo.MilkReceptions ADD driverName NVARCHAR(160) NULL;
+
+IF COL_LENGTH(N'dbo.MilkReceptions', N'fullTruckWeighedAt') IS NULL
+  ALTER TABLE dbo.MilkReceptions ADD fullTruckWeighedAt DATETIME2 NULL;
+
+IF COL_LENGTH(N'dbo.MilkReceptions', N'emptyTruckWeighedAt') IS NULL
+  ALTER TABLE dbo.MilkReceptions ADD emptyTruckWeighedAt DATETIME2 NULL;
 
 IF COL_LENGTH(N'dbo.MilkReceptionRouteSettings', N'vehicleCategory') IS NULL
   ALTER TABLE dbo.MilkReceptionRouteSettings ADD vehicleCategory NVARCHAR(40) NOT NULL CONSTRAINT DF_MilkReceptionRouteSettings_VehicleCategory DEFAULT N'COLLECTION';
@@ -643,7 +651,9 @@ function normalizeReception(input) {
     driverName: normalizeDriverName(input.driverName),
     densityFactor,
     fullTruckWeightKg,
+    fullTruckWeighedAt: dateTimeValue(input.fullTruckWeighedAt),
     emptyTruckWeightKg,
+    emptyTruckWeighedAt: dateTimeValue(input.emptyTruckWeighedAt),
     netQuantityKg,
     calculatedLiters,
     deliveryCategory: String(input.deliveryCategory || 'COLLECTION').trim().toUpperCase(),
@@ -782,7 +792,9 @@ function bindReception(request, record) {
     .input('driverName', sql.NVarChar(160), record.driverName)
     .input('densityFactor', sql.Decimal(18, 6), record.densityFactor)
     .input('fullTruckWeightKg', sql.Decimal(18, 3), record.fullTruckWeightKg)
+    .input('fullTruckWeighedAt', sql.DateTime2, record.fullTruckWeighedAt)
     .input('emptyTruckWeightKg', sql.Decimal(18, 3), record.emptyTruckWeightKg)
+    .input('emptyTruckWeighedAt', sql.DateTime2, record.emptyTruckWeighedAt)
     .input('netQuantityKg', sql.Decimal(18, 3), record.netQuantityKg)
     .input('calculatedLiters', sql.Decimal(18, 3), record.calculatedLiters)
     .input('deliveryCategory', sql.NVarChar(40), record.deliveryCategory)
@@ -813,14 +825,14 @@ function insertSql() {
   return `
 INSERT INTO dbo.MilkReceptions (
   receptionId, receptionDate, vehicleRegistration, vehicleCategory, routeId, milkType, milkTypeLabel, driverName, densityFactor,
-  fullTruckWeightKg, emptyTruckWeightKg, netQuantityKg, calculatedLiters, deliveryCategory, comments,
+  fullTruckWeightKg, fullTruckWeighedAt, emptyTruckWeightKg, emptyTruckWeighedAt, netQuantityKg, calculatedLiters, deliveryCategory, comments,
   dailyRoutesLiters, differenceLiters, vehicleCountSource, routeCountSource, combinationDiagnosis,
   exteriorTemperatureC, accessTime, receptionTime, antibioticPccResult, ph, productTemperatureC,
   fatResult, waterPercentage, proteinResult, tankNumber, conformityResult, productionEntryAt,
   productionExitAt, responsiblePerson, pcc1Observations, createdAt, updatedAt, createdBy, updatedBy
 ) VALUES (
   @receptionId, @receptionDate, @vehicleRegistration, @vehicleCategory, @routeId, @milkType, @milkTypeLabel, @driverName, @densityFactor,
-  @fullTruckWeightKg, @emptyTruckWeightKg, @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
+  @fullTruckWeightKg, @fullTruckWeighedAt, @emptyTruckWeightKg, @emptyTruckWeighedAt, @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
   @dailyRoutesLiters, @differenceLiters, @vehicleCountSource, @routeCountSource, @combinationDiagnosis,
   @exteriorTemperatureC, @accessTime, @receptionTime, @antibioticPccResult, @ph, @productTemperatureC,
   @fatResult, @waterPercentage, @proteinResult, @tankNumber, @conformityResult, @productionEntryAt,
@@ -840,7 +852,9 @@ UPDATE dbo.MilkReceptions SET
   driverName = @driverName,
   densityFactor = @densityFactor,
   fullTruckWeightKg = @fullTruckWeightKg,
+  fullTruckWeighedAt = @fullTruckWeighedAt,
   emptyTruckWeightKg = @emptyTruckWeightKg,
+  emptyTruckWeighedAt = @emptyTruckWeighedAt,
   netQuantityKg = @netQuantityKg,
   calculatedLiters = @calculatedLiters,
   deliveryCategory = @deliveryCategory,
@@ -882,7 +896,9 @@ function rowToRecord(row, qualityDetailsRows = []) {
     driverName: row.driverName || '',
     densityFactor: numberOrNull(row.densityFactor),
     fullTruckWeightKg: numberOrNull(row.fullTruckWeightKg),
+    fullTruckWeighedAt: dateTimeString(row.fullTruckWeighedAt),
     emptyTruckWeightKg: numberOrNull(row.emptyTruckWeightKg),
+    emptyTruckWeighedAt: dateTimeString(row.emptyTruckWeighedAt),
     netQuantityKg: numberOrNull(row.netQuantityKg),
     calculatedLiters: numberOrNull(row.calculatedLiters),
     deliveryCategory: row.deliveryCategory,

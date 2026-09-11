@@ -54,6 +54,7 @@ import {
   upsertMilkReceptionRouteSetting,
 } from './milkReceptionStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows } from './sqlOcrStore.js'
+import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -792,6 +793,28 @@ app.get('/api/ocr/health', async (_request, response) => {
     model: settings.model,
     version: appVersion,
   })
+})
+
+app.get('/api/weighbridge/current-weight', async (_request, response) => {
+  try {
+    const reading = await readCurrentWeighbridgeWeight()
+    response.json({ ok: true, reading })
+  } catch (error) {
+    const config = getWeighbridgeConfig()
+    response.status(503).json({
+      ok: false,
+      error: error instanceof Error ? error.message : 'Could not read the weighbridge.',
+      config: {
+        enabled: config.enabled,
+        portName: config.portName,
+        baudRate: config.baudRate,
+      },
+    })
+  }
+})
+
+app.get('/api/weighbridge/config', (_request, response) => {
+  response.json({ ok: true, weighbridge: getPublicWeighbridgeConfig() })
 })
 
 app.get('/api/milk-receptions/options', async (_request, response) => {

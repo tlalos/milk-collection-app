@@ -33,6 +33,8 @@ interface MilkReceptionOptions {
 type VehicleCategory = 'COLLECTION' | 'OTHER'
 type QualityDetailType = 'ORIGINAL' | 'CUSTOM'
 type DetailSectionType = 'RECONCILIATION' | QualityDetailType
+type WeightField = 'fullTruckWeightKg' | 'emptyTruckWeightKg'
+type WeighbridgeSource = 'server' | 'local-agent'
 
 interface RouteSetting {
   settingId: string
@@ -46,6 +48,11 @@ interface DriverSetting {
   driverId: string
   driverName: string
   sortOrder?: number | null
+}
+
+interface WeighbridgeClientConfig {
+  source: WeighbridgeSource
+  agentUrl: string
 }
 
 interface QualityDetail {
@@ -98,7 +105,9 @@ interface MilkReceptionRecord {
   driverName: string
   densityFactor: number | string
   fullTruckWeightKg: number | string | null
+  fullTruckWeighedAt: string
   emptyTruckWeightKg: number | string | null
+  emptyTruckWeighedAt: string
   netQuantityKg: number | null
   calculatedLiters: number | null
   deliveryCategory: string
@@ -150,6 +159,11 @@ const defaultOptions: MilkReceptionOptions = {
   vehicleCategories: ['COLLECTION', 'OTHER'],
 }
 
+const defaultWeighbridgeConfig: WeighbridgeClientConfig = {
+  source: 'server',
+  agentUrl: 'http://127.0.0.1:8795',
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -162,6 +176,19 @@ function numberValue(value: unknown) {
 
 function formatNumber(value: number | null, decimals = 1) {
   return value == null ? '-' : value.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals })
+}
+
+function formatWeightTime(value: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function emptyQualityDetail(detailType: QualityDetailType): QualityDetail {
@@ -248,12 +275,15 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [routeDrafts, setRouteDrafts] = useState<Record<string, string>>({})
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, VehicleCategory>>({})
   const [settingsBusy, setSettingsBusy] = useState('')
+  const [scaleReadingTarget, setScaleReadingTarget] = useState('')
+  const [weighbridgeConfig, setWeighbridgeConfig] = useState<WeighbridgeClientConfig>(defaultWeighbridgeConfig)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     void loadOptions()
+    void loadWeighbridgeConfig()
     void loadLocalTrucks()
   }, [])
 
@@ -387,6 +417,28 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }
   }
 
+  async function loadWeighbridgeConfig() {
+    try {
+      const response = await fetch(appPath('/api/weighbridge/config'))
+      const payload = await response.json()
+      const received = payload.weighbridge || {}
+      setWeighbridgeConfig({
+        source: received.source === 'local-agent' ? 'local-agent' : 'server',
+        agentUrl: String(received.agentUrl || defaultWeighbridgeConfig.agentUrl).replace(/\/+$/u, ''),
+      })
+    } catch {
+      setWeighbridgeConfig(defaultWeighbridgeConfig)
+    }
+  }
+
+  function currentWeightUrl() {
+    if (weighbridgeConfig.source === 'local-agent') {
+      const baseUrl = weighbridgeConfig.agentUrl.replace(/\/+$/u, '') || defaultWeighbridgeConfig.agentUrl
+      return `${baseUrl}/current-weight`
+    }
+    return appPath('/api/weighbridge/current-weight')
+  }
+
   async function loadRecords() {
     setLoading(true)
     setError('')
@@ -429,7 +481,9 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         driverName: '',
         densityFactor: milk.densityFactor,
         fullTruckWeightKg: '',
+        fullTruckWeighedAt: '',
         emptyTruckWeightKg: '',
+        emptyTruckWeighedAt: '',
         netQuantityKg: null,
         calculatedLiters: null,
         deliveryCategory: 'COLLECTION',
@@ -496,6 +550,34 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       }
       return withCalculations(next)
     }))
+  }
+
+  async function readScaleWeight(id: string, field: WeightField) {
+    const target = `${id}:${field}`
+    const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
+    setScaleReadingTarget(target)
+    setError('')
+    setNotice(`Reading scale for ${label}...`)
+    try {
+      const response = await fetch(currentWeightUrl(), { cache: 'no-store' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not read the scale.')
+      const reading = payload.reading || {}
+      const weight = Number(reading.weightKg)
+      if (!Number.isFinite(weight)) throw new Error('The scale returned a value that could not be used.')
+      if (reading.stable === false) throw new Error('The scale reading is not stable yet.')
+      const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
+      updateRecord(id, {
+        [field]: String(weight),
+        [timestampField]: String(reading.capturedAt || new Date().toISOString()),
+      } as Partial<MilkReceptionRecord>)
+      setNotice(`${label} filled from scale: ${formatNumber(weight, 0)} kg.`)
+    } catch (readError) {
+      setError(readError instanceof Error ? readError.message : 'Could not read the scale.')
+      setNotice('')
+    } finally {
+      setScaleReadingTarget('')
+    }
   }
 
   function updateQualityDetail(id: string, detailType: QualityDetailType, patch: Partial<QualityDetail>) {
@@ -800,6 +882,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const density = numberValue(record.densityFactor)
     const dailyRoutesLiters = numberValue(record.dailyRoutesLiters)
     const net = full != null && empty != null && empty <= full ? full - empty : null
+    const waitingForEmptyWeight = full != null && full > 0 && empty == null
     const liters = net != null && density && density > 0 ? net / density : null
     return {
       ...record,
@@ -808,12 +891,13 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       netQuantityKg: net,
       calculatedLiters: liters,
       differenceLiters: liters != null && dailyRoutesLiters != null ? liters - dailyRoutesLiters : null,
-      combinationDiagnosis: diagnose(record, full, empty, net),
+      combinationDiagnosis: diagnose(record, full, empty, net, waitingForEmptyWeight),
     }
   }
 
-  function diagnose(record: MilkReceptionRecord, full: number | null, empty: number | null, net: number | null) {
+  function diagnose(record: MilkReceptionRecord, full: number | null, empty: number | null, net: number | null, waitingForEmptyWeight: boolean) {
     if (!record.receptionDate || !record.vehicleRegistration || (record.vehicleCategory === 'COLLECTION' && !record.routeId) || !record.milkType) return 'Incomplete information'
+    if (waitingForEmptyWeight) return 'Waiting for empty weight'
     if (full == null || empty == null) return 'Incomplete information'
     if (empty > full) return 'Empty weight exceeds full weight'
     if (net === 0) return 'Zero kilograms'
@@ -828,9 +912,36 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     if (record.vehicleCategory === 'COLLECTION' && !record.routeId.trim()) return 'Route ID is required for collection trucks.'
     if (!record.milkType) return 'Milk type is required.'
     if (full == null || full <= 0) return 'Full truck weight must be a positive number.'
-    if (empty == null || empty <= 0) return 'Empty truck weight must be a positive number.'
-    if (empty > full) return 'Empty truck weight cannot exceed full truck weight.'
+    if (empty != null && empty <= 0) return 'Empty truck weight must be a positive number.'
+    if (empty != null && empty > full) return 'Empty truck weight cannot exceed full truck weight.'
     return ''
+  }
+
+  function renderWeightInput(record: MilkReceptionRecord, field: WeightField) {
+    const target = `${record.receptionId}:${field}`
+    const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
+    const weighedAt = field === 'fullTruckWeightKg' ? record.fullTruckWeighedAt : record.emptyTruckWeighedAt
+    return (
+      <div className="reception-weight-entry">
+        <div className="reception-weight-input-stack">
+          <input
+            inputMode="decimal"
+            value={record[field] ?? ''}
+            onChange={(event) => updateRecord(record.receptionId, { [field]: event.target.value } as Partial<MilkReceptionRecord>)}
+          />
+          {weighedAt && <small>{formatWeightTime(weighedAt)}</small>}
+        </div>
+        <button
+          type="button"
+          title={`Read scale into ${label}`}
+          aria-label={`Read scale into ${label}`}
+          disabled={Boolean(scaleReadingTarget)}
+          onClick={() => void readScaleWeight(record.receptionId, field)}
+        >
+          {scaleReadingTarget === target ? '...' : 'Scale'}
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -1100,8 +1211,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                             {options.milkTypes.map((milk) => <option key={milk.code} value={milk.code}>{milk.label}</option>)}
                           </select>
                         </td>
-                        <td><input inputMode="decimal" value={record.fullTruckWeightKg ?? ''} onChange={(event) => updateRecord(record.receptionId, { fullTruckWeightKg: event.target.value })} /></td>
-                        <td><input inputMode="decimal" value={record.emptyTruckWeightKg ?? ''} onChange={(event) => updateRecord(record.receptionId, { emptyTruckWeightKg: event.target.value })} /></td>
+                        <td>{renderWeightInput(record, 'fullTruckWeightKg')}</td>
+                        <td>{renderWeightInput(record, 'emptyTruckWeightKg')}</td>
                         <td className="readonly-number">{formatNumber(computed.netQuantityKg)}</td>
                         <td className="readonly-number">{formatNumber(computed.calculatedLiters)}</td>
                         <td className="readonly-number">{formatNumber(computed.reconciliation?.avizLiters ?? null)}</td>
@@ -1142,6 +1253,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
 function statusClass(status: string) {
   const lowered = status.toLowerCase()
   if (lowered === 'ok') return 'status-ok'
+  if (lowered.includes('waiting')) return 'status-waiting'
   if (lowered.includes('exceed') || lowered.includes('not found') || lowered.includes('problem')) return 'status-error'
   return 'status-warning'
 }

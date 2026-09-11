@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "node server/index.js",
+    "scale-agent": "node scripts/weighbridgeAgent.js",
+    "scale:test": "powershell -ExecutionPolicy Bypass -File scripts/testWeighbridgePort.ps1",
     "graph:login": "node scripts/createGraphTokenCache.mjs",
     "start": "node server/index.js"
   },
