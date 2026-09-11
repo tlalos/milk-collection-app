@@ -412,8 +412,13 @@ export async function listReferenceProducers(query = '', kind = 'producer', head
   if (!search) return candidates.slice(0, 50)
   return candidates
     .map((item) => ({ ...item, score: similarity(search, item.name), headerCenterHistory: kind === 'producer' && centerSearch ? centersAreRelated(centerSearch, item.centerName) : false }))
-    .filter((item) => normalizeValue(item.name).includes(normalizeValue(search)) || item.score >= 0.32)
-    .sort((left, right) => (right.score + (right.headerCenterHistory ? 0.08 : 0)) - (left.score + (left.headerCenterHistory ? 0.08 : 0)) || left.name.localeCompare(right.name))
+    .filter((item) =>
+      normalizeValue(item.name).includes(normalizeValue(search)) ||
+      item.score >= (item.headerCenterHistory ? 0.2 : 0.32))
+    .sort((left, right) =>
+      Number(right.headerCenterHistory) - Number(left.headerCenterHistory) ||
+      right.score - left.score ||
+      left.name.localeCompare(right.name))
     .slice(0, 20)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
 }
@@ -465,13 +470,15 @@ export async function matchMonthlyProducers(data) {
       .map((item) => {
         const score = similarity(originalName, item.producerName)
         const affinity = headerCenterAffinity(item)
-        const historyBoost = affinity === 2 ? 0.08 : affinity === 1 ? 0.15 : 0
-        return { code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn, score, matchSource: affinity ? 'header_center_history' : 'all_producers', rankScore: score + historyBoost }
+        return { code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn, score, affinity, matchSource: affinity ? 'header_center_history' : 'all_producers' }
       })
-      .filter((item) => item.score >= 0.32)
-      .sort((left, right) => right.rankScore - left.rankScore)
+      .filter((item) => item.score >= (item.affinity ? 0.2 : 0.32))
+      .sort((left, right) =>
+        right.affinity - left.affinity ||
+        right.score - left.score ||
+        left.name.localeCompare(right.name))
       .slice(0, 5)
-      .map(({ rankScore: _rankScore, ...item }) => ({ ...item, score: Number(item.score.toFixed(3)) }))
+      .map(({ affinity: _affinity, ...item }) => ({ ...item, score: Number(item.score.toFixed(3)) }))
     const best = suggestions[0]
     const autoReplace = best?.score >= 0.6 && (best.matchSource === 'header_center_history' || best.score >= 0.75)
     return { rowNumber: row.rowNumber, originalName: originalName || null, status: autoReplace ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched', selectedCode: autoReplace ? best.code : null, selectedName: autoReplace ? best.name : null, suggestions, matchSource: best?.matchSource || 'all_producers' }

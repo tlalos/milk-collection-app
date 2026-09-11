@@ -581,6 +581,40 @@ export function MonthlySettlementReviewScreen() {
     );
   }
 
+  function selectProducerSuggestion(index: number, rowNumber: number, suggestion: ProducerSuggestion) {
+    updateRow(index, "producer", suggestion.name);
+    const key = `row-${rowNumber}`;
+    setSuggestions((current) => {
+      const existing = current[key] || [];
+      const merged = [
+        suggestion,
+        ...existing.filter((item) => item.code !== suggestion.code),
+      ];
+      return { ...current, [key]: merged };
+    });
+    setSelected((current) =>
+      current
+        ? {
+            ...current,
+            producerMatches: (current.producerMatches || []).map((match) =>
+              match.rowNumber === rowNumber
+                ? {
+                    ...match,
+                    status: "confirmed",
+                    selectedCode: suggestion.code,
+                    selectedName: suggestion.name,
+                    suggestions: [
+                      suggestion,
+                      ...match.suggestions.filter((item) => item.code !== suggestion.code),
+                    ],
+                  }
+                : match,
+            ),
+          }
+        : current,
+    );
+  }
+
   function deleteRow(rowNumber: number) {
     const prompt = isRo
       ? `Ștergeți rândul ${rowNumber} din acest document?`
@@ -679,6 +713,20 @@ export function MonthlySettlementReviewScreen() {
     );
     const value = row[field] || "";
     const options = suggestions[key] || match?.suggestions || [];
+    const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
+    const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
+    const rankedOptions = [...options].sort(
+      (first, second) => {
+        const firstHeaderMatch = referenceCentersMatch(first.centerName, first.centerCode, headerCenterName, headerCenterCode);
+        const secondHeaderMatch = referenceCentersMatch(second.centerName, second.centerCode, headerCenterName, headerCenterCode);
+        return (
+          Number(secondHeaderMatch) - Number(firstHeaderMatch) ||
+          (second.score || 0) - (first.score || 0) ||
+          first.name.localeCompare(second.name)
+        );
+      },
+    );
+    const bestOption = rankedOptions[0] || null;
     const searchedCurrentValue = Object.prototype.hasOwnProperty.call(
       suggestions,
       key,
@@ -686,11 +734,11 @@ export function MonthlySettlementReviewScreen() {
     const normalizedValue = normalizeReferenceName(value);
     const hasExactReferenceMatch =
       normalizedValue.length >= 2 &&
-      options.some(
+      rankedOptions.some(
         (option) => normalizeReferenceName(option.name) === normalizedValue,
       );
     const exactReferenceOptions = normalizedValue.length >= 2
-      ? options.filter((option) => normalizeReferenceName(option.name) === normalizedValue)
+      ? rankedOptions.filter((option) => normalizeReferenceName(option.name) === normalizedValue)
       : [];
     const wasAutoReplaced =
       match?.status === "auto_replaced" &&
@@ -704,10 +752,8 @@ export function MonthlySettlementReviewScreen() {
         searchedCurrentValue);
     const missingReferenceName = value.trim().length === 0;
     const shouldWarn = missingReferenceName || noReferenceMatch;
-    const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
-    const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
     const selectedReference = match?.selectedCode
-      ? options.find((option) => option.code === match.selectedCode)
+      ? rankedOptions.find((option) => option.code === match.selectedCode)
       : null;
     const referencesToCheck = selectedReference ? [selectedReference] : exactReferenceOptions;
     const producerBelongsToHeaderCenter = referencesToCheck.some((option) =>
@@ -742,7 +788,7 @@ export function MonthlySettlementReviewScreen() {
           </span>
         )}
         <datalist id={`${key}-options`}>
-          {options.map((item) => (
+          {rankedOptions.map((item) => (
             <option key={`${item.code}-${item.name}`} value={item.name}>
               {Math.round((item.score || 0) * 100)}% · {item.code} ·{" "}
               {item.centerName || ""}
@@ -762,7 +808,7 @@ export function MonthlySettlementReviewScreen() {
         )}
         {showRowNotes && value.length >= 2 && suggestions[key] && (
           <small className="monthly-result-count">
-            {options.length}{" "}
+            {rankedOptions.length}{" "}
             {match?.matchSource === "header_center_history"
               ? isRo
                 ? "rezultate pentru centrul din antet"
@@ -776,6 +822,32 @@ export function MonthlySettlementReviewScreen() {
           <small className="monthly-reference-warning">
             {isRo ? "Fără potrivire în listă" : "No match in reference list"}
           </small>
+        )}
+        {rankedOptions.length > 0 && value.trim().length > 0 && (
+          <select
+            className="monthly-producer-suggestion-select"
+            value=""
+            aria-label={isRo ? `Potriviri posibile pentru rândul ${row.rowNumber}` : `Possible matches for row ${row.rowNumber}`}
+            onChange={(event) => {
+              const suggestion = rankedOptions.find((item) => item.code === event.target.value);
+              if (suggestion) selectProducerSuggestion(index, row.rowNumber, suggestion);
+            }}
+          >
+            <option value="" disabled hidden>
+              {bestOption
+                ? `${Math.round((bestOption.score || 0) * 100)}% · ${bestOption.name}${bestOption.centerName ? ` · ${bestOption.centerName}` : ""}${bestOption.code ? ` · ${bestOption.code}` : ""}`
+                : isRo
+                  ? `Alegeți o sugestie (${rankedOptions.length})…`
+                  : `Choose a suggestion (${rankedOptions.length})…`}
+            </option>
+            {rankedOptions.map((item) => (
+              <option key={`${item.code}-${item.name}`} value={item.code}>
+                {Math.round((item.score || 0) * 100)}% · {item.name}
+                {item.centerName ? ` · ${item.centerName}` : ""}
+                {item.code ? ` · ${item.code}` : ""}
+              </option>
+            ))}
+          </select>
         )}
         {showRowNotes && producerCenterMismatch && (
           <small className="monthly-reference-warning">
