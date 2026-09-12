@@ -814,6 +814,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function deleteRecord(record: MilkReceptionRecord) {
+    const rowLabel = [record.vehicleRegistration, record.receptionDate].filter(Boolean).join(' / ') || 'this row'
+    const confirmed = window.confirm(`Delete reception row ${rowLabel}?\n\nThis cannot be undone.`)
+    if (!confirmed) return
+
     if (record.isNew) {
       setRecords((current) => current.filter((item) => item.receptionId !== record.receptionId))
       return
@@ -1187,8 +1191,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   <th>Empty kg</th>
                   <th>Net kg</th>
                   <th>Liters</th>
-                  <th>Aviz L</th>
-                  <th>Diff L</th>
+                  <th>Aviz diff</th>
                   <th>Match</th>
                   <th>Comments</th>
                   <th>Status</th>
@@ -1198,7 +1201,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                 <tbody>
                   {!visibleRecords.length && (
                     <tr>
-                      <td colSpan={17} className="reception-empty">No reception records found. Add a row to start.</td>
+                      <td colSpan={16} className="reception-empty">No reception records found. Add a row to start.</td>
                     </tr>
                   )}
                 {visibleRecords.map((record) => {
@@ -1254,7 +1257,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         <td>{renderWeightInput(record, 'emptyTruckWeightKg')}</td>
                         <td className="readonly-number">{formatNumber(computed.netQuantityKg)}</td>
                         <td className="readonly-number">{formatNumber(computed.calculatedLiters)}</td>
-                        <td className="readonly-number">{formatNumber(computed.reconciliation?.avizLiters ?? null)}</td>
                         <td className={`readonly-number ${computed.reconciliation?.differenceLiters && Math.abs(computed.reconciliation.differenceLiters) > 5 ? 'reconciliation-diff-warning' : ''}`}>{formatNumber(computed.reconciliation?.differenceLiters ?? null)}</td>
                         <td><span className={`reconciliation-status ${computed.reconciliation?.status || 'missing_info'}`}>{computed.reconciliation?.label || '-'}</span></td>
                         <td><input value={record.comments} onChange={(event) => updateRecord(record.receptionId, { comments: event.target.value })} placeholder="Comments" /></td>
@@ -1270,7 +1272,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                       </tr>
                       {expanded && (
                         <tr className="reception-detail-row">
-                          <td colSpan={17}>
+                          <td colSpan={16}>
                             <div className="reception-details">
                               {renderReconciliationSection(computed)}
                               {renderQualitySection(record, 'ORIGINAL', 'Original values')}

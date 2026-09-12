@@ -3,16 +3,20 @@ import { settingsStore } from '../store/settingsStore'
 import { testConnection } from '../api/client'
 import { db } from '../db/database'
 import type { AppSettings } from '../types/settings'
+import type { AuthUser } from '../types/auth'
 import { APP_VERSION } from '../appVersion'
 import './SettingsScreen.css'
 
 interface SettingsScreenProps {
   onBack: () => void
+  user: AuthUser | null
+  onErpSignIn: () => void
+  onErpSignOut: () => void
 }
 
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
 
-export function SettingsScreen({ onBack }: SettingsScreenProps) {
+export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: SettingsScreenProps) {
   const [settings, setSettings] = useState<AppSettings>(() => settingsStore.get())
   const [saved, setSaved] = useState(false)
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
@@ -62,6 +66,12 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
           </svg>
         </button>
         <h1>Settings</h1>
+        <div className="settings-header-actions">
+          <span className="settings-offline-badge">Offline ready</span>
+          <button className="settings-session-btn" onClick={user ? onErpSignOut : onErpSignIn} type="button">
+            {user ? 'ERP sign out' : 'ERP sign in'}
+          </button>
+        </div>
       </header>
 
       <div className="settings-body">

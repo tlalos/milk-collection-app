@@ -20,6 +20,7 @@ import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { TransportScreen } from './components/TransportScreen'
+import { WebUsersScreen } from './components/WebUsersScreen'
 import { authStore } from './store/authStore'
 import { ErpPayloadDebugModal } from './components/ErpPayloadDebugModal'
 import { saveCollectionToJournal, updateJournalCollectionErpStatus } from './store/journalStore'
@@ -54,6 +55,7 @@ type Screen =
   | 'ocrArchiveHistory'
   | 'ocrReview'
   | 'ocrSettings'
+  | 'webUsers'
   | 'monthlySettlementReview'
   | 'ocrComparison'
 
@@ -63,6 +65,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
+  if (routePathname() === '/web-users') return 'webUsers'
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
@@ -75,6 +78,7 @@ function initialScreen(): Screen {
 export function App() {
   const [screen, setScreen] = useState<Screen>(initialScreen)
   const [prevScreen, setPrevScreen] = useState<Screen>('main')
+  const [loginReturnScreen, setLoginReturnScreen] = useState<Screen>('home')
   const [user, setUser] = useState<AuthUser | null>(null)
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [submittedCollections, setSubmittedCollections] = useState<SubmittedCollection[]>([])
@@ -97,7 +101,7 @@ export function App() {
 
   function handleLogin(loggedInUser: AuthUser) {
     setUser(loggedInUser)
-    setScreen('home')
+    setScreen(loginReturnScreen)
   }
 
   function openSettings(from: Screen) {
@@ -105,12 +109,17 @@ export function App() {
     setScreen('settings')
   }
 
-  function handleLogout() {
+  function openErpLogin(returnTo: Screen) {
+    setLoginReturnScreen(returnTo)
+    setScreen('login')
+  }
+
+  function handleLogout(returnTo: Screen = 'main') {
     authStore.clear()
     setUser(null)
     setSelectedSupplier(null)
     setSuccessMessage('')
-    setScreen('main')
+    setScreen(returnTo)
   }
 
   function openSupplierSelection() {
@@ -199,7 +208,7 @@ export function App() {
 
       {screen === 'main' && (
         <MainScreen
-          onSignIn={() => setScreen('login')}
+          onSignIn={() => openErpLogin('home')}
           onSettings={() => openSettings('main')}
           onOpenMenu={() => { window.location.href = appPath('/home') }}
         />
@@ -208,14 +217,19 @@ export function App() {
       {screen === 'login' && (
         <LoginScreen
           onLogin={handleLogin}
-          onBack={() => setScreen('main')}
+          onBack={() => setScreen(loginReturnScreen === 'settings' ? 'settings' : 'main')}
           initialUsername={authStore.getLastUsername()}
           initialPassword={authStore.getLastPassword()}
         />
       )}
 
       {screen === 'settings' && (
-        <SettingsScreen onBack={() => setScreen(prevScreen)} />
+        <SettingsScreen
+          onBack={() => setScreen(prevScreen)}
+          user={user}
+          onErpSignIn={() => openErpLogin('settings')}
+          onErpSignOut={() => handleLogout('settings')}
+        />
       )}
 
       {screen === 'customers' && (
@@ -235,43 +249,51 @@ export function App() {
       )}
 
       {screen === 'milkReception' && (
-        <MilkReceptionScreen onBack={() => { window.location.href = appPath('/home') }} />
+        <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in" description="Sign in as a Web user to use Milk Reception.">
+          <MilkReceptionScreen onBack={() => { window.location.href = appPath('/home') }} />
+        </OcrAuthGate>
       )}
 
       {screen === 'dailyAviz' && (
-        <OcrAuthGate><DailyAvizScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="daily_aviz"><DailyAvizScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'monthlyReconciliation' && (
-        <OcrAuthGate><MonthlyReconciliationScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="monthly_reconciliation"><MonthlyReconciliationScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'monthClosure' && (
-        <OcrAuthGate><MonthClosureScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
-        <OcrAuthGate><OcrDocumentScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><OcrDocumentScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
       )}
 
       {screen === 'ocrArchiveHistory' && (
-        <OcrAuthGate><OcrArchiveHistoryScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><OcrArchiveHistoryScreen /></OcrAuthGate>
       )}
 
       {screen === 'ocrReview' && (
-        <OcrAuthGate><OcrReviewScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><OcrReviewScreen /></OcrAuthGate>
       )}
 
       {screen === 'ocrSettings' && (
-        <OcrAuthGate><OcrSettingsScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_settings"><OcrSettingsScreen /></OcrAuthGate>
+      )}
+
+      {screen === 'webUsers' && (
+        <OcrAuthGate requiredPermission="app_admin" title="Web admin sign in" description="Sign in as an admin Web user to manage Web users and tile access.">
+          <WebUsersScreen onBack={() => { window.location.href = appPath('/home') }} />
+        </OcrAuthGate>
       )}
 
       {screen === 'monthlySettlementReview' && (
-        <OcrAuthGate><MonthlySettlementReviewScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><MonthlySettlementReviewScreen /></OcrAuthGate>
       )}
 
       {screen === 'ocrComparison' && (
-        <OcrAuthGate><OcrComparisonScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><OcrComparisonScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (
@@ -295,13 +317,17 @@ export function App() {
         <div className="home-screen">
           <header className="home-header">
             <div className="home-header-left">
-              <h1>MilkCollect</h1>
+              <div className="home-title-row">
+                <h1>MilkCollect</h1>
+                <button className="home-web-users-btn" type="button" onClick={() => { window.location.href = appPath('/web-users') }}>
+                  Web Users
+                </button>
+              </div>
               {user && (
                 <span className="home-username">{user.fullName || user.username}</span>
               )}
             </div>
             <div className="home-header-right">
-              <span className="offline-badge">Offline ready</span>
               <button
                 className="home-icon-btn"
                 onClick={() => openSettings('home')}
@@ -311,9 +337,6 @@ export function App() {
                 <svg viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                 </svg>
-              </button>
-              <button className="logout-btn" onClick={user ? handleLogout : () => setScreen('login')} type="button">
-                {user ? 'Sign out' : 'Sign in'}
               </button>
             </div>
           </header>
@@ -356,7 +379,7 @@ export function App() {
               <button
                 className="home-tile"
                 type="button"
-                onClick={() => user ? setScreen('dataSync') : setScreen('login')}
+                onClick={() => user ? setScreen('dataSync') : openErpLogin('home')}
               >
                 <div className="home-tile-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -373,7 +396,7 @@ export function App() {
               <button
                 className="home-tile"
                 type="button"
-                onClick={() => user ? setScreen('journal') : setScreen('login')}
+                onClick={() => user ? setScreen('journal') : openErpLogin('home')}
               >
                 <div className="home-tile-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"

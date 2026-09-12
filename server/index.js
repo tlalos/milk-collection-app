@@ -13,7 +13,17 @@ import {
   toPublicJob,
   updateJob,
 } from './jobStore.js'
-import { getSessionUser, initializeAuthStore, login, logout } from './authStore.js'
+import {
+  auditAction,
+  getSessionUser,
+  initializeAuthStore,
+  listWebUserAdminData,
+  login,
+  logout,
+  saveWebRole,
+  saveWebUser,
+  userHasPermission,
+} from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
@@ -42,6 +52,7 @@ import {
   deleteMilkReceptionDriver,
   deleteMilkReceptionRouteSetting,
   deleteMilkReceptionTruckRoutes,
+  getMilkReception,
   importMilkReceptionDrivers,
   importMilkReceptionRouteSettings,
   listMilkReceptionDrivers,
@@ -752,9 +763,32 @@ function cookieValue(token, maxAge) {
   return `${cookieName}=${encodeURIComponent(token)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
 }
 
+function requirePermission(permission) {
+  return async (request, response, next) => {
+    try {
+      const user = await getSessionUser(sessionToken(request))
+      if (!user) return response.status(401).json({ error: 'Authentication required.' })
+      if (!userHasPermission(user, permission)) {
+        return response.status(403).json({ error: 'You do not have access to this page or action.' })
+      }
+      request.authUser = user
+      next()
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+
 app.post('/api/auth/login', async (request, response, next) => {
   try {
     const result = await login(request.body?.username, request.body?.password, sessionDays)
+    await auditAction({
+      request,
+      user: result?.user || null,
+      action: result ? 'auth.login.success' : 'auth.login.failed',
+      entityType: 'AppSession',
+      metadata: { username: request.body?.username || '' },
+    })
     if (!result) return response.status(401).json({ error: 'Invalid username or password.' })
     response.setHeader('Set-Cookie', cookieValue(result.token, sessionDays * 86400))
     response.json({ user: result.user, expiresAt: result.expiresAt })
@@ -775,9 +809,49 @@ app.get('/api/auth/session', async (request, response, next) => {
 
 app.post('/api/auth/logout', async (request, response, next) => {
   try {
+    const user = await getSessionUser(sessionToken(request))
     await logout(sessionToken(request))
+    await auditAction({ request, user, action: 'auth.logout', entityType: 'AppSession' })
     response.setHeader('Set-Cookie', cookieValue('', 0))
     response.json({ loggedOut: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/web-users/admin-data', requirePermission('app_admin'), async (_request, response, next) => {
+  try {
+    response.json(await listWebUserAdminData())
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/web-users/users', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const user = await saveWebUser(request.body)
+    await auditAction({ request, user: request.authUser, action: 'web_user.save', entityType: 'AppUser', entityId: user.userId, after: user })
+    response.status(201).json({ user, ...(await listWebUserAdminData()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/web-users/users/:id', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const user = await saveWebUser({ ...request.body, userId: request.params.id })
+    await auditAction({ request, user: request.authUser, action: 'web_user.save', entityType: 'AppUser', entityId: user.userId, after: user })
+    response.json({ user, ...(await listWebUserAdminData()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/web-users/roles', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const role = await saveWebRole(request.body)
+    await auditAction({ request, user: request.authUser, action: 'web_role.save', entityType: 'AppRole', entityId: role.roleKey, after: role })
+    response.status(201).json({ role, ...(await listWebUserAdminData()) })
   } catch (error) {
     next(error)
   }
@@ -816,6 +890,8 @@ app.get('/api/weighbridge/current-weight', async (_request, response) => {
 app.get('/api/weighbridge/config', (_request, response) => {
   response.json({ ok: true, weighbridge: getPublicWeighbridgeConfig() })
 })
+
+app.use('/api/milk-receptions', requirePermission('milk_reception'))
 
 app.get('/api/milk-receptions/options', async (_request, response) => {
   const warnings = []
@@ -867,8 +943,9 @@ app.get('/api/milk-receptions/driver-settings', async (_request, response, next)
 
 app.post('/api/milk-receptions/driver-settings', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const driver = await upsertMilkReceptionDriver(request.body, user?.username || '')
+    await auditAction({ request, user, action: 'milk_reception.driver_setting.upsert', entityType: 'MilkReceptionDriver', entityId: driver.driverId, after: driver })
     response.status(201).json({ driver, driverSettings: await listMilkReceptionDrivers() })
   } catch (error) {
     next(error)
@@ -879,6 +956,7 @@ app.delete('/api/milk-receptions/driver-settings/:id', async (request, response,
   try {
     const deleted = await deleteMilkReceptionDriver(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'Driver setting not found.' })
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.driver_setting.delete', entityType: 'MilkReceptionDriver', entityId: request.params.id })
     response.json({ deleted: true, driverSettings: await listMilkReceptionDrivers() })
   } catch (error) {
     next(error)
@@ -887,9 +965,10 @@ app.delete('/api/milk-receptions/driver-settings/:id', async (request, response,
 
 app.post('/api/milk-receptions/driver-settings/import-excel', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const drivers = await listReferenceDrivers()
     const result = await importMilkReceptionDrivers(drivers, user?.username || '')
+    await auditAction({ request, user, action: 'milk_reception.driver_setting.import_excel', entityType: 'MilkReceptionDriver', metadata: result })
     response.json({ result, driverSettings: await listMilkReceptionDrivers() })
   } catch (error) {
     next(error)
@@ -906,8 +985,9 @@ app.get('/api/milk-receptions/route-settings', async (_request, response, next) 
 
 app.post('/api/milk-receptions/route-settings', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const setting = await upsertMilkReceptionRouteSetting(request.body, user?.username || '')
+    await auditAction({ request, user, action: 'milk_reception.route_setting.upsert', entityType: 'MilkReceptionRouteSetting', entityId: setting.settingId, after: setting })
     response.status(201).json({ setting, ...(await listMilkReceptionRouteSettings()) })
   } catch (error) {
     next(error)
@@ -918,6 +998,7 @@ app.delete('/api/milk-receptions/route-settings/:id', async (request, response, 
   try {
     const deleted = await deleteMilkReceptionRouteSetting(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'Truck-route setting not found.' })
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.route_setting.delete', entityType: 'MilkReceptionRouteSetting', entityId: request.params.id })
     response.json({ deleted: true, ...(await listMilkReceptionRouteSettings()) })
   } catch (error) {
     next(error)
@@ -928,6 +1009,7 @@ app.delete('/api/milk-receptions/route-settings/truck/:vehicle', async (request,
   try {
     const deleted = await deleteMilkReceptionTruckRoutes(request.params.vehicle, request.query.vehicleCategory || request.body?.vehicleCategory)
     if (!deleted) return response.status(404).json({ error: 'Truck route setting not found.' })
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.route_setting.delete_truck', entityType: 'MilkReceptionRouteSetting', entityId: request.params.vehicle, metadata: { vehicleCategory: request.query.vehicleCategory || request.body?.vehicleCategory || '' } })
     response.json({ deleted: true, ...(await listMilkReceptionRouteSettings()) })
   } catch (error) {
     next(error)
@@ -936,8 +1018,9 @@ app.delete('/api/milk-receptions/route-settings/truck/:vehicle', async (request,
 
 app.put('/api/milk-receptions/route-settings/truck/:vehicle', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const result = await replaceMilkReceptionTruckRoutes(request.params.vehicle, request.body.routes, request.body.vehicleCategory, user?.username || '')
+    await auditAction({ request, user, action: 'milk_reception.route_setting.replace_truck', entityType: 'MilkReceptionRouteSetting', entityId: request.params.vehicle, after: result, metadata: { vehicleCategory: request.body?.vehicleCategory || '' } })
     response.json(result)
   } catch (error) {
     next(error)
@@ -946,9 +1029,10 @@ app.put('/api/milk-receptions/route-settings/truck/:vehicle', async (request, re
 
 app.post('/api/milk-receptions/route-settings/import-excel', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const vehicleRoutes = await listReferenceVehicleRoutes()
     const result = await importMilkReceptionRouteSettings(vehicleRoutes, user?.username || '')
+    await auditAction({ request, user, action: 'milk_reception.route_setting.import_excel', entityType: 'MilkReceptionRouteSetting', metadata: result })
     response.json({ result, ...(await listMilkReceptionRouteSettings()) })
   } catch (error) {
     next(error)
@@ -969,9 +1053,10 @@ app.get('/api/milk-receptions', async (request, response, next) => {
 
 app.post('/api/milk-receptions', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
     const record = await createMilkReception(request.body, user?.username || '')
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
+    await auditAction({ request, user, action: 'milk_reception.create', entityType: 'MilkReception', entityId: record.receptionId, after: record })
     response.status(201).json({ record: recordWithReconciliation })
   } catch (error) {
     next(error)
@@ -980,10 +1065,12 @@ app.post('/api/milk-receptions', async (request, response, next) => {
 
 app.patch('/api/milk-receptions/:id', async (request, response, next) => {
   try {
-    const user = await getSessionUser(sessionToken(request))
+    const user = request.authUser
+    const before = await getMilkReception(request.params.id)
     const record = await updateMilkReception(request.params.id, request.body, user?.username || '')
     if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
+    await auditAction({ request, user, action: 'milk_reception.update', entityType: 'MilkReception', entityId: request.params.id, before, after: record })
     response.json({ record: recordWithReconciliation })
   } catch (error) {
     next(error)
@@ -992,24 +1079,17 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
 
 app.delete('/api/milk-receptions/:id', async (request, response, next) => {
   try {
+    const before = await getMilkReception(request.params.id)
     const deleted = await deleteMilkReception(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'Milk reception record not found.' })
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.delete', entityType: 'MilkReception', entityId: request.params.id, before })
     response.json({ deleted: true })
   } catch (error) {
     next(error)
   }
 })
 
-app.use('/api/ocr', async (request, response, next) => {
-  try {
-    const user = await getSessionUser(sessionToken(request))
-    if (!user) return response.status(401).json({ error: 'Authentication required.' })
-    request.authUser = user
-    next()
-  } catch (error) {
-    next(error)
-  }
-})
+app.use('/api/ocr', requirePermission('ocr_documents'))
 
 app.get('/api/ocr/settings', async (_request, response, next) => {
   try { response.json({ settings: publicOcrSettings(await getOcrSettings()) }) } catch (error) { next(error) }

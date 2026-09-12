@@ -17,6 +17,47 @@
 .ocr-auth-card button:disabled { opacity: .6; }
 .ocr-auth-error { padding: 9px 10px; border-radius: 8px; background: #fff0ef; color: #9d342d; font-size: .76rem; }
 .ocr-auth-content { min-height: 100vh; }
-.ocr-auth-signout { position: fixed; top: 19px; right: 164px; z-index: 100; padding: 8px 10px; border: 1px solid rgba(255,255,255,.35); border-radius: 8px; background: rgba(255,255,255,.13); color: white; font-size: .7rem; font-weight: 750; }
-.ocr-auth-content:has(.review-screen) .ocr-auth-signout { right: 24px; }
-@media (max-width: 620px) { .ocr-auth-card { padding: 28px 22px; } .ocr-auth-signout { top: 72px; right: 12px; background: #174f31; } }
+.ocr-auth-session {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 3px 4px 3px 9px;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 8px;
+  background: rgba(18, 83, 48, .86);
+  color: white;
+  box-shadow: 0 6px 18px rgba(0,0,0,.14);
+}
+.ocr-auth-session span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px 0 0;
+  font-size: .72rem;
+  font-weight: 850;
+}
+.ocr-auth-session button {
+  min-height: 28px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,.36);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: rgba(255,255,255,.16);
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+.ocr-auth-session button:active {
+  background: rgba(255,255,255,.28);
+}
+@media (max-width: 620px) {
+  .ocr-auth-card { padding: 28px 22px; }
+  .ocr-auth-session { top: 72px; right: 12px; max-width: calc(100vw - 24px); }
+}
