@@ -67,6 +67,7 @@ type StatusFilter = 'all' | ReconciliationStatus
 
 interface AvizCenterCorrectionDraft {
   row: MonthlyReconciliationRow
+  detail?: MonthlyReconciliationAvizRow
   targetCenter: string
 }
 
@@ -300,10 +301,10 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
     })?.center || ''
   }
 
-  function openCorrectionDialog(row: MonthlyReconciliationRow) {
+  function openCorrectionDialog(row: MonthlyReconciliationRow, detail?: MonthlyReconciliationAvizRow) {
     setError('')
     setNotice('')
-    setCorrectionDraft({ row, targetCenter: bestJournalCenterTarget(row) })
+    setCorrectionDraft({ row, detail, targetCenter: bestJournalCenterTarget(row) })
   }
 
   async function applyAvizCenterCorrection() {
@@ -325,6 +326,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
           fromCenter: correctionDraft.row.center,
           milkType: correctionDraft.row.milkType,
           toCenter: targetCenter,
+          jobId: correctionDraft.detail?.jobId,
+          rowNumber: correctionDraft.detail?.rowNumber,
         }),
       })
       const payload = await response.json() as AvizCenterCorrectionPayload
@@ -575,7 +578,23 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                                         <td>{detail.route || '-'}</td>
                                         <td>{detail.noticeNumber || '-'}</td>
                                         <td>{formatNumber(detail.liters)}</td>
-                                        <td><button type="button" onClick={() => openFile(detail.fileUrl)}>Open</button></td>
+                                        <td>
+                                          <div className="monthly-recon-file-actions">
+                                            <button type="button" onClick={() => openFile(detail.fileUrl)}>Open</button>
+                                            <button
+                                              className="monthly-recon-row-edit"
+                                              type="button"
+                                              onClick={() => openCorrectionDialog(row, detail)}
+                                              title="Change center for this aviz row"
+                                              aria-label={`Change center for aviz row ${detail.noticeNumber || detail.rowNumber || ''}`}
+                                            >
+                                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M12 20h9" />
+                                                <path d="m16.5 3.5 4 4L7 21H3v-4L16.5 3.5z" />
+                                              </svg>
+                                            </button>
+                                          </div>
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -625,7 +644,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
             <section className="monthly-recon-modal" role="dialog" aria-modal="true" aria-labelledby="monthly-recon-correction-title">
               <h2 id="monthly-recon-correction-title">Change aviz center</h2>
               <p>
-                Change {correctionDraft.row.avizLineCount} daily aviz row{correctionDraft.row.avizLineCount === 1 ? '' : 's'} for {displayMonth(correctionDraft.row.month)}.
+                Change {correctionDraft.detail ? '1' : correctionDraft.row.avizLineCount} daily aviz row{(correctionDraft.detail || correctionDraft.row.avizLineCount === 1) ? '' : 's'} for {displayMonth(correctionDraft.row.month)}.
               </p>
               <div className="monthly-recon-correction-from">
                 <span>From</span>
@@ -661,7 +680,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               <div className="monthly-recon-modal-actions">
                 <button type="button" onClick={() => setCorrectionDraft(null)} disabled={correctionSaving}>Cancel</button>
                 <button type="button" onClick={() => void applyAvizCenterCorrection()} disabled={correctionSaving || !correctionDraft.targetCenter.trim()}>
-                  {correctionSaving ? 'Updating...' : `Update ${correctionDraft.row.avizLineCount} rows`}
+                  {correctionSaving ? 'Updating...' : `Update ${correctionDraft.detail ? '1' : correctionDraft.row.avizLineCount} row${(correctionDraft.detail || correctionDraft.row.avizLineCount === 1) ? '' : 's'}`}
                 </button>
               </div>
             </section>

@@ -633,6 +633,9 @@ export async function enrichMissingRowValues(data) {
       if (row[field] !== null && row[field] !== undefined && row[field] !== '') continue
       if (invoiceValues[field]) {
         next[field] = invoiceValues[field].value
+        next.uncertainFields = Array.isArray(next.uncertainFields)
+          ? next.uncertainFields.filter((uncertain) => uncertain !== field)
+          : []
         fieldSources[field] = {
           source: 'current_invoice',
           sourceRowNumber: invoiceValues[field].rowNumber,
@@ -640,6 +643,9 @@ export async function enrichMissingRowValues(data) {
         }
       } else if (previousDay.values[field] !== null && previousDay.values[field] !== undefined && previousDay.values[field] !== '') {
         next[field] = previousDay.values[field]
+        next.uncertainFields = Array.isArray(next.uncertainFields)
+          ? next.uncertainFields.filter((uncertain) => uncertain !== field)
+          : []
         fieldSources[field] = {
           source: 'previous_day',
           sourceDate: previousDay.date,

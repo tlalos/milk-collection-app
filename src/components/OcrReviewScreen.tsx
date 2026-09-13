@@ -164,6 +164,7 @@ type TextField = 'companyName' | 'date' | 'driverName' | 'vehicleRegistration' |
 type RowTextField = 'collectionCenter' | 'noticeNumber' | 'milkType'
 type RowNumberField = 'liters' | 'fatPercent' | 'density' | 'water' | 'temperature'
 const JOBS_PER_PAGE = 5
+const AUTO_RESOLVED_UNCERTAIN_FIELDS = new Set<RowNumberField>(['temperature'])
 let cachedDriverOptions: string[] | null = null
 let driverOptionsRequest: Promise<string[]> | null = null
 let cachedVehicleOptions: string[] | null = null
@@ -336,6 +337,10 @@ function normalizeDailyData(data: ExtractedData): ExtractedData {
     rows: data.rows.map((row) => ({
       ...row,
       milkType: normalizeMilkType(row.milkType, row.fatPercent),
+      uncertainFields: row.uncertainFields.filter((field) => {
+        if (!AUTO_RESOLVED_UNCERTAIN_FIELDS.has(field as RowNumberField)) return true
+        return !hasRequiredNumber(row[field as RowNumberField])
+      }),
     })),
   }
 }
@@ -1565,10 +1570,7 @@ export function OcrReviewScreen() {
                     : litersMatch
                       ? (isRo ? '✓ Totalurile corespund' : '✓ Totals match')
                       : `${isRo ? '!' : '!'} ${isRo ? 'Diferență' : 'Difference'}: ${litersDifference! > 0 ? '+' : ''}${formatLiters(litersDifference!)} L`}</b>
-                </div>
-
-                <div className="review-table-toolbar">
-                  <button type="button" onClick={addManualRow}>
+                  <button className="review-add-row-inline" type="button" onClick={addManualRow}>
                     <span>+</span>
                     {isRo ? 'Adăugați rând' : 'Add row'}
                   </button>

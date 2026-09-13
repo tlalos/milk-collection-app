@@ -554,7 +554,7 @@
 .monthly-recon-daily-detail-table td:nth-child(6),
 .monthly-recon-journal-detail-table th:nth-child(4),
 .monthly-recon-journal-detail-table td:nth-child(4) {
-  width: 72px;
+  width: 104px;
 }
 
 .monthly-recon-detail-panel th,
@@ -578,6 +578,29 @@
   color: #155938;
   font-weight: 850;
   cursor: pointer;
+}
+
+.monthly-recon-file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monthly-recon-file-actions .monthly-recon-row-edit {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.monthly-recon-row-edit svg {
+  width: 15px;
+  height: 15px;
+}
+
+.monthly-recon-row-edit:hover {
+  background: #e8f5ee;
 }
 
 .monthly-recon-modal-backdrop {

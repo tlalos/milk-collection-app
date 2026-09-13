@@ -353,17 +353,22 @@ function preserveConfirmedProducerMatches(rows, recalculatedMatches, submittedMa
   })
 }
 
-function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter }) {
+function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber }) {
   if ((job.documentCategory || 'daily_routes') !== 'daily_routes') return { updates: null, updatedRows: 0 }
+  if (jobId && String(job.id) !== String(jobId)) return { updates: null, updatedRows: 0 }
   if (monthKeyFromDate(job.data?.date) !== month) return { updates: null, updatedRows: 0 }
   if (!Array.isArray(job.data?.rows)) return { updates: null, updatedRows: 0 }
 
   const fromKey = normalizeSuggestionText(fromCenter)
   const milkTypeKey = normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(milkType))
+  const targetRowNumber = rowNumber === null || rowNumber === undefined || rowNumber === ''
+    ? null
+    : Number(rowNumber)
   const affectedRows = []
   const rows = job.data.rows.map((row) => {
     const currentCenterKey = normalizeSuggestionText(resolvedDailyAvizCenter(job, row))
     const currentMilkTypeKey = normalizeSuggestionText(normalizeMonthlyReconciliationMilkType(row.milkType))
+    if (targetRowNumber !== null && Number(row.rowNumber) !== targetRowNumber) return row
     if (currentCenterKey !== fromKey || currentMilkTypeKey !== milkTypeKey) return row
     affectedRows.push(row)
     return {
@@ -1300,10 +1305,15 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
     const fromCenter = String(request.body?.fromCenter || '').trim()
     const milkType = String(request.body?.milkType || '').trim()
     const toCenter = String(request.body?.toCenter || '').trim()
+    const jobId = String(request.body?.jobId || '').trim()
+    const rowNumber = request.body?.rowNumber
     if (!/^\d{4}-\d{2}$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
     if (!fromCenter) return response.status(400).json({ error: 'Choose the aviz center to change.' })
     if (!milkType) return response.status(400).json({ error: 'Choose the milk type to change.' })
     if (!toCenter) return response.status(400).json({ error: 'Choose the new center name.' })
+    if (jobId && (rowNumber === null || rowNumber === undefined || rowNumber === '' || !Number.isFinite(Number(rowNumber)))) {
+      return response.status(400).json({ error: 'Choose a valid aviz row to change.' })
+    }
     if (normalizeSuggestionText(fromCenter) === normalizeSuggestionText(toCenter)) {
       return response.status(400).json({ error: 'The new center name must be different.' })
     }
@@ -1312,7 +1322,7 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
     let updatedRows = 0
     const jobs = await listJobs()
     for (const job of jobs) {
-      const correction = correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter })
+      const correction = correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber })
       if (!correction.updates || correction.updatedRows <= 0) continue
       await updateJob(job.id, correction.updates)
       updatedJobs += 1
