@@ -77,6 +77,11 @@ interface AvizCenterCorrectionPayload {
   error?: string
 }
 
+interface ReferenceCenterOption {
+  code?: string | null
+  name: string
+}
+
 const emptySummary: MonthlyReconciliationSummary = {
   groupCount: 0,
   okCount: 0,
@@ -142,6 +147,9 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [showJournalCenters, setShowJournalCenters] = useState(false)
   const [correctionDraft, setCorrectionDraft] = useState<AvizCenterCorrectionDraft | null>(null)
   const [correctionSaving, setCorrectionSaving] = useState(false)
+  const [referenceCenters, setReferenceCenters] = useState<ReferenceCenterOption[]>([])
+  const [referenceCentersLoaded, setReferenceCentersLoaded] = useState(false)
+  const [referenceCentersError, setReferenceCentersError] = useState('')
   const [notice, setNotice] = useState('')
 
   async function loadRows() {
@@ -163,6 +171,32 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
 
   useEffect(() => {
     void loadRows()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadReferenceCenters() {
+      try {
+        const response = await fetch(appPath('/api/monthly-reconciliation/reference-centers'))
+        const payload = await response.json() as { centers?: ReferenceCenterOption[] }
+        if (!response.ok) throw new Error('Could not load reference centers.')
+        if (!cancelled) {
+          setReferenceCenters((payload.centers || []).filter((center) => center?.name))
+          setReferenceCentersLoaded(true)
+          setReferenceCentersError('')
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setReferenceCenters([])
+          setReferenceCentersLoaded(true)
+          setReferenceCentersError((loadError as Error).message || 'Could not load tblCenters.')
+        }
+      }
+    }
+    void loadReferenceCenters()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const centerOptions = useMemo(() => uniqueValues(rows, (row) => row.center), [rows])
@@ -234,11 +268,35 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
       })
   }
 
+  function centerCorrectionOptions(row: MonthlyReconciliationRow) {
+    const currentCenter = normalizedSearch(row.center)
+    const journalByCenter = new Map(sortedJournalCenterOptions(row).map((item) => [normalizedSearch(item.center), item]))
+    const options = new Map<string, { center: string; label: string; priority: number; hasJournalRows: boolean }>()
+
+    for (const center of referenceCenters) {
+      const key = normalizedSearch(center.name)
+      if (!key || key === currentCenter) continue
+      const journal = journalByCenter.get(key)
+      options.set(key, {
+        center: center.name,
+        label: journal
+          ? `Has monthly journal rows · ${journal.milkTypeLabel || 'Milk type unknown'} · ${formatNumber(journal.liters)} L`
+          : 'Official center from tblCenters',
+        priority: journal ? 0 : 1,
+        hasJournalRows: Boolean(journal),
+      })
+    }
+
+    return [...options.values()].sort((left, right) =>
+      left.priority - right.priority ||
+      left.center.localeCompare(right.center, undefined, { numeric: true }))
+  }
+
   function bestJournalCenterTarget(row: MonthlyReconciliationRow) {
     const rowCenter = normalizedSearch(row.center)
-    return sortedJournalCenterOptions(row).find((item) => {
+    return centerCorrectionOptions(row).find((item) => {
       const optionCenter = normalizedSearch(item.center)
-      return !item.hasAvizMatch && item.milkTypes.has(row.milkType) && (optionCenter.includes(rowCenter) || rowCenter.includes(optionCenter))
+      return item.hasJournalRows && (optionCenter.includes(rowCenter) || rowCenter.includes(optionCenter))
     })?.center || ''
   }
 
@@ -579,14 +637,24 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                 <input
                   list="monthly-recon-correction-options"
                   value={correctionDraft.targetCenter}
-                  onChange={(event) => setCorrectionDraft((current) => current ? { ...current, targetCenter: event.currentTarget.value } : current)}
+                  onChange={(event) => {
+                    const targetCenter = event.currentTarget.value
+                    setCorrectionDraft((current) => current ? { ...current, targetCenter } : current)
+                  }}
                   placeholder="Choose or type center name..."
                 />
               </label>
+              <small className={`monthly-recon-reference-count ${referenceCentersError ? 'error' : ''}`}>
+                {referenceCentersError
+                  ? referenceCentersError
+                  : referenceCentersLoaded
+                    ? `${referenceCenters.length} official centers from tblCenters`
+                    : 'Loading tblCenters...'}
+              </small>
               <datalist id="monthly-recon-correction-options">
-                {sortedJournalCenterOptions(correctionDraft.row).map((item) => (
+                {centerCorrectionOptions(correctionDraft.row).map((item) => (
                   <option key={normalizedSearch(item.center)} value={item.center}>
-                    {`${item.hasAvizMatch ? 'Has aviz' : 'No aviz match'} · ${item.milkTypeLabel || 'Milk type unknown'} · ${formatNumber(item.liters)} L`}
+                    {item.label}
                   </option>
                 ))}
               </datalist>

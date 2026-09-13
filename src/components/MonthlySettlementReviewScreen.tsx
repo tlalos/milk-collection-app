@@ -308,6 +308,7 @@ export function MonthlySettlementReviewScreen() {
   const [suggestions, setSuggestions] = useState<
     Record<string, ProducerSuggestion[]>
   >({});
+  const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string>>({});
   const [zoom, setZoom] = useState(100);
   const [imageRotation, setImageRotation] = useState(0);
   const [showRowNotes, setShowRowNotes] = useState(false);
@@ -681,8 +682,14 @@ export function MonthlySettlementReviewScreen() {
     value: string,
     kind: "producer" | "center" = "producer",
   ) {
-    if (value.trim().length < 2)
+    if (value.trim().length < 2) {
+      setSuggestionErrors((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
       return setSuggestions((current) => ({ ...current, [key]: [] }));
+    }
     try {
       const headerCenter = kind === "producer" ? draft?.headerCenterName || "" : "";
       const response = await fetch(
@@ -691,14 +698,26 @@ export function MonthlySettlementReviewScreen() {
         ),
       );
       const payload = (await response.json()) as {
+        error?: string;
         producers?: ProducerSuggestion[];
       };
+      if (!response.ok) {
+        throw new Error(payload.error || "Could not search Ref_Producers.");
+      }
       setSuggestions((current) => ({
         ...current,
         [key]: payload.producers || [],
       }));
-    } catch {
-      setSuggestions((current) => ({ ...current, [key]: [] }));
+      setSuggestionErrors((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    } catch (searchError) {
+      setSuggestionErrors((current) => ({
+        ...current,
+        [key]: (searchError as Error).message || "Could not search Ref_Producers.",
+      }));
     }
   }
 
@@ -712,7 +731,10 @@ export function MonthlySettlementReviewScreen() {
       (item) => item.rowNumber === row.rowNumber,
     );
     const value = row[field] || "";
-    const options = suggestions[key] || match?.suggestions || [];
+    const searchedOptions = Object.prototype.hasOwnProperty.call(suggestions, key)
+      ? suggestions[key]
+      : null;
+    const options = searchedOptions?.length ? searchedOptions : match?.suggestions || [];
     const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
     const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
     const rankedOptions = [...options].sort(
@@ -818,6 +840,11 @@ export function MonthlySettlementReviewScreen() {
                 : "results"}
             </small>
           )}
+        {showRowNotes && suggestionErrors[key] && (
+          <small className="monthly-reference-fetch-warning">
+            {suggestionErrors[key]}
+          </small>
+        )}
         {showRowNotes && noReferenceMatch && (
           <small className="monthly-reference-warning">
             {isRo ? "Fără potrivire în listă" : "No match in reference list"}

@@ -429,6 +429,12 @@
 .monthly-archived-source span {
   font-size: 0.72rem;
 }
+
+.monthly-reference-fetch-warning {
+  color: #a13a31;
+  font-size: 0.62rem;
+  font-weight: 850;
+}
 .monthly-archived-source a {
   width: fit-content;
   justify-self: center;

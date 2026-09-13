@@ -36,6 +36,7 @@ import {
   clearReferenceCaches,
   enrichMissingRowValues,
   listReferenceDrivers,
+  listReferenceCenters,
   listReferenceRoutes,
   listReferenceVehicleRoutes,
   listReferenceVehicles,
@@ -852,6 +853,15 @@ app.post('/api/web-users/roles', requirePermission('app_admin'), async (request,
     const role = await saveWebRole(request.body)
     await auditAction({ request, user: request.authUser, action: 'web_role.save', entityType: 'AppRole', entityId: role.roleKey, after: role })
     response.status(201).json({ role, ...(await listWebUserAdminData()) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/monthly-reconciliation/reference-centers', requirePermission('monthly_reconciliation'), async (_request, response, next) => {
+  try {
+    const centers = await listReferenceCenters()
+    response.json({ centers })
   } catch (error) {
     next(error)
   }

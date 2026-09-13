@@ -663,6 +663,17 @@
   outline: 3px solid rgba(35, 122, 80, 0.14);
 }
 
+.monthly-recon-reference-count {
+  margin-top: -8px;
+  color: #607268;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.monthly-recon-reference-count.error {
+  color: #a13a31;
+}
+
 .monthly-recon-modal-actions {
   display: flex;
   justify-content: flex-end;

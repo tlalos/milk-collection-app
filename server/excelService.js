@@ -402,6 +402,23 @@ export async function matchCentersForRows(rows) {
   })
 }
 
+export async function listReferenceCenters(query = '') {
+  const centers = await loadReferenceCenters()
+  const search = String(query || '').trim()
+  const sortedCenters = centers
+    .slice()
+    .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), undefined, { numeric: true }))
+  if (!search) return sortedCenters
+  return sortedCenters
+    .map((center) => ({ ...center, score: similarity(search, center.name) }))
+    .filter((center) =>
+      normalizeValue(center.name).includes(normalizeValue(search)) ||
+      center.score >= 0.32)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name, undefined, { numeric: true }))
+    .slice(0, 50)
+    .map((center) => ({ ...center, score: Number(center.score.toFixed(3)) }))
+}
+
 export async function listReferenceProducers(query = '', kind = 'producer', headerCenterName = '') {
   const producers = await loadReferenceProducers()
   const search = String(query || '').trim()
