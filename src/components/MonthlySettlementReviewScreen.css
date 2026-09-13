@@ -593,8 +593,17 @@
   border-radius: 6px;
   background: #fafcfb;
 }
+.monthly-review-actions {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
 .monthly-warnings {
-  margin: 0 12px 8px;
+  flex: 1 1 auto;
+  min-width: 220px;
+  margin: 0;
   padding: 0;
   overflow: hidden;
   border: 1px solid #ead99f;
@@ -640,9 +649,11 @@
 }
 .monthly-table-toolbar {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
   justify-content: flex-end;
-  padding: 0 12px 8px;
+  margin-left: auto;
+  padding: 0;
 }
 .monthly-table-toolbar button {
   display: inline-flex;

@@ -1911,50 +1911,52 @@ export function MonthlySettlementReviewScreen() {
                             : `! ${isRo ? "Diferență" : "Difference"}: ${litersDifference! > 0 ? "+" : ""}${formatLiters(litersDifference!)} L`}
                       </b>
                     </div>
-                    {draft.warnings.length > 0 && (
-                      <div className={`monthly-warnings ${showVerificationItems ? "expanded" : "collapsed"}`}>
+                    <div className="monthly-review-actions">
+                      {draft.warnings.length > 0 && (
+                        <div className={`monthly-warnings ${showVerificationItems ? "expanded" : "collapsed"}`}>
+                          <button
+                            type="button"
+                            onClick={() => setShowVerificationItems((current) => !current)}
+                            aria-expanded={showVerificationItems}
+                          >
+                            <strong>{isRo ? "De verificat" : "Items to verify"}</strong>
+                            <span>
+                              {draft.warnings.length} {draft.warnings.length === 1
+                                ? isRo ? "element" : "item"
+                                : isRo ? "elemente" : "items"}
+                            </span>
+                            <b>{showVerificationItems ? "-" : "+"}</b>
+                          </button>
+                          {showVerificationItems && (
+                            <ul>
+                              {draft.warnings.map((warning, index) => (
+                                <li key={index}>{warning}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      <div className="monthly-table-toolbar">
                         <button
+                          className="monthly-notes-toggle"
                           type="button"
-                          onClick={() => setShowVerificationItems((current) => !current)}
-                          aria-expanded={showVerificationItems}
+                          onClick={() => setShowRowNotes((current) => !current)}
+                          aria-pressed={showRowNotes}
                         >
-                          <strong>{isRo ? "De verificat" : "Items to verify"}</strong>
-                          <span>
-                            {draft.warnings.length} {draft.warnings.length === 1
-                              ? isRo ? "element" : "item"
-                              : isRo ? "elemente" : "items"}
-                          </span>
-                          <b>{showVerificationItems ? "-" : "+"}</b>
+                          <span>{showRowNotes ? "-" : "+"}</span>
+                          {showRowNotes
+                            ? isRo
+                              ? "Ascundeți notele"
+                              : "Hide notes"
+                            : isRo
+                              ? "Arătați notele"
+                              : "Show notes"}
                         </button>
-                        {showVerificationItems && (
-                          <ul>
-                            {draft.warnings.map((warning, index) => (
-                              <li key={index}>{warning}</li>
-                            ))}
-                          </ul>
-                        )}
+                        <button type="button" onClick={addManualRow} disabled={busy}>
+                          <span>+</span>
+                          {isRo ? "Adăugați rând" : "Add row"}
+                        </button>
                       </div>
-                    )}
-                    <div className="monthly-table-toolbar">
-                      <button
-                        className="monthly-notes-toggle"
-                        type="button"
-                        onClick={() => setShowRowNotes((current) => !current)}
-                        aria-pressed={showRowNotes}
-                      >
-                        <span>{showRowNotes ? "-" : "+"}</span>
-                        {showRowNotes
-                          ? isRo
-                            ? "Ascundeți notele"
-                            : "Hide notes"
-                          : isRo
-                            ? "Arătați notele"
-                            : "Show notes"}
-                      </button>
-                      <button type="button" onClick={addManualRow} disabled={busy}>
-                        <span>+</span>
-                        {isRo ? "Adăugați rând" : "Add row"}
-                      </button>
                     </div>
                     <div className="monthly-table">
                       <table>
