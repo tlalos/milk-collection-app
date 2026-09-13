@@ -7,10 +7,10 @@ import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpE
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
-  { value: 'MILK-COW', label: 'MILK-COW' },
-  { value: 'MILK-SHEEP', label: 'MILK-SHEEP' },
-  { value: 'MILK-GOAT', label: 'MILK-GOAT' },
-  { value: 'MILK-BUFF', label: 'MILK-BUFF' },
+  { value: 'MILK-COW', label: 'COW' },
+  { value: 'MILK-SHEEP', label: 'SHEEP' },
+  { value: 'MILK-GOAT', label: 'GOAT' },
+  { value: 'MILK-BUFF', label: 'BUFF' },
 ]
 
 interface ExtractedRow {
@@ -1275,7 +1275,7 @@ export function OcrReviewScreen() {
 
   function rowSourceLabel(source: RowValueSource) {
     if (source.source === 'current_invoice') return isRo ? `Din rândul ${source.sourceRowNumber} al documentului` : `From document row ${source.sourceRowNumber}`
-    if (source.source === 'previous_day') return isRo ? `Din ziua precedentă: ${displayDate(source.sourceDate ?? null)}` : `From previous day: ${displayDate(source.sourceDate ?? null)}`
+    if (source.source === 'previous_day') return isRo ? `Ziua prec.: ${displayDate(source.sourceDate ?? null)}` : `Prev day: ${displayDate(source.sourceDate ?? null)}`
     if (source.source === 'not_found') return isRo ? `Nicio valoare înainte de ${displayDate(source.sourceDate ?? null)}` : `No fallback before ${displayDate(source.sourceDate ?? null)}`
     return isRo ? 'Generat din data documentului' : 'Generated from document date'
   }

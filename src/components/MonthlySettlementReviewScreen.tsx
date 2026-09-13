@@ -91,6 +91,12 @@ interface MonthlyJob {
 }
 
 const monthlyMilkTypeOptions = ["MILK-COW", "MILK-SHEEP", "MILK-GOAT", "MILK-BUFF"];
+const monthlyMilkTypeLabels: Record<string, string> = {
+  "MILK-COW": "COW",
+  "MILK-SHEEP": "SHEEP",
+  "MILK-GOAT": "GOAT",
+  "MILK-BUFF": "BUFF",
+};
 
 function normalizeMonthlyMilkType(value: string | null | undefined, fallback = "MILK-COW") {
   const raw = String(value || fallback || "MILK-COW").trim();
@@ -109,6 +115,10 @@ function normalizeMonthlyMilkType(value: string | null | undefined, fallback = "
 
 function monthlyMilkTypeValue(row: MonthlyRow, fallback: string) {
   return normalizeMonthlyMilkType(row.milkType, fallback);
+}
+
+function monthlyMilkTypeLabel(value: string) {
+  return monthlyMilkTypeLabels[normalizeMonthlyMilkType(value)] || value;
 }
 
 function hydrateMonthlyData(data: MonthlyData) {
@@ -2009,7 +2019,7 @@ export function MonthlySettlementReviewScreen() {
                                     >
                                       {monthlyMilkTypeOptions.map((milkType) => (
                                         <option key={milkType} value={milkType}>
-                                          {milkType}
+                                          {monthlyMilkTypeLabel(milkType)}
                                         </option>
                                       ))}
                                     </select>
@@ -2044,7 +2054,7 @@ export function MonthlySettlementReviewScreen() {
                                     >
                                       {monthlyMilkTypeOptions.map((milkType) => (
                                         <option key={milkType} value={milkType}>
-                                          {milkType}
+                                          {monthlyMilkTypeLabel(milkType)}
                                         </option>
                                       ))}
                                     </select>
