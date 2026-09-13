@@ -37,6 +37,7 @@ interface ProducerSuggestion {
   centerCode?: string;
   centerName?: string;
   score?: number;
+  matchSource?: "header_center_history" | "all_producers";
 }
 interface ProducerMatch {
   rowNumber: number;
@@ -54,6 +55,7 @@ interface MonthlyJob {
   status: "queued" | "processing" | "completed" | "failed";
   reviewStatus: "pending" | "reviewed";
   createdAt: string;
+  updatedAt?: string;
   startedAt?: string | null;
   completedAt?: string | null;
   error?: string | null;
@@ -80,6 +82,7 @@ interface MonthlyJob {
   producerMatches?: ProducerMatch[];
   headerCenterMatch?: Omit<ProducerMatch, "rowNumber">;
   producerMatchError?: string | null;
+  producerMatchErrorAt?: string | null;
   excelExport?: {
     status: string;
     error?: string | null;
@@ -298,6 +301,7 @@ export function MonthlySettlementReviewScreen() {
   const [selected, setSelected] = useState<MonthlyJob | null>(null);
   const [draft, setDraft] = useState<MonthlyData | null>(null);
   const [notice, setNotice] = useState("");
+  const [noticeUpdatedAt, setNoticeUpdatedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -309,6 +313,7 @@ export function MonthlySettlementReviewScreen() {
     Record<string, ProducerSuggestion[]>
   >({});
   const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string>>({});
+  const [activeProducerSearchKey, setActiveProducerSearchKey] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [imageRotation, setImageRotation] = useState(0);
   const [showRowNotes, setShowRowNotes] = useState(false);
@@ -352,6 +357,29 @@ export function MonthlySettlementReviewScreen() {
   const sortedJobs = [...filteredJobs].sort((left, right) =>
     compareMonthlyJobsForList(left, right, selected?.id || "", draft),
   );
+  const noticeTimeLabel = noticeUpdatedAt
+    ? new Intl.DateTimeFormat(language === "ro" ? "ro-RO" : "en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(noticeUpdatedAt)
+    : "";
+  const isTransientFetchNotice = (message: string) => {
+    const normalized = message.toLocaleLowerCase();
+    return normalized.includes("fetch failed") ||
+      normalized.includes("failed to fetch") ||
+      normalized.includes("could not load documents");
+  };
+  useEffect(() => {
+    setNoticeUpdatedAt(notice ? new Date() : null);
+  }, [notice]);
+  useEffect(() => {
+    if (!notice || !isTransientFetchNotice(notice)) return undefined;
+    const timer = window.setTimeout(() => {
+      setNotice((current) => current === notice ? "" : current);
+    }, 7000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const loadJobs = useCallback(async () => {
     const query =
@@ -374,6 +402,9 @@ export function MonthlySettlementReviewScreen() {
           ? (payload.jobs || []).filter(isFailedMonthlyJob)
           : payload.jobs || [];
     setJobs(nextJobs);
+    setNotice((current) => {
+      return isTransientFetchNotice(current) ? "" : current;
+    });
   }, [view]);
 
   useEffect(() => {
@@ -391,6 +422,8 @@ export function MonthlySettlementReviewScreen() {
     setSelected(job);
     setDraft(null);
     setNotice("");
+    setSuggestions({});
+    setSuggestionErrors({});
     setAutoSaveStatus("idle");
     setZoom(100);
     setImageRotation(0);
@@ -422,7 +455,7 @@ export function MonthlySettlementReviewScreen() {
         const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: draft }),
+          body: JSON.stringify({ data: draft, producerMatches: selected.producerMatches || [] }),
         });
         const payload = (await response.json()) as {
           job?: MonthlyJob;
@@ -446,6 +479,7 @@ export function MonthlySettlementReviewScreen() {
           ),
         );
         setAutoSaveStatus("saved");
+        setNotice((current) => isTransientFetchNotice(current) ? "" : current);
       } catch (error) {
         setAutoSaveStatus("error");
         setNotice(
@@ -582,9 +616,9 @@ export function MonthlySettlementReviewScreen() {
     );
   }
 
-  function selectProducerSuggestion(index: number, rowNumber: number, suggestion: ProducerSuggestion) {
+  function selectProducerSuggestion(index: number, rowNumber: number, suggestion: ProducerSuggestion, suggestionKey?: string) {
     updateRow(index, "producer", suggestion.name);
-    const key = `row-${rowNumber}`;
+    const key = suggestionKey || `${selected?.id || "document"}-producer-row-${rowNumber}`;
     setSuggestions((current) => {
       const existing = current[key] || [];
       const merged = [
@@ -594,25 +628,30 @@ export function MonthlySettlementReviewScreen() {
       return { ...current, [key]: merged };
     });
     setSelected((current) =>
-      current
-        ? {
-            ...current,
-            producerMatches: (current.producerMatches || []).map((match) =>
-              match.rowNumber === rowNumber
-                ? {
-                    ...match,
-                    status: "confirmed",
-                    selectedCode: suggestion.code,
-                    selectedName: suggestion.name,
-                    suggestions: [
-                      suggestion,
-                      ...match.suggestions.filter((item) => item.code !== suggestion.code),
-                    ],
-                  }
-                : match,
-            ),
-          }
-        : current,
+      {
+        const matches = current?.producerMatches || [];
+        const existing = matches.find((match) => match.rowNumber === rowNumber);
+        const confirmedMatch: ProducerMatch = {
+          rowNumber,
+          originalName: existing?.originalName || suggestion.name,
+          status: "confirmed",
+          selectedCode: suggestion.code,
+          selectedName: suggestion.name,
+          suggestions: [
+            suggestion,
+            ...(existing?.suggestions || []).filter((item) => item.code !== suggestion.code),
+          ],
+          matchSource: suggestion.matchSource,
+        };
+        return current
+          ? {
+              ...current,
+              producerMatches: existing
+                ? matches.map((match) => match.rowNumber === rowNumber ? confirmedMatch : match)
+                : [...matches, confirmedMatch],
+            }
+          : current;
+      }
     );
   }
 
@@ -682,7 +721,7 @@ export function MonthlySettlementReviewScreen() {
     value: string,
     kind: "producer" | "center" = "producer",
   ) {
-    if (value.trim().length < 2) {
+    if (value.trim().length < 1) {
       setSuggestionErrors((current) => {
         const next = { ...current };
         delete next[key];
@@ -690,6 +729,7 @@ export function MonthlySettlementReviewScreen() {
       });
       return setSuggestions((current) => ({ ...current, [key]: [] }));
     }
+    setSuggestions((current) => ({ ...current, [key]: [] }));
     try {
       const headerCenter = kind === "producer" ? draft?.headerCenterName || "" : "";
       const response = await fetch(
@@ -714,6 +754,7 @@ export function MonthlySettlementReviewScreen() {
         return next;
       });
     } catch (searchError) {
+      setSuggestions((current) => ({ ...current, [key]: [] }));
       setSuggestionErrors((current) => ({
         ...current,
         [key]: (searchError as Error).message || "Could not search Ref_Producers.",
@@ -726,7 +767,7 @@ export function MonthlySettlementReviewScreen() {
     index: number,
     field: "producer" | "centerName",
   ) {
-    const key = `row-${row.rowNumber}`;
+    const key = `${selected?.id || "document"}-${field}-row-${row.rowNumber}`;
     const match = selected?.producerMatches?.find(
       (item) => item.rowNumber === row.rowNumber,
     );
@@ -734,21 +775,51 @@ export function MonthlySettlementReviewScreen() {
     const searchedOptions = Object.prototype.hasOwnProperty.call(suggestions, key)
       ? suggestions[key]
       : null;
-    const options = searchedOptions?.length ? searchedOptions : match?.suggestions || [];
+    const ocrSuggestionOptions = match?.suggestions || [];
+    const savedDocumentProducerOptions = (selected?.producerMatches || [])
+      .flatMap((producerMatch) => producerMatch.suggestions || [])
+      .filter((option, optionIndex, options) =>
+        options.findIndex((item) =>
+          (item.code && item.code === option.code) ||
+          normalizeReferenceName(item.name) === normalizeReferenceName(option.name),
+        ) === optionIndex,
+      );
+    const normalizedSearchValue = normalizeReferenceName(value);
+    const fallbackProducerOptions = suggestionErrors[key] && normalizedSearchValue
+      ? savedDocumentProducerOptions.filter((option) =>
+          normalizeReferenceName(option.name).includes(normalizedSearchValue) ||
+          normalizeReferenceName(option.centerName || "").includes(normalizedSearchValue) ||
+          normalizeReferenceName(option.code || "").includes(normalizedSearchValue),
+        )
+      : [];
+    const liveSearchOptions = searchedOptions?.length ? searchedOptions : fallbackProducerOptions;
     const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
     const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
-    const rankedOptions = [...options].sort(
-      (first, second) => {
-        const firstHeaderMatch = referenceCentersMatch(first.centerName, first.centerCode, headerCenterName, headerCenterCode);
-        const secondHeaderMatch = referenceCentersMatch(second.centerName, second.centerCode, headerCenterName, headerCenterCode);
-        return (
-          Number(secondHeaderMatch) - Number(firstHeaderMatch) ||
-          (second.score || 0) - (first.score || 0) ||
-          first.name.localeCompare(second.name)
-        );
-      },
+    const sortProducerOptions = (first: ProducerSuggestion, second: ProducerSuggestion) => {
+      const firstHeaderMatch = referenceCentersMatch(first.centerName, first.centerCode, headerCenterName, headerCenterCode);
+      const secondHeaderMatch = referenceCentersMatch(second.centerName, second.centerCode, headerCenterName, headerCenterCode);
+      return (
+        Number(secondHeaderMatch) - Number(firstHeaderMatch) ||
+        (second.score || 0) - (first.score || 0) ||
+        first.name.localeCompare(second.name)
+      );
+    };
+    const rankedLiveOptions = [...liveSearchOptions].sort(sortProducerOptions);
+    const rankedOcrOptions = [...ocrSuggestionOptions].sort(sortProducerOptions);
+    const referenceOptions = [...rankedLiveOptions, ...rankedOcrOptions].filter(
+      (option, optionIndex, options) =>
+        options.findIndex((item) =>
+          (item.code && item.code === option.code) ||
+          normalizeReferenceName(item.name) === normalizeReferenceName(option.name),
+        ) === optionIndex,
     );
-    const bestOption = rankedOptions[0] || null;
+    const displaySuggestion = rankedOcrOptions[0] || null;
+    const liveSearchVisible = activeProducerSearchKey === key && value.trim().length >= 1 && rankedLiveOptions.length > 0;
+    const producerSearchErrorVisible =
+      activeProducerSearchKey === key &&
+      value.trim().length >= 1 &&
+      suggestionErrors[key] &&
+      rankedLiveOptions.length === 0;
     const searchedCurrentValue = Object.prototype.hasOwnProperty.call(
       suggestions,
       key,
@@ -756,11 +827,11 @@ export function MonthlySettlementReviewScreen() {
     const normalizedValue = normalizeReferenceName(value);
     const hasExactReferenceMatch =
       normalizedValue.length >= 2 &&
-      rankedOptions.some(
+      referenceOptions.some(
         (option) => normalizeReferenceName(option.name) === normalizedValue,
       );
     const exactReferenceOptions = normalizedValue.length >= 2
-      ? rankedOptions.filter((option) => normalizeReferenceName(option.name) === normalizedValue)
+      ? referenceOptions.filter((option) => normalizeReferenceName(option.name) === normalizedValue)
       : [];
     const wasAutoReplaced =
       match?.status === "auto_replaced" &&
@@ -769,13 +840,15 @@ export function MonthlySettlementReviewScreen() {
       value.trim().length >= 2 &&
       !wasAutoReplaced &&
       !hasExactReferenceMatch &&
+      !suggestionErrors[key] &&
+      rankedLiveOptions.length === 0 &&
       (match?.status === "unmatched" ||
         match?.status === "suggested" ||
         searchedCurrentValue);
     const missingReferenceName = value.trim().length === 0;
     const shouldWarn = missingReferenceName || noReferenceMatch;
     const selectedReference = match?.selectedCode
-      ? rankedOptions.find((option) => option.code === match.selectedCode)
+      ? referenceOptions.find((option) => option.code === match.selectedCode)
       : null;
     const referencesToCheck = selectedReference ? [selectedReference] : exactReferenceOptions;
     const producerBelongsToHeaderCenter = referencesToCheck.some((option) =>
@@ -785,16 +858,25 @@ export function MonthlySettlementReviewScreen() {
       Boolean(headerCenterName.trim()) &&
       referencesToCheck.length > 0 &&
       !producerBelongsToHeaderCenter;
-    const warningIconTitle = isRo
-      ? "Producătorul nu aparține centrului din antet"
-      : "Producer does not belong to the header center";
+    const producerReferenceCenters = referencesToCheck
+      .map((option) => option.centerName)
+      .filter(Boolean)
+      .join(", ");
+    const warningIconTitle = producerCenterMismatch
+      ? isRo
+        ? `Producătorul nu aparține centrului din antet${producerReferenceCenters ? `; centrul din Ref_Producers este ${producerReferenceCenters}` : ""}.`
+        : `Producer does not belong to the header center${producerReferenceCenters ? `; Ref_Producers center is ${producerReferenceCenters}` : ""}.`
+      : undefined;
     return (
       <td
         className={`monthly-reference-cell ${shouldWarn || producerCenterMismatch ? "monthly-cell-warning" : ""}`}
       >
         <input
-          list={`${key}-options`}
           value={value}
+          title={warningIconTitle}
+          aria-invalid={producerCenterMismatch || shouldWarn ? "true" : undefined}
+          onFocus={() => setActiveProducerSearchKey(key)}
+          onBlur={() => setActiveProducerSearchKey((current) => current === key ? null : current)}
           onChange={(event) => {
             updateRow(index, field, event.target.value);
             void searchProducers(key, event.target.value);
@@ -809,14 +891,34 @@ export function MonthlySettlementReviewScreen() {
             !
           </span>
         )}
-        <datalist id={`${key}-options`}>
-          {rankedOptions.map((item) => (
-            <option key={`${item.code}-${item.name}`} value={item.name}>
-              {Math.round((item.score || 0) * 100)}% · {item.code} ·{" "}
-              {item.centerName || ""}
-            </option>
-          ))}
-        </datalist>
+        {liveSearchVisible && (
+          <div className="monthly-producer-live-results" role="listbox">
+            {rankedLiveOptions.slice(0, 8).map((item) => (
+              <button
+                key={`live-result-${item.code}-${item.name}`}
+                type="button"
+                role="option"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  selectProducerSuggestion(index, row.rowNumber, item, key);
+                  setActiveProducerSearchKey(null);
+                }}
+              >
+                <strong>{item.name}</strong>
+                <span>
+                  {Math.round((item.score || 0) * 100)}%
+                  {item.centerName ? ` · ${item.centerName}` : ""}
+                  {item.code ? ` · ${item.code}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {producerSearchErrorVisible && (
+          <small className="monthly-producer-live-error">
+            {suggestionErrors[key]}
+          </small>
+        )}
         {showRowNotes && match?.status === "auto_replaced" && value === match.selectedName && (
           <small className="monthly-system-match">
             {match.matchSource === "header_center_history"
@@ -830,7 +932,7 @@ export function MonthlySettlementReviewScreen() {
         )}
         {showRowNotes && value.length >= 2 && suggestions[key] && (
           <small className="monthly-result-count">
-            {rankedOptions.length}{" "}
+            {rankedLiveOptions.length}{" "}
             {match?.matchSource === "header_center_history"
               ? isRo
                 ? "rezultate pentru centrul din antet"
@@ -850,25 +952,26 @@ export function MonthlySettlementReviewScreen() {
             {isRo ? "Fără potrivire în listă" : "No match in reference list"}
           </small>
         )}
-        {rankedOptions.length > 0 && value.trim().length > 0 && (
+        {rankedOcrOptions.length > 0 && (
           <select
             className="monthly-producer-suggestion-select"
             value=""
             aria-label={isRo ? `Potriviri posibile pentru rândul ${row.rowNumber}` : `Possible matches for row ${row.rowNumber}`}
             onChange={(event) => {
-              const suggestion = rankedOptions.find((item) => item.code === event.target.value);
-              if (suggestion) selectProducerSuggestion(index, row.rowNumber, suggestion);
+              const optionIndex = Number(event.target.value);
+              const suggestion = rankedOcrOptions[optionIndex];
+              if (suggestion) selectProducerSuggestion(index, row.rowNumber, suggestion, key);
             }}
           >
             <option value="" disabled hidden>
-              {bestOption
-                ? `${Math.round((bestOption.score || 0) * 100)}% · ${bestOption.name}${bestOption.centerName ? ` · ${bestOption.centerName}` : ""}${bestOption.code ? ` · ${bestOption.code}` : ""}`
+              {displaySuggestion
+                ? `${Math.round((displaySuggestion.score || 0) * 100)}% · ${displaySuggestion.name}${displaySuggestion.centerName ? ` · ${displaySuggestion.centerName}` : ""}${displaySuggestion.code ? ` · ${displaySuggestion.code}` : ""}`
                 : isRo
-                  ? `Alegeți o sugestie (${rankedOptions.length})…`
-                  : `Choose a suggestion (${rankedOptions.length})…`}
+                  ? "Alegeți o sugestie..."
+                  : "Choose suggestion..."}
             </option>
-            {rankedOptions.map((item) => (
-              <option key={`${item.code}-${item.name}`} value={item.code}>
+            {rankedOcrOptions.map((item, optionIndex) => (
+              <option key={`ocr-${item.code}-${item.name}`} value={optionIndex}>
                 {Math.round((item.score || 0) * 100)}% · {item.name}
                 {item.centerName ? ` · ${item.centerName}` : ""}
                 {item.code ? ` · ${item.code}` : ""}
@@ -962,18 +1065,18 @@ export function MonthlySettlementReviewScreen() {
   async function redoExcelMatching() {
     if (!selected || !draft || busy) return;
     setBusy(true);
-    setNotice(
-      isRo
-        ? "Se actualizează Ref_Producers și potrivirile…"
-        : "Refreshing Ref_Producers and matches…",
-    );
+      setNotice(
+        isRo
+          ? "Se actualizează Ref_Producers și potrivirile…"
+          : "Refreshing Ref_Producers and matches…",
+      );
     try {
       const saveResponse = await fetch(
         appPath(`/api/ocr/jobs/${selected.id}`),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: draft }),
+          body: JSON.stringify({ data: draft, producerMatches: selected.producerMatches || [] }),
         },
       );
       if (!saveResponse.ok)
@@ -1002,7 +1105,12 @@ export function MonthlySettlementReviewScreen() {
           : "Ref_Producers matching was refreshed.",
       );
     } catch (error) {
-      setNotice((error as Error).message);
+      const message = (error as Error).message || "Could not redo Excel matching.";
+      setNotice(
+        isRo
+          ? `Potrivirea Ref_Producers a eșuat: ${message}`
+          : `Ref_Producers matching failed: ${message}`,
+      );
     } finally {
       setBusy(false);
     }
@@ -1222,7 +1330,8 @@ export function MonthlySettlementReviewScreen() {
       </header>
       {notice && (
         <div className="monthly-notice">
-          {notice}
+          <span>{notice}</span>
+          {noticeTimeLabel && <small>{noticeTimeLabel}</small>}
           <button onClick={() => setNotice("")}>×</button>
         </div>
       )}
@@ -1814,11 +1923,6 @@ export function MonthlySettlementReviewScreen() {
                             ))}
                           </ul>
                         )}
-                      </div>
-                    )}
-                    {selected.producerMatchError && (
-                      <div className="monthly-match-error">
-                        {selected.producerMatchError}
                       </div>
                     )}
                     <div className="monthly-table-toolbar">

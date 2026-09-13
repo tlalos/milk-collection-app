@@ -3,8 +3,10 @@
   color: var(--color-text);
 }
 
-.daily-aviz-topbar {
+.app-topbar.daily-aviz-topbar {
   justify-content: flex-start;
+  flex-wrap: wrap;
+  padding-right: calc(18px + var(--ocr-auth-session-space, 204px));
 }
 
 .daily-aviz-topbar .app-title-block {
@@ -25,7 +27,8 @@
 }
 
 .daily-aviz-refresh {
-  margin-right: calc(var(--ocr-header-control-width, 116px) + 12px);
+  margin-left: auto;
+  margin-right: 0;
   min-height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 8px;
@@ -316,7 +319,12 @@
 }
 
 @media (max-width: 620px) {
+  .app-topbar.daily-aviz-topbar {
+    padding-right: 12px;
+  }
+
   .daily-aviz-refresh {
+    margin-left: 0;
     margin-right: 0;
   }
 }

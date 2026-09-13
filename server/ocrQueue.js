@@ -44,6 +44,7 @@ async function processNext() {
       let producerMatches = []
       let headerCenterMatch = null
       let producerMatchError = null
+      let producerMatchErrorAt = null
       try {
         const matches = await matchMonthlyProducers(data)
         producerMatches = matches.rows
@@ -58,9 +59,12 @@ async function processNext() {
             return { ...row, producer: match.selectedName }
           }),
         }
-      } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
+      } catch (error) {
+        producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.'
+        producerMatchErrorAt = new Date().toISOString()
+      }
       await updateJob(id, {
-        status: 'completed', data, ocrOriginalData: extraction.data, producerMatches, headerCenterMatch, producerMatchError,
+        status: 'completed', data, ocrOriginalData: extraction.data, producerMatches, headerCenterMatch, producerMatchError, producerMatchErrorAt,
         openai: { ...extraction.openai, durationMs: extraction.openai?.durationMs ?? Date.now() - attemptStartedAt }, completedAt: new Date().toISOString(), error: null,
       })
       return

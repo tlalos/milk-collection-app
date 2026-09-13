@@ -97,6 +97,7 @@ export async function createJob(file, documentCategory = 'daily_routes') {
     centerMatchError: null,
     producerMatches: [],
     producerMatchError: null,
+    producerMatchErrorAt: null,
     headerCenterMatch: null,
     driverMatch: null,
     driverMatchError: null,

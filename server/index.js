@@ -299,6 +299,60 @@ function confirmedCenterMatchForRow(existingMatch, rowNumber, originalName, sele
   }
 }
 
+function sanitizeProducerMatches(matches) {
+  if (!Array.isArray(matches)) return []
+  return matches.map((match) => ({
+    rowNumber: Number(match.rowNumber),
+    originalName: match.originalName ?? null,
+    status: ['exact', 'auto_replaced', 'suggested', 'unmatched', 'confirmed'].includes(match.status) ? match.status : 'unmatched',
+    selectedCode: match.selectedCode ? String(match.selectedCode) : null,
+    selectedName: match.selectedName ? String(match.selectedName) : null,
+    suggestions: Array.isArray(match.suggestions)
+      ? match.suggestions.slice(0, 8).map((suggestion) => ({
+        code: suggestion.code ? String(suggestion.code) : '',
+        name: suggestion.name ? String(suggestion.name) : '',
+        centerCode: suggestion.centerCode ? String(suggestion.centerCode) : '',
+        centerName: suggestion.centerName ? String(suggestion.centerName) : '',
+        trn: suggestion.trn ? String(suggestion.trn) : '',
+        score: Number.isFinite(Number(suggestion.score)) ? Number(suggestion.score) : 0,
+        matchSource: suggestion.matchSource === 'header_center_history' ? 'header_center_history' : 'all_producers',
+      })).filter((suggestion) => suggestion.name)
+      : [],
+    matchSource: match.matchSource === 'header_center_history' ? 'header_center_history' : 'all_producers',
+  })).filter((match) => Number.isFinite(match.rowNumber))
+}
+
+function preserveConfirmedProducerMatches(rows, recalculatedMatches, submittedMatches) {
+  const rowsByNumber = new Map(rows.map((row) => [Number(row.rowNumber), row]))
+  const confirmedByRow = new Map(
+    sanitizeProducerMatches(submittedMatches)
+      .filter((match) => match.status === 'confirmed' && match.selectedName)
+      .map((match) => [Number(match.rowNumber), match]),
+  )
+  return recalculatedMatches.map((match) => {
+    const confirmed = confirmedByRow.get(Number(match.rowNumber))
+    const row = rowsByNumber.get(Number(match.rowNumber))
+    if (!confirmed || !row) return match
+    if (normalizeSuggestionText(row.producer || row.centerName) !== normalizeSuggestionText(confirmed.selectedName)) return match
+    const suggestions = [
+      ...confirmed.suggestions,
+      ...(match.suggestions || []),
+    ].filter((suggestion, index, all) =>
+      all.findIndex((item) =>
+        (item.code && suggestion.code && String(item.code).toLocaleLowerCase() === String(suggestion.code).toLocaleLowerCase()) ||
+        normalizeSuggestionText(item.name) === normalizeSuggestionText(suggestion.name),
+      ) === index,
+    )
+    return {
+      ...match,
+      ...confirmed,
+      status: 'confirmed',
+      originalName: match.originalName || confirmed.originalName,
+      suggestions,
+    }
+  })
+}
+
 function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter }) {
   if ((job.documentCategory || 'daily_routes') !== 'daily_routes') return { updates: null, updatedRows: 0 }
   if (monthKeyFromDate(job.data?.date) !== month) return { updates: null, updatedRows: 0 }
@@ -1355,11 +1409,14 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
         return { ...row, producer: match.selectedName }
       }),
     }
-    const job = await updateJob(current.id, { data, producerMatches: matches.rows, headerCenterMatch: matches.header, producerMatchError: null })
+    const job = await updateJob(current.id, { data, producerMatches: matches.rows, headerCenterMatch: matches.header, producerMatchError: null, producerMatchErrorAt: null })
     response.json({ job: toPublicJob(job, true) })
   } catch (error) {
     const current = await getJob(request.params.id)
-    if (current) await updateJob(current.id, { producerMatchError: error instanceof Error ? error.message : 'Ref_Producers lookup failed.' })
+    if (current) await updateJob(current.id, {
+      producerMatchError: error instanceof Error ? error.message : 'Ref_Producers lookup failed.',
+      producerMatchErrorAt: new Date().toISOString(),
+    })
     next(error)
   }
 })
@@ -1466,26 +1523,15 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     }
 
     if (current.documentCategory === 'journal_monthly_settlement') {
-      let data = normalizeMonthlyData(parsed.data)
-      let producerMatches = current.producerMatches || []
-      let headerCenterMatch = current.headerCenterMatch || null
-      let producerMatchError = null
-      try {
-        const matches = await matchMonthlyProducers(data)
-        producerMatches = matches.rows
-        headerCenterMatch = matches.header
-        data = {
-          ...data,
-          layoutType: matches.layoutType,
-          headerCenterName: headerCenterMatch.status === 'auto_replaced' ? headerCenterMatch.selectedName : data.headerCenterName,
-          rows: data.rows.map((row) => {
-            const match = producerMatches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
-            if (!match?.selectedName) return row
-            return { ...row, producer: match.selectedName }
-          }),
-        }
-      } catch (error) { producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.' }
-      const job = await updateJob(current.id, { data, producerMatches, headerCenterMatch, producerMatchError })
+      const data = normalizeMonthlyData(parsed.data)
+      const submittedProducerMatches = sanitizeProducerMatches(request.body.producerMatches)
+      const producerMatches = submittedProducerMatches.length
+        ? submittedProducerMatches
+        : current.producerMatches || []
+      const headerCenterMatch = current.headerCenterMatch || null
+      const producerMatchError = current.producerMatchError || null
+      const producerMatchErrorAt = current.producerMatchErrorAt || null
+      const job = await updateJob(current.id, { data, producerMatches, headerCenterMatch, producerMatchError, producerMatchErrorAt })
       return response.json({ job: toPublicJob(job, true) })
     }
     const centerMatches = Array.isArray(request.body.centerMatches)

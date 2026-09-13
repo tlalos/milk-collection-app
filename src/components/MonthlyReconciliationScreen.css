@@ -3,8 +3,10 @@
   color: var(--color-text);
 }
 
-.monthly-recon-topbar {
+.app-topbar.monthly-recon-topbar {
   justify-content: flex-start;
+  flex-wrap: wrap;
+  padding-right: calc(18px + var(--ocr-auth-session-space, 204px));
 }
 
 .monthly-recon-topbar .app-title-block {
@@ -25,20 +27,24 @@
 }
 
 .monthly-recon-actions {
-  margin-right: calc(var(--ocr-header-control-width, 116px) + 12px);
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .monthly-recon-header-button {
-  min-height: 42px;
+  min-height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 8px;
-  padding: 0 16px;
+  padding: 0 14px;
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
+  font-size: 0.9rem;
   font-weight: 850;
   cursor: pointer;
 }

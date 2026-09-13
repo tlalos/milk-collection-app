@@ -7,6 +7,7 @@ const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const defaultExcelProject = process.cwd()
 const referenceCacheDir = path.join(defaultExcelProject, 'data', 'ocr', 'references')
 const centerSnapshotPath = path.join(referenceCacheDir, 'centers.json')
+const producerSnapshotPath = path.join(referenceCacheDir, 'producers.json')
 let centerCache = { expiresAt: 0, centers: [] }
 let driverCache = { expiresAt: 0, drivers: [] }
 let vehicleCache = { expiresAt: 0, vehicles: [] }
@@ -745,28 +746,61 @@ async function saveReferenceCenterSnapshot(centers) {
 async function loadReferenceProducers() {
   if (producerCache.expiresAt > Date.now()) return producerCache.producers
   const config = await loadConfig()
-  assertExcelOnlineConfigured(config, 'Ref_Producers lookup')
-  const token = await refreshAccessToken(config)
-  const workbook = await resolveWorkbook(config, token)
-  const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
-  const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
-  const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'ref_producers')
-  if (!worksheet) throw new Error('Excel worksheet Ref_Producers was not found.')
-  const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
-  const values = range.values || []
-  const headerRow = values.findIndex((row) => row.some((value) => normalizeValue(value) === 'PRODUCER NAME'))
-  if (headerRow < 0) throw new Error('Ref_Producers must contain a Producer_Name column.')
-  const headers = values[headerRow].map(normalizeValue)
-  const indexes = {
-    producerCode: headers.indexOf('PRODUCER CODE'), producerName: headers.indexOf('PRODUCER NAME'), trn: headers.indexOf('TRN'),
-    centerCode: headers.indexOf('CENTER CODE'), centerName: headers.indexOf('CENTER NAME'),
+  try {
+    assertExcelOnlineConfigured(config, 'Ref_Producers lookup')
+    const token = await refreshAccessToken(config)
+    const workbook = await resolveWorkbook(config, token)
+    const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
+    const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
+    const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'ref_producers')
+    if (!worksheet) throw new Error('Excel worksheet Ref_Producers was not found.')
+    const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
+    const values = range.values || []
+    const headerRow = values.findIndex((row) => row.some((value) => normalizeValue(value) === 'PRODUCER NAME'))
+    if (headerRow < 0) throw new Error('Ref_Producers must contain a Producer_Name column.')
+    const headers = values[headerRow].map(normalizeValue)
+    const indexes = {
+      producerCode: headers.indexOf('PRODUCER CODE'), producerName: headers.indexOf('PRODUCER NAME'), trn: headers.indexOf('TRN'),
+      centerCode: headers.indexOf('CENTER CODE'), centerName: headers.indexOf('CENTER NAME'),
+    }
+    const producers = values.slice(headerRow + 1).map((row) => ({
+      producerCode: String(row[indexes.producerCode] ?? '').trim(), producerName: String(row[indexes.producerName] ?? '').trim(),
+      centerCode: String(row[indexes.centerCode] ?? '').trim(), centerName: String(row[indexes.centerName] ?? '').trim(), trn: String(row[indexes.trn] ?? '').trim(),
+    })).filter((item) => item.producerName)
+    producerCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, producers }
+    await saveReferenceProducerSnapshot(producers).catch(() => undefined)
+    return producers
+  } catch (error) {
+    const cachedProducers = await loadReferenceProducerSnapshot()
+    if (cachedProducers.length) {
+      producerCache = { expiresAt: Date.now() + 5 * 60 * 1000, producers: cachedProducers }
+      return cachedProducers
+    }
+    throw error
   }
-  const producers = values.slice(headerRow + 1).map((row) => ({
-    producerCode: String(row[indexes.producerCode] ?? '').trim(), producerName: String(row[indexes.producerName] ?? '').trim(),
-    centerCode: String(row[indexes.centerCode] ?? '').trim(), centerName: String(row[indexes.centerName] ?? '').trim(), trn: String(row[indexes.trn] ?? '').trim(),
-  })).filter((item) => item.producerName)
-  producerCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, producers }
-  return producers
+}
+
+async function loadReferenceProducerSnapshot() {
+  try {
+    const parsed = JSON.parse(await readFile(producerSnapshotPath, 'utf8'))
+    return Array.isArray(parsed.producers)
+      ? parsed.producers.map((producer) => ({
+        producerCode: String(producer.producerCode || '').trim(),
+        producerName: String(producer.producerName || '').trim(),
+        centerCode: String(producer.centerCode || '').trim(),
+        centerName: String(producer.centerName || '').trim(),
+        trn: String(producer.trn || '').trim(),
+      })).filter((producer) => producer.producerName)
+      : []
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function saveReferenceProducerSnapshot(producers) {
+  await mkdir(referenceCacheDir, { recursive: true })
+  await writeFile(producerSnapshotPath, JSON.stringify({ updatedAt: new Date().toISOString(), producers }, null, 2), 'utf8')
 }
 
 async function loadReferenceDrivers() {
