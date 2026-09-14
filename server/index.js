@@ -35,6 +35,7 @@ import { extractMilkCollectionDocument, normalizeMonthlyData } from './ocrServic
 import {
   clearReferenceCaches,
   enrichMissingRowValues,
+  listAllReferenceProducers,
   listReferenceDrivers,
   listReferenceCenters,
   listReferenceRoutes,
@@ -201,6 +202,178 @@ function dailyAvizRowsFromJobs(jobs) {
         liters: finiteNumber(row.liters),
       }))
     })
+}
+
+function exactReferenceMap(items, selector) {
+  const map = new Map()
+  for (const item of items || []) {
+    const key = normalizeSuggestionText(selector(item))
+    if (!key) continue
+    const existing = map.get(key) || []
+    existing.push(item)
+    map.set(key, existing)
+  }
+  return map
+}
+
+function centersMatchExactly(leftName, leftCode, rightName, rightCode) {
+  const leftCodeKey = normalizeSuggestionText(leftCode)
+  const rightCodeKey = normalizeSuggestionText(rightCode)
+  if (leftCodeKey && rightCodeKey && leftCodeKey === rightCodeKey) return true
+  const leftNameKey = normalizeSuggestionText(leftName)
+  const rightNameKey = normalizeSuggestionText(rightName)
+  return Boolean(leftNameKey && rightNameKey && leftNameKey === rightNameKey)
+}
+
+function issueBase(job, source, type, row, problem) {
+  const publicJob = toPublicJob(job, false)
+  return {
+    id: `${source}-${type}-${job.id}-${row?.rowNumber ?? 'document'}-${normalizeSuggestionText(problem).slice(0, 32)}`,
+    source,
+    type,
+    problem,
+    jobId: job.id,
+    sourceFile: job.sourceFile || '',
+    fileUrl: publicJob.fileUrl,
+    month: monthKeyFromJob(job),
+    documentDate: normalizeReconciliationDate(job.data?.date) || null,
+    rowNumber: row?.rowNumber ?? null,
+    producer: row?.producer || row?.centerName || null,
+    center: row?.collectionCenter || row?.centerName || job.data?.headerCenterName || null,
+    headerCenter: job.headerCenterMatch?.selectedName || job.data?.headerCenterName || null,
+    referenceCenter: null,
+    milkType: row?.milkType || job.data?.milkType || null,
+    liters: finiteNumber(row?.liters),
+    noticeNumber: row?.noticeNumber || null,
+  }
+}
+
+function monthlyOcrIssuesFromJobs(jobs, referenceProducers) {
+  const hasReferenceProducers = Array.isArray(referenceProducers)
+  const producerByName = exactReferenceMap(referenceProducers, (producer) => producer.producerName)
+  const issues = []
+  for (const job of jobs.filter((item) => (item.documentCategory || 'daily_routes') === 'journal_monthly_settlement')) {
+    const rows = Array.isArray(job.data?.rows) ? job.data.rows : []
+    for (const row of rows) {
+      const producerName = String(row.producer || row.centerName || '').trim()
+      const rowBase = () => issueBase(job, 'monthly', '', row, '')
+      if (!producerName) {
+        issues.push({
+          ...rowBase(),
+          id: `monthly-empty-producer-${job.id}-${row.rowNumber}`,
+          type: 'monthly_producer_empty',
+          problem: 'Producer name is empty.',
+        })
+      } else if (hasReferenceProducers) {
+        const exactMatches = producerByName.get(normalizeSuggestionText(producerName)) || []
+        if (!exactMatches.length) {
+          issues.push({
+            ...rowBase(),
+            id: `monthly-producer-not-found-${job.id}-${row.rowNumber}`,
+            type: 'monthly_producer_not_found',
+            problem: 'Producer name does not exactly exist in Ref_Producers.',
+          })
+        } else {
+          const headerCenterName = job.headerCenterMatch?.selectedName || job.data?.headerCenterName || ''
+          const headerCenterCode = job.headerCenterMatch?.selectedCode || ''
+          if (headerCenterName) {
+            const belongsToHeader = exactMatches.some((producer) =>
+              centersMatchExactly(producer.centerName, producer.centerCode, headerCenterName, headerCenterCode))
+            if (!belongsToHeader) {
+              issues.push({
+                ...rowBase(),
+                id: `monthly-producer-wrong-center-${job.id}-${row.rowNumber}`,
+                type: 'monthly_producer_wrong_center',
+                problem: 'Producer exists but belongs to another center than the document header.',
+                referenceCenter: exactMatches.map((producer) => producer.centerName).filter(Boolean).join(', ') || null,
+              })
+            }
+          }
+        }
+      }
+      if (!Number.isFinite(Number(row.liters)) || Number(row.liters) <= 0) {
+        issues.push({
+          ...rowBase(),
+          id: `monthly-missing-liters-${job.id}-${row.rowNumber}`,
+          type: 'monthly_missing_liters',
+          problem: 'Liters are missing.',
+        })
+      }
+    }
+  }
+  return issues
+}
+
+function dailyAvizIssuesFromJobs(jobs, referenceCenters) {
+  const hasReferenceCenters = Array.isArray(referenceCenters)
+  const centersByName = exactReferenceMap(referenceCenters, (center) => center.name)
+  const issues = []
+  for (const job of jobs.filter((item) => (item.documentCategory || 'daily_routes') === 'daily_routes')) {
+    const rows = Array.isArray(job.data?.rows) ? job.data.rows : []
+    const duplicateGroups = new Map()
+    for (const row of rows) {
+      const centerName = String(row.collectionCenter || '').trim()
+      const rowBase = () => issueBase(job, 'daily', '', row, '')
+      if (!centerName) {
+        issues.push({
+          ...rowBase(),
+          id: `daily-empty-center-${job.id}-${row.rowNumber}`,
+          type: 'daily_center_empty',
+          problem: 'Center name is empty.',
+        })
+      } else if (hasReferenceCenters && !(centersByName.get(normalizeSuggestionText(centerName)) || []).length) {
+        issues.push({
+          ...rowBase(),
+          id: `daily-center-not-found-${job.id}-${row.rowNumber}`,
+          type: 'daily_center_not_found',
+          problem: 'Center name does not exactly exist in tblCenters.',
+        })
+      }
+
+      if (!Number.isFinite(Number(row.liters)) || Number(row.liters) <= 0) {
+        issues.push({
+          ...rowBase(),
+          id: `daily-missing-liters-${job.id}-${row.rowNumber}`,
+          type: 'daily_missing_liters',
+          problem: 'Liters are missing.',
+        })
+      }
+
+      if (!String(row.noticeNumber || '').trim()) {
+        issues.push({
+          ...rowBase(),
+          id: `daily-missing-notice-${job.id}-${row.rowNumber}`,
+          type: 'daily_missing_notice',
+          problem: 'Aviz number is missing.',
+        })
+      }
+
+      const duplicateKey = [
+        normalizeSuggestionText(centerName),
+        normalizeSuggestionText(row.milkType || ''),
+      ].join('|')
+      if (centerName && row.milkType) {
+        const group = duplicateGroups.get(duplicateKey) || []
+        group.push(row)
+        duplicateGroups.set(duplicateKey, group)
+      }
+    }
+
+    for (const group of duplicateGroups.values()) {
+      if (group.length < 2) continue
+      const first = group[0]
+      issues.push({
+        ...issueBase(job, 'daily', 'daily_duplicate_center_milk_type', first, 'Same center and milk type appears more than once in this document.'),
+        id: `daily-duplicate-center-milk-${job.id}-${normalizeSuggestionText(first.collectionCenter)}-${normalizeSuggestionText(first.milkType)}`,
+        type: 'daily_duplicate_center_milk_type',
+        problem: `Same center and milk type appears more than once in this document: rows ${group.map((row) => row.rowNumber).join(', ')}.`,
+        rowNumber: group.map((row) => row.rowNumber).filter((rowNumber) => rowNumber !== null && rowNumber !== undefined).join(', '),
+        liters: group.reduce((total, row) => total + (finiteNumber(row.liters) || 0), 0),
+        noticeNumber: group.map((row) => row.noticeNumber).filter(Boolean).join(', ') || null,
+      })
+    }
+  }
+  return issues
 }
 
 function monthKeyFromDate(value) {
@@ -1294,6 +1467,51 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
 app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
   try {
     response.json(monthlyReconciliationFromJobs(await listJobs()))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/ocr/issues', async (_request, response, next) => {
+  try {
+    const jobs = await listJobs()
+    const referenceErrors = []
+    let referenceCenters = null
+    let referenceProducers = null
+
+    try {
+      referenceCenters = await listReferenceCenters()
+    } catch (error) {
+      referenceErrors.push({
+        source: 'daily',
+        message: error instanceof Error ? error.message : 'Could not load tblCenters.',
+      })
+    }
+
+    try {
+      referenceProducers = await listAllReferenceProducers()
+    } catch (error) {
+      referenceErrors.push({
+        source: 'monthly',
+        message: error instanceof Error ? error.message : 'Could not load Ref_Producers.',
+      })
+    }
+
+    const monthly = monthlyOcrIssuesFromJobs(jobs, referenceProducers)
+    const daily = dailyAvizIssuesFromJobs(jobs, referenceCenters)
+    response.json({
+      issues: [...monthly, ...daily].sort((left, right) =>
+        String(right.month || '').localeCompare(String(left.month || '')) ||
+        String(right.documentDate || '').localeCompare(String(left.documentDate || '')) ||
+        String(left.sourceFile || '').localeCompare(String(right.sourceFile || ''), undefined, { numeric: true }) ||
+        String(left.rowNumber || '').localeCompare(String(right.rowNumber || ''), undefined, { numeric: true })),
+      summary: {
+        total: monthly.length + daily.length,
+        monthly: monthly.length,
+        daily: daily.length,
+      },
+      referenceErrors,
+    })
   } catch (error) {
     next(error)
   }

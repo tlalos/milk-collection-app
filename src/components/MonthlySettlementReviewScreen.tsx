@@ -846,17 +846,20 @@ export function MonthlySettlementReviewScreen() {
     const wasAutoReplaced =
       match?.status === "auto_replaced" &&
       normalizeReferenceName(match.selectedName || "") === normalizedValue;
-    const noReferenceMatch =
+    const noExactReferenceMatch =
       value.trim().length >= 2 &&
       !wasAutoReplaced &&
       !hasExactReferenceMatch &&
+      !suggestionErrors[key];
+    const noReferenceMatch =
+      noExactReferenceMatch &&
       !suggestionErrors[key] &&
       rankedLiveOptions.length === 0 &&
       (match?.status === "unmatched" ||
         match?.status === "suggested" ||
         searchedCurrentValue);
     const missingReferenceName = value.trim().length === 0;
-    const shouldWarn = missingReferenceName || noReferenceMatch;
+    const shouldWarn = missingReferenceName || noExactReferenceMatch;
     const selectedReference = match?.selectedCode
       ? referenceOptions.find((option) => option.code === match.selectedCode)
       : null;

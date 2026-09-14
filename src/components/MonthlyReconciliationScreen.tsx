@@ -83,6 +83,39 @@ interface ReferenceCenterOption {
   name: string
 }
 
+type OcrIssueSource = 'monthly' | 'daily'
+
+interface OcrIssue {
+  id: string
+  source: OcrIssueSource
+  type: string
+  problem: string
+  jobId: string
+  sourceFile: string
+  fileUrl: string
+  month: string
+  documentDate: string | null
+  rowNumber: number | string | null
+  producer: string | null
+  center: string | null
+  headerCenter: string | null
+  referenceCenter: string | null
+  milkType: string | null
+  liters: number | null
+  noticeNumber: string | null
+}
+
+interface OcrIssuesPayload {
+  issues: OcrIssue[]
+  summary: {
+    total: number
+    monthly: number
+    daily: number
+  }
+  referenceErrors?: Array<{ source: OcrIssueSource; message: string }>
+  error?: string
+}
+
 const emptySummary: MonthlyReconciliationSummary = {
   groupCount: 0,
   okCount: 0,
@@ -136,6 +169,61 @@ function initialMonthFilter() {
   return new URLSearchParams(window.location.search).get('month') || ''
 }
 
+function issueValue(issue: OcrIssue) {
+  return issue.source === 'monthly'
+    ? issue.producer || '-'
+    : issue.center || '-'
+}
+
+function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] }) {
+  return (
+    <section className="monthly-recon-ocr-issue-section">
+      <h3>
+        {title}
+        <span>{issues.length}</span>
+      </h3>
+      {issues.length === 0 ? (
+        <p className="monthly-recon-ocr-issue-empty">No possible mistakes found.</p>
+      ) : (
+        <div className="monthly-recon-ocr-issue-table-wrap">
+          <table className="monthly-recon-ocr-issue-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Document</th>
+                <th>Row</th>
+                <th>Problem</th>
+                <th>Name</th>
+                <th>Header / Ref center</th>
+                <th>Milk</th>
+                <th>Liters</th>
+                <th>Aviz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map((issue) => (
+                <tr key={issue.id}>
+                  <td>{issue.month ? displayMonth(issue.month) : '-'}</td>
+                  <td title={issue.sourceFile}>{issue.sourceFile || issue.jobId}</td>
+                  <td>{issue.rowNumber ?? '-'}</td>
+                  <td>{issue.problem}</td>
+                  <td title={issueValue(issue)}>{issueValue(issue)}</td>
+                  <td title={[issue.headerCenter, issue.referenceCenter].filter(Boolean).join(' / ')}>
+                    {[issue.headerCenter, issue.referenceCenter].filter(Boolean).join(' / ') || '-'}
+                  </td>
+                  <td>{issue.milkType || '-'}</td>
+                  <td>{formatNumber(issue.liters)}</td>
+                  <td>{issue.noticeNumber || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<MonthlyReconciliationRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -152,6 +240,10 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [referenceCentersLoaded, setReferenceCentersLoaded] = useState(false)
   const [referenceCentersError, setReferenceCentersError] = useState('')
   const [notice, setNotice] = useState('')
+  const [ocrIssues, setOcrIssues] = useState<OcrIssue[]>([])
+  const [ocrIssueErrors, setOcrIssueErrors] = useState<Array<{ source: OcrIssueSource; message: string }>>([])
+  const [ocrIssuesLoading, setOcrIssuesLoading] = useState(false)
+  const [showOcrIssues, setShowOcrIssues] = useState(false)
 
   async function loadRows() {
     setLoading(true)
@@ -170,8 +262,26 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
     }
   }
 
+  async function loadOcrIssues() {
+    setOcrIssuesLoading(true)
+    try {
+      const response = await fetch(appPath('/api/ocr/issues'))
+      const text = await response.text()
+      const payload = text ? JSON.parse(text) as OcrIssuesPayload : { issues: [], summary: { total: 0, monthly: 0, daily: 0 } }
+      if (!response.ok) throw new Error(payload.error || 'Could not load OCR issues.')
+      setOcrIssues(payload.issues || [])
+      setOcrIssueErrors(payload.referenceErrors || [])
+    } catch (loadError) {
+      setOcrIssues([])
+      setOcrIssueErrors([{ source: 'monthly', message: (loadError as Error).message || 'Could not load OCR issues.' }])
+    } finally {
+      setOcrIssuesLoading(false)
+    }
+  }
+
   useEffect(() => {
     void loadRows()
+    void loadOcrIssues()
   }, [])
 
   useEffect(() => {
@@ -232,6 +342,12 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const tableAvizLiters = tableRows.reduce((total, row) => total + row.avizLiters, 0)
   const tableMonthlyLiters = tableRows.reduce((total, row) => total + row.monthlyLiters, 0)
   const tableDifference = tableMonthlyLiters - tableAvizLiters
+  const visibleOcrIssues = useMemo(
+    () => ocrIssues.filter((issue) => !monthFilter || issue.month === monthFilter),
+    [monthFilter, ocrIssues],
+  )
+  const monthlyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'monthly')
+  const dailyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'daily')
   const journalCenters = useMemo(() => {
     const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean }>()
     for (const row of rows) {
@@ -377,7 +493,26 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
           >
             Monthly OCR
           </button>
-          <button className="monthly-recon-header-button" type="button" onClick={() => void loadRows()} disabled={loading}>
+          <button
+            className="monthly-recon-header-button"
+            type="button"
+            onClick={() => {
+              setShowOcrIssues((current) => !current)
+              if (!showOcrIssues) void loadOcrIssues()
+            }}
+            aria-expanded={showOcrIssues}
+          >
+            OCR issues ({visibleOcrIssues.length})
+          </button>
+          <button
+            className="monthly-recon-header-button"
+            type="button"
+            onClick={() => {
+              void loadRows()
+              void loadOcrIssues()
+            }}
+            disabled={loading || ocrIssuesLoading}
+          >
             Refresh
           </button>
         </div>
@@ -450,6 +585,31 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
 
         {error && <div className="monthly-recon-error" role="alert">{error}</div>}
         {notice && <div className="monthly-recon-success" role="status">{notice}</div>}
+        {showOcrIssues && (
+          <section className="monthly-recon-ocr-issues" aria-label="OCR issues report">
+            <div className="monthly-recon-ocr-issues-title">
+              <div>
+                <h2>OCR issues</h2>
+                <p>
+                  Read-only report from saved OCR jobs and current reference lists.
+                  {monthFilter && <> Showing {displayMonth(monthFilter)}.</>}
+                </p>
+              </div>
+              <button type="button" onClick={() => void loadOcrIssues()} disabled={ocrIssuesLoading}>
+                {ocrIssuesLoading ? 'Refreshing...' : 'Refresh report'}
+              </button>
+            </div>
+            {ocrIssueErrors.length > 0 && (
+              <div className="monthly-recon-ocr-issue-warning">
+                {ocrIssueErrors.map((item, index) => (
+                  <p key={`${item.source}-${index}`}>{item.message}</p>
+                ))}
+              </div>
+            )}
+            <OcrIssueSection title="Monthly settlement OCR" issues={monthlyOcrIssues} />
+            <OcrIssueSection title="Daily aviz OCR" issues={dailyOcrIssues} />
+          </section>
+        )}
 
         <section className="monthly-recon-table-card">
           <div className="monthly-recon-table-title">
