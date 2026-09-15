@@ -213,13 +213,12 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="daily-aviz-screen app-shell">
       <header className="app-topbar daily-aviz-topbar">
-        <button className="back-button daily-aviz-home-button" type="button" onClick={onBack} aria-label="Home">
+        <button className="back-button daily-aviz-home-button" type="button" onClick={onBack} aria-label="Back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 11.5 12 4l9 7.5" />
-            <path d="M5 10.5V20h14v-9.5" />
-            <path d="M9.5 20v-6h5v6" />
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
           </svg>
-          <span>Home</span>
+          <span>Back</span>
         </button>
         <div className="app-title-block">
           <span>OCR documents</span>

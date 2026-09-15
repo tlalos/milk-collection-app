@@ -22,6 +22,21 @@ function buildApiUrl(serverUrl: string, path: string): string {
   return `${serverUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
 }
 
+function looksLikeHtmlResponse(text: string, contentType: string | null): boolean {
+  const normalized = text.trim().toLowerCase()
+  return contentType?.toLowerCase().includes('text/html') === true
+    || normalized.startsWith('<!doctype html')
+    || normalized.startsWith('<html')
+}
+
+function parseApiResponse<TResponse>(text: string, contentType: string | null): TResponse {
+  if (looksLikeHtmlResponse(text, contentType)) {
+    throw new ApiError(0, 'The server URL returned a web page instead of API data. Check the Server URL in Settings.')
+  }
+  const parsed = text ? (JSON.parse(text) as TResponse | string) : undefined
+  return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
+}
+
 interface RequestOptions {
   authorized?: boolean
   signal?: AbortSignal
@@ -57,8 +72,7 @@ export async function apiPost<TBody, TResponse>(
 
   // 201 / 204 responses may have no body
   const text = await res.text()
-  const parsed = text ? (JSON.parse(text) as TResponse | string) : undefined
-  return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
+  return parseApiResponse<TResponse>(text, res.headers.get('Content-Type'))
 }
 
 export async function apiGet<TResponse>(
@@ -88,8 +102,7 @@ export async function apiGet<TResponse>(
 
   const text = await res.text()
   // Server may double-encode: Ok(JsonConvert.SerializeObject(...)) → JSON string
-  const parsed = text ? (JSON.parse(text) as TResponse | string) : undefined
-  return (typeof parsed === 'string' ? JSON.parse(parsed) : parsed) as TResponse
+  return parseApiResponse<TResponse>(text, res.headers.get('Content-Type'))
 }
 
 /** Probe a real API endpoint instead of the bare base URL, which may return 404. */
@@ -98,9 +111,18 @@ export async function testConnection(serverUrl: string): Promise<boolean> {
   try {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 8000)
-    const res = await fetch(url, { method: 'OPTIONS', signal: ac.signal })
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Username: '__test__', Password: '__test__', fiscalyear: new Date().getFullYear().toString() }),
+      signal: ac.signal,
+    })
+    const text = await res.text().catch(() => '')
     clearTimeout(timer)
-    return res.status >= 200 && res.status < 500
+    return res.status >= 200
+      && res.status < 500
+      && res.status !== 404
+      && !looksLikeHtmlResponse(text, res.headers.get('Content-Type'))
   } catch {
     return false
   }

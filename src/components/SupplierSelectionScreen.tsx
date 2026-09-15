@@ -87,8 +87,8 @@ export function SupplierSelectionScreen({
         )}
 
         <section className="screen-heading" aria-labelledby="supplier-selection-title">
-          <p className="section-label">Supplier selection</p>
-          <h2 id="supplier-selection-title">Select supplier</h2>
+          <p className="section-label">Center selection</p>
+          <h2 id="supplier-selection-title">Select center</h2>
         </section>
 
         <label className="search-field" htmlFor="supplier-search">
@@ -98,13 +98,13 @@ export function SupplierSelectionScreen({
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Name, code, or supplier type"
+            placeholder="Name, code, or center type"
           />
         </label>
 
         <div className="supplier-list" role="list">
           {isLoadingSuppliers && (
-            <p className="supplier-list-note">Loading local suppliers...</p>
+            <p className="supplier-list-note">Loading local centers...</p>
           )}
 
           {!isLoadingSuppliers && filteredSuppliers.map((supplier) => (
@@ -126,7 +126,7 @@ export function SupplierSelectionScreen({
           ))}
 
           {!isLoadingSuppliers && filteredSuppliers.length === 0 && (
-            <p className="supplier-list-note">No suppliers found.</p>
+            <p className="supplier-list-note">No centers found.</p>
           )}
         </div>
       </main>

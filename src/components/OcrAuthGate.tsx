@@ -24,6 +24,16 @@ function canAccess(user: User | null, permission = '') {
   return Boolean(user.isAdmin || user.permissions?.includes(permission))
 }
 
+function loginErrorMessage(error: unknown, isRo: boolean) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/failed to fetch|networkerror|load failed/iu.test(message)) {
+    return isRo
+      ? 'Serverul MilkCollect nu poate fi contactat. Verificați dacă serverul local este pornit.'
+      : 'Cannot reach the MilkCollect server. Check that the local server is running.'
+  }
+  return message || (isRo ? 'Autentificarea a eșuat.' : 'Login failed.')
+}
+
 export function OcrAuthGate({ children, requiredPermission = '', title = '', description = '' }: OcrAuthGateProps) {
   const { language, setLanguage, isRo } = useOcrLanguage()
   const [user, setUser] = useState<User | null>(null)
@@ -55,7 +65,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
       setUser(payload.user)
       setPassword('')
     } catch (loginError) {
-      setError((loginError as Error).message)
+      setError(loginErrorMessage(loginError, isRo))
     } finally {
       setSubmitting(false)
     }
@@ -77,11 +87,11 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
         <form onSubmit={submit}>
           <label>{isRo ? 'Utilizator' : 'Username'}<input autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} /></label>
           <label>{isRo ? 'Parolă' : 'Password'}<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          {error && <div className="ocr-auth-error" role="alert">{isRo ? 'Utilizator sau parolă incorectă.' : error}</div>}
+          {error && <div className="ocr-auth-error" role="alert">{error}</div>}
           <button type="submit" disabled={submitting}>{submitting ? (isRo ? 'Se autentifică…' : 'Signing in…') : (isRo ? 'Autentificare web' : 'Web sign in')}</button>
         </form>
-        <button className="ocr-auth-menu-link" type="button" onClick={() => { window.location.href = appPath('/home') }}>
-          {isRo ? 'Deschide meniul principal' : 'Open main menu'}
+        <button className="ocr-auth-menu-link" type="button" onClick={() => { window.location.href = appPath('/ocr') }}>
+          {isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'}
         </button>
       </section>
     </main>
@@ -94,8 +104,8 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
         <div className="ocr-auth-mark">M</div>
         <h1>{isRo ? 'Acces restricționat' : 'No access'}</h1>
         <p>{isRo ? 'Acest utilizator nu are permisiune pentru această pagină.' : 'This user does not have permission for this page.'}</p>
-        <button type="button" onClick={() => { window.location.href = appPath('/home') }}>
-          {isRo ? 'Înapoi la meniu' : 'Back to menu'}
+        <button type="button" onClick={() => { window.location.href = appPath('/ocr') }}>
+          {isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'}
         </button>
         <button className="ocr-auth-menu-link" type="button" onClick={() => void signOut()}>
           {user.username} · {isRo ? 'Ieșire web' : 'Web sign out'}

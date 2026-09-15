@@ -589,7 +589,7 @@ function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, job
 }
 
 function resolvedMonthlyJournalCenter(job, data, row) {
-  return job.headerCenterMatch?.selectedName || data.headerCenterName || row.centerName
+  return data.headerCenterName || job.headerCenterMatch?.selectedName || row.centerName
 }
 
 function monthlyProducerReferenceForRow(job, row) {

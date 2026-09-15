@@ -424,6 +424,11 @@
   background: #fff8e1;
 }
 
+.monthly-recon-journal-centers li.has-difference {
+  border-color: #efd58f;
+  background: #fff4c7;
+}
+
 .monthly-recon-journal-centers li span {
   min-width: 0;
   display: flex;

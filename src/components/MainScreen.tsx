@@ -1,8 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ApiError } from '../api/client'
+import { useEffect, useState } from 'react'
 import { db } from '../db/database'
-import { settingsStore } from '../store/settingsStore'
-import { syncOfflineUsers } from '../sync/syncOfflineUsers'
 import { APP_VERSION } from '../appVersion'
 import './MainScreen.css'
 
@@ -12,66 +9,14 @@ interface MainScreenProps {
   onOpenMenu: () => void
 }
 
-type SyncStatus = 'idle' | 'syncing' | 'done' | 'error'
-
 export function MainScreen({ onSignIn, onSettings, onOpenMenu }: MainScreenProps) {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
-  const [syncError, setSyncError] = useState('')
   const [userCount, setUserCount] = useState<number | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
 
-  // Refresh user count whenever a sync completes
   useEffect(() => {
     db.offlineUsers.count()
       .then(n => setUserCount(n))
       .catch(() => setUserCount(null))
-  }, [syncStatus])
-
-  // Auto-reset 'done' checkmark after 2 s
-  useEffect(() => {
-    if (syncStatus !== 'done') return
-    const t = setTimeout(() => setSyncStatus('idle'), 2000)
-    return () => clearTimeout(t)
-  }, [syncStatus])
-
-  async function handleSync() {
-    if (syncStatus === 'syncing') return
-
-    const serverUrl = settingsStore.getServerUrl()
-    if (!serverUrl) {
-      setSyncStatus('error')
-      setSyncError('No server URL configured. Open Settings first.')
-      return
-    }
-
-    setSyncStatus('syncing')
-    setSyncError('')
-    abortRef.current = new AbortController()
-
-    try {
-      await syncOfflineUsers(abortRef.current.signal)
-      setSyncStatus('done')
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
-      setSyncStatus('error')
-      if (err instanceof ApiError) {
-        if (err.status === 401 || err.status === 403) {
-          setSyncError(`Authentication failed (${err.status}). Check API credentials in Settings.`)
-        } else if (err.status === 404) {
-          setSyncError('Endpoint not found (404). Check the server URL in Settings.')
-        } else {
-          setSyncError(`Server error (${err.status}): ${err.message}`)
-        }
-      } else {
-        const msg = (err as Error).message
-        setSyncError(
-          msg && !msg.toLowerCase().startsWith('failed to fetch')
-            ? msg
-            : 'Network error — could not reach the server. Check Settings.'
-        )
-      }
-    }
-  }
+  }, [])
 
   const hasSyncedUsers = userCount !== null && userCount > 0
 
@@ -80,28 +25,6 @@ export function MainScreen({ onSignIn, onSettings, onOpenMenu }: MainScreenProps
 
       {/* ── Top-right action buttons ── */}
       <div className="main-top-actions">
-
-        {/* Sync icon button */}
-        <button
-          className={`main-icon-btn${syncStatus === 'done' ? ' icon-btn-success' : ''}${syncStatus === 'error' ? ' icon-btn-error' : ''}`}
-          type="button"
-          onClick={handleSync}
-          disabled={syncStatus === 'syncing'}
-          aria-label="Sync users"
-        >
-          {syncStatus === 'done' ? (
-            /* Checkmark */
-            <svg viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            /* Sync arrows — spins while syncing */
-            <svg viewBox="0 0 20 20" fill="currentColor" className={syncStatus === 'syncing' ? 'spin' : ''}>
-              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-            </svg>
-          )}
-        </button>
-
         {/* Settings icon button */}
         <button className="main-icon-btn" type="button" onClick={onSettings} aria-label="Settings">
           <svg viewBox="0 0 20 20" fill="currentColor">
@@ -166,20 +89,16 @@ export function MainScreen({ onSignIn, onSettings, onOpenMenu }: MainScreenProps
               {userCount} {userCount === 1 ? 'user' : 'users'} ready for offline login
             </span>
           ) : (
-            <span className="main-sync-hint">Tap the sync button above to enable offline login</span>
+            <span className="main-sync-hint">Open Milk collection and sync users to enable offline login</span>
           )}
         </div>
-
-        {syncStatus === 'error' && (
-          <p className="main-sync-error">{syncError}</p>
-        )}
 
         <button
           className="main-signin-btn"
           type="button"
           onClick={onSignIn}
           disabled={!hasSyncedUsers}
-          title={hasSyncedUsers ? undefined : 'Sync users first'}
+          title={hasSyncedUsers ? undefined : 'Open Milk collection and sync users first'}
         >
           Sign in
         </button>

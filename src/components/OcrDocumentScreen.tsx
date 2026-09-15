@@ -148,15 +148,14 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
           className="ocr-back ocr-home"
           type="button"
           onClick={onBack}
-          aria-label={isRo ? 'Acasă' : 'Home'}
-          title={isRo ? 'Acasă' : 'Home'}
+          aria-label={isRo ? 'Înapoi' : 'Back'}
+          title={isRo ? 'Înapoi' : 'Back'}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 11.5 12 4l9 7.5" />
-            <path d="M5.5 10.5V20h13v-9.5" />
-            <path d="M9.5 20v-5h5v5" />
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
           </svg>
-          <span>{isRo ? 'Acasă' : 'Home'}</span>
+          <span>{isRo ? 'Înapoi' : 'Back'}</span>
         </button>
         <div>
           <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>

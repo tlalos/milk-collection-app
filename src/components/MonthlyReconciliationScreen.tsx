@@ -349,17 +349,18 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const monthlyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'monthly')
   const dailyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'daily')
   const journalCenters = useMemo(() => {
-    const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean }>()
+    const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean; hasDifference: boolean }>()
     for (const row of rows) {
       if (monthFilter && row.month !== monthFilter) continue
       if (row.monthlyRowCount <= 0) continue
       const key = normalizedSearch(row.center)
       if (!key) continue
-      const current = centers.get(key) ?? { center: row.center, liters: 0, rowCount: 0, milkTypes: new Set<string>(), hasAvizMatch: false }
+      const current = centers.get(key) ?? { center: row.center, liters: 0, rowCount: 0, milkTypes: new Set<string>(), hasAvizMatch: false, hasDifference: false }
       current.liters += row.monthlyLiters
       current.rowCount += row.monthlyRowCount
       if (row.milkType) current.milkTypes.add(row.milkType)
       if (row.avizLineCount > 0) current.hasAvizMatch = true
+      if (row.status === 'difference') current.hasDifference = true
       centers.set(key, current)
     }
     return [...centers.values()]
@@ -466,13 +467,12 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   return (
     <div className="monthly-recon-screen app-shell">
       <header className="app-topbar monthly-recon-topbar">
-        <button className="back-button monthly-recon-home-button" type="button" onClick={onBack} aria-label="Home">
+        <button className="back-button monthly-recon-home-button" type="button" onClick={onBack} aria-label="Back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 11.5 12 4l9 7.5" />
-            <path d="M5 10.5V20h14v-9.5" />
-            <path d="M9.5 20v-6h5v6" />
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
           </svg>
-          <span>Home</span>
+          <span>Back</span>
         </button>
         <div className="app-title-block">
           <span>OCR documents</span>
@@ -641,11 +641,20 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                   {journalCenters.map((item) => (
                     <li
                       key={normalizedSearch(item.center)}
-                      className={item.hasAvizMatch ? '' : 'missing-aviz'}
-                      title={item.hasAvizMatch ? item.center : `${item.center}: no matching aviz center for this month`}
+                      className={[
+                        item.hasAvizMatch ? '' : 'missing-aviz',
+                        item.hasDifference ? 'has-difference' : '',
+                      ].filter(Boolean).join(' ')}
+                      title={
+                        item.hasDifference
+                          ? `${item.center}: matching aviz center has a difference`
+                          : item.hasAvizMatch
+                            ? item.center
+                            : `${item.center}: no matching aviz center for this month`
+                      }
                     >
                       <span>
-                        {!item.hasAvizMatch && <em aria-hidden="true">!</em>}
+                        {(item.hasDifference || !item.hasAvizMatch) && <em aria-hidden="true">!</em>}
                         {item.center}
                       </span>
                       {item.milkTypeLabel && <small>{item.milkTypeLabel}</small>}

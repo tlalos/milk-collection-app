@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { CustomersScreen } from './components/CustomersScreen'
 import { DataSyncScreen } from './components/DataSyncScreen'
 import { JournalScreen } from './components/JournalScreen'
@@ -22,15 +22,20 @@ import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { TransportScreen } from './components/TransportScreen'
 import { WebUsersScreen } from './components/WebUsersScreen'
 import { authStore } from './store/authStore'
+import { ocrConnectionSettingsStore } from './store/ocrConnectionSettingsStore'
 import { ErpPayloadDebugModal } from './components/ErpPayloadDebugModal'
 import { saveCollectionToJournal, updateJournalCollectionErpStatus } from './store/journalStore'
+import { settingsStore } from './store/settingsStore'
+import { syncOfflineUsers } from './sync/syncOfflineUsers'
 import {
   createSuppliesOrderPayload,
   sendSuppliesOrderPayloadToErp,
 } from './store/suppliesOrderStore'
+import { ApiError, testConnection } from './api/client'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
+import type { AppSettings } from './types/settings'
 import './App.css'
 import './components/OcrHeaderControls.css'
 import { appPath, routePathname } from './ocrPaths'
@@ -59,7 +64,27 @@ type Screen =
   | 'monthlySettlementReview'
   | 'ocrComparison'
 
+type HomeMenuGroup = 'milkCollection' | 'ocr' | null
+type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
+type SyncStatus = 'idle' | 'syncing' | 'done' | 'error'
+
+interface HomeWebUser {
+  id: string
+  username: string
+  fullName?: string
+}
+
+function webLoginErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/failed to fetch|networkerror|load failed/iu.test(message)) {
+    return 'Cannot reach the MilkCollect server. Check that the local server is running.'
+  }
+  return message || 'Login failed.'
+}
+
 function initialScreen(): Screen {
+  if (routePathname() === '/milk-collection') return 'home'
+  if (routePathname() === '/ocr') return 'home'
   if (routePathname() === '/home') return 'home'
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
@@ -75,8 +100,317 @@ function initialScreen(): Screen {
   return 'startup'
 }
 
+function initialHomeMenuGroup(): HomeMenuGroup {
+  if (routePathname() === '/milk-collection') return 'milkCollection'
+  if (routePathname() === '/ocr') return 'ocr'
+  if (routePathname() !== '/home') return null
+  const menu = new URLSearchParams(window.location.search).get('menu')
+  return menu === 'ocr' || menu === 'milkCollection' ? menu : null
+}
+
+function HomeOcrSessionButton({
+  checking,
+  user,
+  onSignOut,
+}: {
+  checking: boolean
+  user: HomeWebUser | null
+  onSignOut: () => void
+}) {
+  if (checking || !user) return null
+
+  return (
+    <div className="home-header-session-pill">
+      <span>{user.username}</span>
+      <button type="button" onClick={onSignOut}>Web sign out</button>
+    </div>
+  )
+}
+
+function HomeOcrSignInPanel({
+  checking,
+  user,
+  onLogin,
+}: {
+  checking: boolean
+  user: HomeWebUser | null
+  onLogin: (user: HomeWebUser) => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(appPath('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+      const payload = await response.json() as { user?: HomeWebUser; error?: string }
+      if (!response.ok || !payload.user) throw new Error(payload.error || 'Login failed.')
+      onLogin(payload.user)
+      setPassword('')
+    } catch (loginError) {
+      setError(webLoginErrorMessage(loginError))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="home-access-panel">
+      <div className="home-access-title">
+        <div>
+          <span>Web user</span>
+          <h2>OCR sign in</h2>
+        </div>
+      </div>
+      {checking ? (
+        <p className="home-access-note">Checking OCR session...</p>
+      ) : user ? (
+        <p className="home-access-note">Signed in as <strong>{user.fullName || user.username}</strong>.</p>
+      ) : (
+        <form className="home-ocr-login-form" onSubmit={submit}>
+          <label>
+            <span>Username</span>
+            <input autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          {error && <div className="home-access-error" role="alert">{error}</div>}
+          <button type="submit" disabled={submitting}>{submitting ? 'Signing in...' : 'Web sign in'}</button>
+        </form>
+      )}
+    </section>
+  )
+}
+
+function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
+  const [settings, setSettings] = useState<AppSettings>(() => ocrConnectionSettingsStore.get())
+  const [saved, setSaved] = useState(false)
+  const [testStatus, setTestStatus] = useState<TestStatus>('idle')
+
+  useEffect(() => {
+    if (!saved) return
+    const timer = window.setTimeout(() => setSaved(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [saved])
+
+  function handleChange<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+    setSettings((current) => ({ ...current, [key]: value }))
+    setSaved(false)
+    setTestStatus('idle')
+  }
+
+  function handleSave() {
+    ocrConnectionSettingsStore.set(settings)
+    setSaved(true)
+  }
+
+  async function handleTest() {
+    if (testStatus === 'testing') return
+    setTestStatus('testing')
+    const ok = await testConnection(settings.serverUrl)
+    setTestStatus(ok ? 'ok' : 'fail')
+  }
+
+  return (
+    <section className="home-access-panel">
+      <div className="home-access-title">
+        <div>
+          <span>OCR connection</span>
+          <h2>OCR sign in settings</h2>
+        </div>
+        <div className="home-access-actions">
+          <button className="home-access-session" type="button" onClick={onClose}>
+            Hide
+          </button>
+          <button className={`home-access-session ${saved ? 'saved' : ''}`} type="button" onClick={handleSave}>
+            {saved ? 'Saved' : 'Save settings'}
+          </button>
+        </div>
+      </div>
+
+      <div className="home-ocr-connection-form">
+        <label className="home-ocr-field home-ocr-field-wide">
+          <span>Server URL</span>
+          <div className="home-ocr-url-row">
+            <input
+              type="url"
+              inputMode="url"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="https://your-api-host/api"
+              value={settings.serverUrl}
+              onChange={(event) => handleChange('serverUrl', event.target.value)}
+            />
+            <button
+              className={`home-ocr-test-btn test-${testStatus}`}
+              type="button"
+              onClick={() => void handleTest()}
+              disabled={testStatus === 'testing' || !settings.serverUrl}
+            >
+              {testStatus === 'testing' ? 'Testing...' : testStatus === 'ok' ? 'OK' : testStatus === 'fail' ? 'Fail' : 'Test'}
+            </button>
+          </div>
+        </label>
+
+        <label className="home-ocr-field">
+          <span>API username</span>
+          <input
+            type="text"
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="admin"
+            value={settings.apiUsername}
+            onChange={(event) => handleChange('apiUsername', event.target.value)}
+          />
+        </label>
+
+        <label className="home-ocr-field">
+          <span>API password</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            placeholder="password"
+            value={settings.apiPassword}
+            onChange={(event) => handleChange('apiPassword', event.target.value)}
+          />
+        </label>
+
+        <label className="home-ocr-field">
+          <span>Request timeout (ms)</span>
+          <input
+            type="number"
+            min={1000}
+            max={60000}
+            step={1000}
+            value={settings.requestTimeoutMs}
+            onChange={(event) => handleChange('requestTimeoutMs', Number(event.target.value))}
+          />
+        </label>
+
+        <label className="home-ocr-field">
+          <span>Default fiscal year</span>
+          <input
+            type="number"
+            min={2000}
+            max={2099}
+            value={settings.defaultFiscalYear}
+            onChange={(event) => handleChange('defaultFiscalYear', event.target.value)}
+          />
+        </label>
+      </div>
+    </section>
+  )
+}
+
+function HomeMilkUserSyncButton() {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
+  const [syncError, setSyncError] = useState('')
+  const [syncMessage, setSyncMessage] = useState('')
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (syncStatus !== 'done') return
+    const timer = window.setTimeout(() => setSyncStatus('idle'), 4000)
+    return () => window.clearTimeout(timer)
+  }, [syncStatus])
+
+  async function handleSync() {
+    if (syncStatus === 'syncing') return
+
+    const settings = settingsStore.get()
+    const serverUrl = settings.serverUrl
+    if (!serverUrl) {
+      setSyncStatus('error')
+      setSyncError('No server URL configured. Open Settings first.')
+      setSyncMessage('')
+      return
+    }
+
+    setSyncStatus('syncing')
+    setSyncError('')
+    setSyncMessage('')
+    abortRef.current = new AbortController()
+    const timeoutMs = Math.max(1000, Number(settings.requestTimeoutMs) || 15000)
+    const timeout = window.setTimeout(() => abortRef.current?.abort(), timeoutMs)
+
+    try {
+      const syncedUsers = await syncOfflineUsers(abortRef.current.signal)
+      setSyncStatus('done')
+      setSyncMessage(`${syncedUsers} ${syncedUsers === 1 ? 'user' : 'users'} synced for offline login.`)
+    } catch (err) {
+      setSyncStatus('error')
+      if ((err as Error).name === 'AbortError') {
+        setSyncError(`Sync timed out after ${timeoutMs} ms. Increase Request timeout in Settings and try again.`)
+      } else if (err instanceof ApiError) {
+        if (err.status === 0) {
+          setSyncError(err.message)
+        } else if (err.status === 401 || err.status === 403) {
+          setSyncError(`Authentication failed (${err.status}). Check API credentials in Settings.`)
+        } else if (err.status === 404) {
+          setSyncError('Endpoint not found (404). Check the server URL in Settings.')
+        } else {
+          setSyncError(`Server error (${err.status}): ${err.message}`)
+        }
+      } else {
+        const msg = (err as Error).message
+        setSyncError(
+          msg && !msg.toLowerCase().startsWith('failed to fetch')
+            ? msg
+            : 'Network error. Could not reach the server. Check Settings.',
+        )
+      }
+    } finally {
+      window.clearTimeout(timeout)
+    }
+  }
+
+  return (
+    <>
+      <button
+        className={`home-icon-btn${syncStatus === 'done' ? ' icon-btn-success' : ''}${syncStatus === 'error' ? ' icon-btn-error' : ''}`}
+        type="button"
+        onClick={() => void handleSync()}
+        disabled={syncStatus === 'syncing'}
+        aria-label="Sync users"
+        title={syncStatus === 'error' && syncError ? syncError : 'Sync users'}
+      >
+        {syncStatus === 'done' ? (
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 20 20" fill="currentColor" className={syncStatus === 'syncing' ? 'spin' : ''}>
+            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+          </svg>
+        )}
+      </button>
+      {syncStatus === 'error' && syncError && (
+        <div className="home-sync-notice error" role="alert">{syncError}</div>
+      )}
+      {syncStatus === 'done' && syncMessage && (
+        <div className="home-sync-notice success" role="status">{syncMessage}</div>
+      )}
+    </>
+  )
+}
+
 export function App() {
   const [screen, setScreen] = useState<Screen>(initialScreen)
+  const [homeMenuGroup, setHomeMenuGroup] = useState<HomeMenuGroup>(initialHomeMenuGroup)
+  const [showOcrConnectionSettings, setShowOcrConnectionSettings] = useState(false)
+  const [homeOcrUser, setHomeOcrUser] = useState<HomeWebUser | null>(null)
+  const [homeOcrChecking, setHomeOcrChecking] = useState(true)
   const [prevScreen, setPrevScreen] = useState<Screen>('main')
   const [loginReturnScreen, setLoginReturnScreen] = useState<Screen>('home')
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -89,6 +423,22 @@ export function App() {
     payload: ERP_SuppliesPickingOrder[]
   } | null>(null)
   const [pendingErpSending, setPendingErpSending] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetch(appPath('/api/auth/session'))
+      .then(async (response) => {
+        const payload = await response.json() as { user?: HomeWebUser }
+        if (!cancelled && response.ok && payload.user) setHomeOcrUser(payload.user)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setHomeOcrChecking(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function handleStartupComplete() {
     if (authStore.isLoggedIn()) {
@@ -114,12 +464,25 @@ export function App() {
     setScreen('login')
   }
 
+  function openOcrMenu() {
+    window.location.href = appPath('/ocr')
+  }
+
+  function openMilkCollectionMenu() {
+    window.location.href = appPath('/milk-collection')
+  }
+
   function handleLogout(returnTo: Screen = 'main') {
     authStore.clear()
     setUser(null)
     setSelectedSupplier(null)
     setSuccessMessage('')
     setScreen(returnTo)
+  }
+
+  async function handleHomeOcrSignOut() {
+    await fetch(appPath('/api/auth/logout'), { method: 'POST' }).catch(() => undefined)
+    setHomeOcrUser(null)
   }
 
   function openSupplierSelection() {
@@ -233,41 +596,41 @@ export function App() {
       )}
 
       {screen === 'customers' && (
-        <CustomersScreen onBack={() => setScreen('home')} />
+        <CustomersScreen onBack={openMilkCollectionMenu} />
       )}
 
       {screen === 'dataSync' && (
-        user && <DataSyncScreen onBack={() => setScreen('home')} user={user} />
+        user && <DataSyncScreen onBack={openMilkCollectionMenu} user={user} />
       )}
 
       {screen === 'journal' && (
-        user && <JournalScreen onBack={() => setScreen('home')} user={user} />
+        user && <JournalScreen onBack={openMilkCollectionMenu} user={user} />
       )}
 
       {screen === 'transport' && (
-        <TransportScreen onBack={() => setScreen('home')} />
+        <TransportScreen onBack={openMilkCollectionMenu} />
       )}
 
       {screen === 'milkReception' && (
         <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in" description="Sign in as a Web user to use Milk Reception.">
-          <MilkReceptionScreen onBack={() => { window.location.href = appPath('/home') }} />
+          <MilkReceptionScreen onBack={openOcrMenu} />
         </OcrAuthGate>
       )}
 
       {screen === 'dailyAviz' && (
-        <OcrAuthGate requiredPermission="daily_aviz"><DailyAvizScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="daily_aviz"><DailyAvizScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'monthlyReconciliation' && (
-        <OcrAuthGate requiredPermission="monthly_reconciliation"><MonthlyReconciliationScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="monthly_reconciliation"><MonthlyReconciliationScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'monthClosure' && (
-        <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
-        <OcrAuthGate requiredPermission="ocr_documents"><OcrDocumentScreen onBack={() => { window.location.href = appPath('/home') }} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="ocr_documents"><OcrDocumentScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'ocrArchiveHistory' && (
@@ -300,7 +663,7 @@ export function App() {
         <SupplierSelectionScreen
           successMessage={successMessage}
           submittedCount={submittedCollections.length}
-          onBack={() => setScreen('home')}
+          onBack={openMilkCollectionMenu}
           onSelectSupplier={openSupplierEntry}
         />
       )}
@@ -318,7 +681,13 @@ export function App() {
           <header className="home-header">
             <div className="home-header-left">
               <div className="home-title-row">
-                <h1>MilkCollect</h1>
+                <h1>
+                  {homeMenuGroup === 'milkCollection'
+                    ? 'Milk collection'
+                    : homeMenuGroup === 'ocr'
+                      ? 'OCR'
+                      : 'MilkCollect'}
+                </h1>
                 <button className="home-web-users-btn" type="button" onClick={() => { window.location.href = appPath('/web-users') }}>
                   Web Users
                 </button>
@@ -327,23 +696,89 @@ export function App() {
                 <span className="home-username">{user.fullName || user.username}</span>
               )}
             </div>
-            <div className="home-header-right">
-              <button
-                className="home-icon-btn"
-                onClick={() => openSettings('home')}
-                type="button"
-                aria-label="Settings"
-              >
-                <svg viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
+            {homeMenuGroup === 'milkCollection' && (
+              <div className="home-header-right">
+                <HomeMilkUserSyncButton />
+                <button
+                  className="home-icon-btn"
+                  onClick={() => openSettings('home')}
+                  type="button"
+                  aria-label="Settings"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            {homeMenuGroup === 'ocr' && (
+              <div className="home-header-right">
+                <button
+                  className={`home-header-control-btn ${showOcrConnectionSettings ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setShowOcrConnectionSettings((current) => !current)}
+                >
+                  OCR connection
+                </button>
+                <HomeOcrSessionButton
+                  checking={homeOcrChecking}
+                  user={homeOcrUser}
+                  onSignOut={() => void handleHomeOcrSignOut()}
+                />
+              </div>
+            )}
           </header>
 
           <main className="home-main">
-            <p className="home-welcome">What would you like to do?</p>
-            <div className="home-grid">
+            <div className="home-menu-heading">
+              {!homeMenuGroup && <p className="home-welcome">Choose a menu</p>}
+              {homeMenuGroup && (
+                <button className="home-menu-back" type="button" onClick={() => { setHomeMenuGroup(null); setShowOcrConnectionSettings(false) }}>
+                  All menus
+                </button>
+              )}
+            </div>
+            <div className={`home-grid ${homeMenuGroup ? '' : 'home-group-grid'}`}>
+              {!homeMenuGroup && (
+                <>
+                  <button
+                    className="home-tile home-group-tile"
+                    type="button"
+                    onClick={() => { window.location.href = appPath('/milk-collection') }}
+                  >
+                    <div className="home-tile-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M8 3h8" />
+                        <path d="M10 3v4l-3 5v6a3 3 0 003 3h4a3 3 0 003-3v-6l-3-5V3" />
+                        <path d="M7 14h10" />
+                      </svg>
+                    </div>
+                    <span className="home-tile-label">Milk collection</span>
+                  </button>
+
+                  <button
+                    className="home-tile home-group-tile"
+                    type="button"
+                    onClick={() => { window.location.href = appPath('/ocr') }}
+                  >
+                    <div className="home-tile-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <path d="M8 13h8" />
+                        <path d="M8 17h5" />
+                        <circle cx="9" cy="9" r="1" />
+                      </svg>
+                    </div>
+                    <span className="home-tile-label">OCR</span>
+                  </button>
+                </>
+              )}
+
+              {homeMenuGroup === 'milkCollection' && (
+                <>
               <button
                 className="home-tile"
                 type="button"
@@ -428,6 +863,21 @@ export function App() {
                 </div>
                 <span className="home-tile-label">Transport</span>
               </button>
+                </>
+              )}
+
+              {homeMenuGroup === 'ocr' && (
+                <>
+              {!homeOcrUser && (
+                <HomeOcrSignInPanel
+                  checking={homeOcrChecking}
+                  user={homeOcrUser}
+                  onLogin={setHomeOcrUser}
+                />
+              )}
+              {showOcrConnectionSettings ? (
+                <HomeOcrConnectionPanel onClose={() => setShowOcrConnectionSettings(false)} />
+              ) : null}
 
               <button
                 className="home-tile"
@@ -538,6 +988,8 @@ export function App() {
                 </div>
                 <span className="home-tile-label">Month Closure & Payments</span>
               </button>
+                </>
+              )}
 
             </div>
           </main>
