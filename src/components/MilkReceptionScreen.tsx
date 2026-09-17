@@ -951,10 +951,20 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     if (!record.vehicleRegistration.trim()) return 'Truck number is required.'
     if (record.vehicleCategory === 'COLLECTION' && !record.routeId.trim()) return 'Route ID is required for collection trucks.'
     if (!record.milkType) return 'Milk type is required.'
+    const duplicate = findDuplicateReception(record)
+    if (duplicate) {
+      return `A reception already exists for ${record.receptionDate}, truck ${record.vehicleRegistration.trim().toUpperCase()}, route ${record.routeId.trim().toUpperCase()}. Existing reception: ${duplicate.receptionId}.`
+    }
     if (full == null || full <= 0) return 'Full truck weight must be a positive number.'
     if (empty != null && empty <= 0) return 'Empty truck weight must be a positive number.'
     if (empty != null && empty > full) return 'Empty truck weight cannot exceed full truck weight.'
     return ''
+  }
+
+  function findDuplicateReception(record: MilkReceptionRecord) {
+    const key = receptionCombinationKey(record)
+    if (!key) return null
+    return records.find((item) => item.receptionId !== record.receptionId && receptionCombinationKey(item) === key) || null
   }
 
   function renderWeightInput(record: MilkReceptionRecord, field: WeightField) {
@@ -1308,6 +1318,13 @@ function normalizeText(value: string) {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/gu, ' ')
     .trim()
+}
+
+function receptionCombinationKey(record: Pick<MilkReceptionRecord, 'receptionDate' | 'vehicleRegistration' | 'routeId'>) {
+  const date = String(record.receptionDate || '').trim()
+  const truck = normalizeText(record.vehicleRegistration)
+  const route = normalizeText(record.routeId)
+  return date && truck && route ? `${date}|${truck}|${route}` : ''
 }
 
 function normalizeName(value: unknown) {

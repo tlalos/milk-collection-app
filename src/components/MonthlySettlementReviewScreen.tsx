@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
+import {
+  getCachedOcrReferenceSuppliers,
+  type OcrReferenceCenter,
+  type OcrReferenceProducer,
+} from "../store/ocrReferenceSuppliersStore";
 import { OcrLanguageSwitch, useOcrLanguage } from "./OcrLanguage";
 import { centerImagePreview, getImageRotationTransform } from "./ocrImageRotation";
 import "./MonthlySettlementReviewScreen.css";
@@ -39,6 +44,8 @@ interface ProducerSuggestion {
   score?: number;
   matchSource?: "header_center_history" | "all_producers";
 }
+type ReferenceCenter = OcrReferenceCenter;
+type ReferenceProducer = OcrReferenceProducer;
 interface ProducerMatch {
   rowNumber: number;
   originalName: string | null;
@@ -194,6 +201,86 @@ function referenceCentersMatch(
   return Boolean(normalizedLeftName && normalizedRightName && normalizedLeftName === normalizedRightName);
 }
 
+function compactReferenceName(value: string) {
+  return normalizeReferenceName(value).replace(/[^a-z0-9]+/gu, "");
+}
+
+function referenceSearchScore(searchValue: string, nameValue: string, codeValue = "") {
+  const search = normalizeReferenceName(searchValue);
+  const name = normalizeReferenceName(nameValue);
+  const code = normalizeReferenceName(codeValue);
+  if (!search || !name) return 0;
+  if (name === search) return 1;
+  if (name.startsWith(search)) return 0.96;
+  if (name.split(" ").some((token) => token.startsWith(search))) return 0.92;
+  if (name.includes(search)) return 0.82;
+  if (code && code.includes(search)) return 0.82;
+  const compactSearch = compactReferenceName(search);
+  const compactName = compactReferenceName(name);
+  const compactCode = compactReferenceName(code);
+  if (compactName.startsWith(compactSearch)) return 0.96;
+  if (compactName.includes(compactSearch)) return 0.82;
+  if (compactCode && compactCode.includes(compactSearch)) return 0.82;
+  const searchTokens = new Set(search.split(" ").filter(Boolean));
+  const nameTokens = new Set(name.split(" ").filter(Boolean));
+  const overlap = [...searchTokens].filter((token) => nameTokens.has(token)).length;
+  return overlap ? Math.min(0.74, overlap / Math.max(searchTokens.size, nameTokens.size)) : 0;
+}
+
+function referenceCenterOptions(
+  query: string,
+  centers: ReferenceCenter[],
+): ProducerSuggestion[] {
+  const search = query.trim();
+  return centers
+    .map((center) => ({
+      code: center.code,
+      name: center.name,
+      score: search ? referenceSearchScore(search, center.name, center.code) : 1,
+    }))
+    .filter((center) => !search || (center.score || 0) >= 0.32)
+    .sort((left, right) =>
+      (right.score || 0) - (left.score || 0) ||
+      left.name.localeCompare(right.name, undefined, { numeric: true }),
+    )
+    .slice(0, search ? 20 : 50)
+    .map((center) => ({ ...center, score: Number((center.score || 0).toFixed(3)) }));
+}
+
+function referenceProducerOptions(
+  query: string,
+  headerCenterName: string,
+  producers: ReferenceProducer[],
+): ProducerSuggestion[] {
+  const search = query.trim();
+  const headerSearch = headerCenterName.trim();
+  return producers
+    .map((producer) => {
+      const headerCenterHistory = Boolean(headerSearch && referenceCentersMatch(
+        producer.centerName,
+        producer.centerCode,
+        headerSearch,
+        null,
+      ));
+      return {
+        code: producer.producerCode,
+        name: producer.producerName,
+        centerCode: producer.centerCode,
+        centerName: producer.centerName,
+        score: search ? referenceSearchScore(search, producer.producerName, producer.producerCode) : 1,
+        matchSource: headerCenterHistory ? "header_center_history" as const : "all_producers" as const,
+      };
+    })
+    .filter((producer) => !search || (producer.score || 0) >= (producer.matchSource === "header_center_history" ? 0.2 : 0.32))
+    .sort((left, right) =>
+      Number(right.matchSource === "header_center_history") - Number(left.matchSource === "header_center_history") ||
+      (right.score || 0) - (left.score || 0) ||
+      left.name.localeCompare(right.name, undefined, { numeric: true }),
+    )
+    .slice(0, search ? 20 : 50)
+    .map((producer) => ({ ...producer, score: Number((producer.score || 0).toFixed(3)) }));
+}
+
 function storeDate(value: string) {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u);
   return match ? `${match[3]}-${match[2]}-${match[1]}` : value || null;
@@ -324,6 +411,10 @@ export function MonthlySettlementReviewScreen() {
   >({});
   const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string>>({});
   const [activeProducerSearchKey, setActiveProducerSearchKey] = useState<string | null>(null);
+  const [referenceCenters, setReferenceCenters] = useState<ReferenceCenter[]>([]);
+  const [referenceProducers, setReferenceProducers] = useState<ReferenceProducer[]>([]);
+  const [referenceSuppliersLoaded, setReferenceSuppliersLoaded] = useState(false);
+  const [referenceSuppliersError, setReferenceSuppliersError] = useState("");
   const [zoom, setZoom] = useState(100);
   const [imageRotation, setImageRotation] = useState(0);
   const [showRowNotes, setShowRowNotes] = useState(false);
@@ -427,6 +518,43 @@ export function MonthlySettlementReviewScreen() {
     );
     return () => window.clearInterval(timer);
   }, [loadJobs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReferenceSuppliers() {
+      setReferenceSuppliersLoaded(false);
+      setReferenceSuppliersError("");
+      const cachedReferences = getCachedOcrReferenceSuppliers();
+      if (cachedReferences) {
+        setReferenceCenters(cachedReferences.centers);
+        setReferenceProducers(cachedReferences.producers);
+        const fetchedAtLabel = new Intl.DateTimeFormat(language === "ro" ? "ro-RO" : "en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }).format(new Date(cachedReferences.fetchedAt));
+        setNotice(
+          isRo
+            ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${cachedReferences.centers.length} centre, ${cachedReferences.producers.length} producători.`
+            : `Using ERP list refreshed at ${fetchedAtLabel}: ${cachedReferences.centers.length} centers, ${cachedReferences.producers.length} producers.`,
+        );
+        setReferenceSuppliersLoaded(true);
+        return;
+      }
+      if (!cancelled) {
+        const message = isRo
+          ? "Lista ERP nu a fost încărcată. Deschideți pagina de încărcare OCR pentru actualizare."
+          : "ERP list is not loaded. Open the OCR upload page to refresh it.";
+        setReferenceSuppliersError(message);
+        setNotice(message);
+        setReferenceSuppliersLoaded(true);
+      }
+    }
+    void loadReferenceSuppliers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function openJob(job: MonthlyJob) {
     setSelected(job);
@@ -741,22 +869,14 @@ export function MonthlySettlementReviewScreen() {
     }
     setSuggestions((current) => ({ ...current, [key]: [] }));
     try {
-      const headerCenter = kind === "producer" ? draft?.headerCenterName || "" : "";
-      const response = await fetch(
-        appPath(
-          `/api/ocr/producers?q=${encodeURIComponent(value)}&kind=${kind}&headerCenter=${encodeURIComponent(headerCenter)}`,
-        ),
-      );
-      const payload = (await response.json()) as {
-        error?: string;
-        producers?: ProducerSuggestion[];
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || "Could not search Ref_Producers.");
-      }
+      if (!referenceSuppliersLoaded) throw new Error("ERP suppliers are still loading. Try again in a moment.");
+      if (referenceSuppliersError) throw new Error(referenceSuppliersError);
+      const nextSuggestions = kind === "center"
+        ? referenceCenterOptions(value, referenceCenters)
+        : referenceProducerOptions(value, draft?.headerCenterName || "", referenceProducers);
       setSuggestions((current) => ({
         ...current,
-        [key]: payload.producers || [],
+        [key]: nextSuggestions,
       }));
       setSuggestionErrors((current) => {
         const next = { ...current };
@@ -767,7 +887,7 @@ export function MonthlySettlementReviewScreen() {
       setSuggestions((current) => ({ ...current, [key]: [] }));
       setSuggestionErrors((current) => ({
         ...current,
-        [key]: (searchError as Error).message || "Could not search Ref_Producers.",
+        [key]: (searchError as Error).message || "Could not search ERP suppliers.",
       }));
     }
   }
@@ -877,8 +997,8 @@ export function MonthlySettlementReviewScreen() {
       .join(", ");
     const warningIconTitle = producerCenterMismatch
       ? isRo
-        ? `Producătorul nu aparține centrului din antet${producerReferenceCenters ? `; centrul din Ref_Producers este ${producerReferenceCenters}` : ""}.`
-        : `Producer does not belong to the header center${producerReferenceCenters ? `; Ref_Producers center is ${producerReferenceCenters}` : ""}.`
+        ? `Producătorul nu aparține centrului din antet${producerReferenceCenters ? `; centrul din ERP este ${producerReferenceCenters}` : ""}.`
+        : `Producer does not belong to the header center${producerReferenceCenters ? `; ERP center is ${producerReferenceCenters}` : ""}.`
       : undefined;
     return (
       <td
@@ -939,8 +1059,8 @@ export function MonthlySettlementReviewScreen() {
                 ? "Înlocuit folosind istoricul centrului din antet"
                 : "Replaced using header-center history"
               : isRo
-                ? "Înlocuit din Ref_Producers"
-                : "Replaced from Ref_Producers"}
+                ? "Înlocuit din ERP"
+                : "Replaced from ERP"}
           </small>
         )}
         {showRowNotes && value.length >= 2 && suggestions[key] && (
@@ -995,8 +1115,8 @@ export function MonthlySettlementReviewScreen() {
         {showRowNotes && producerCenterMismatch && (
           <small className="monthly-reference-warning">
             {isRo
-              ? `Producătorul aparține altui centru (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "Ref_Producers"})`
-              : `Producer belongs to another center (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "Ref_Producers"})`}
+              ? `Producătorul aparține altui centru (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "ERP"})`
+              : `Producer belongs to another center (${referencesToCheck.map((option) => option.centerName).filter(Boolean).join(", ") || "ERP"})`}
           </small>
         )}
       </td>
@@ -1080,10 +1200,12 @@ export function MonthlySettlementReviewScreen() {
     setBusy(true);
       setNotice(
         isRo
-          ? "Se actualizează Ref_Producers și potrivirile…"
-          : "Refreshing Ref_Producers and matches…",
+          ? "Se actualizează furnizorii ERP și potrivirile…"
+          : "Refreshing ERP suppliers and matches…",
       );
     try {
+      if (!referenceSuppliersLoaded) throw new Error("ERP suppliers are still loading. Try again in a moment.");
+      if (referenceSuppliersError) throw new Error(referenceSuppliersError);
       const saveResponse = await fetch(
         appPath(`/api/ocr/jobs/${selected.id}`),
         {
@@ -1099,14 +1221,21 @@ export function MonthlySettlementReviewScreen() {
         );
       const response = await fetch(
         appPath(`/api/ocr/jobs/${selected.id}/producers/rematch`),
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            referenceCenters,
+            referenceProducers,
+          }),
+        },
       );
       const payload = (await response.json()) as {
         job?: MonthlyJob;
         error?: string;
       };
       if (!response.ok || !payload.job?.data)
-        throw new Error(payload.error || "Could not redo Excel matching.");
+        throw new Error(payload.error || "Could not redo ERP matching.");
       setSelected(payload.job);
       const data = hydrateMonthlyData(structuredClone(payload.job.data));
       setDraft(data);
@@ -1114,15 +1243,15 @@ export function MonthlySettlementReviewScreen() {
       setAutoSaveStatus("saved");
       setNotice(
         isRo
-          ? "Potrivirile din Ref_Producers au fost actualizate."
-          : "Ref_Producers matching was refreshed.",
+          ? "Potrivirile din ERP au fost actualizate."
+          : "ERP supplier matching was refreshed.",
       );
     } catch (error) {
-      const message = (error as Error).message || "Could not redo Excel matching.";
+      const message = (error as Error).message || "Could not redo ERP matching.";
       setNotice(
         isRo
-          ? `Potrivirea Ref_Producers a eșuat: ${message}`
-          : `Ref_Producers matching failed: ${message}`,
+          ? `Potrivirea ERP a eșuat: ${message}`
+          : `ERP matching failed: ${message}`,
       );
     } finally {
       setBusy(false);
@@ -1868,8 +1997,8 @@ export function MonthlySettlementReviewScreen() {
                             selected.headerCenterMatch.selectedName && (
                             <small className="monthly-system-match">
                               {isRo
-                                ? "Înlocuit din Ref_Producers"
-                                : "Replaced from Ref_Producers"}
+                                ? "Înlocuit din ERP"
+                                : "Replaced from ERP"}
                             </small>
                           )}
                       </label>
@@ -2104,8 +2233,8 @@ export function MonthlySettlementReviewScreen() {
                         disabled={busy}
                       >
                         {isRo
-                          ? "Refaceți potrivirea Excel"
-                          : "Redo Excel matching"}
+                          ? "Refaceți potrivirea ERP"
+                          : "Redo ERP matching"}
                       </button>
                     </div>
                   </div>

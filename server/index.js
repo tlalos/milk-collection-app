@@ -48,6 +48,7 @@ import {
   matchReferenceVehicle,
   resolveReferenceRoute,
 } from './excelService.js'
+import { fetchErpReferenceCenters, fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
 import {
   createMilkReception,
   deleteMilkReception,
@@ -135,6 +136,23 @@ function addOcrOriginalCenterSuggestion(current, match, rowNumber, search) {
       ? [...referenceSuggestions.slice(0, 4), suggestion]
       : [...referenceSuggestions, suggestion],
   }
+}
+
+async function referenceCentersForOcrRequest(request) {
+  if (Array.isArray(request.body?.referenceCenters)) return request.body.referenceCenters
+  if (!request.body?.ocrConnectionSettings) return null
+  return await fetchErpReferenceCenters(request.body.ocrConnectionSettings)
+}
+
+async function referenceSuppliersForOcrRequest(request) {
+  if (Array.isArray(request.body?.referenceCenters) || Array.isArray(request.body?.referenceProducers)) {
+    return {
+      centers: Array.isArray(request.body?.referenceCenters) ? request.body.referenceCenters : [],
+      producers: Array.isArray(request.body?.referenceProducers) ? request.body.referenceProducers : [],
+    }
+  }
+  if (!request.body?.ocrConnectionSettings) return null
+  return await fetchErpReferenceSuppliers(request.body.ocrConnectionSettings)
 }
 
 function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSources = []) {
@@ -1111,6 +1129,24 @@ app.get('/api/ocr/health', async (_request, response) => {
   })
 })
 
+app.post('/api/ocr/reference-centers', async (request, response, next) => {
+  try {
+    const { centers } = await fetchErpReferenceSuppliers(request.body?.ocrConnectionSettings)
+    response.json({ centers, fetchedAt: new Date().toISOString(), source: 'erp' })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/ocr/reference-suppliers', async (request, response, next) => {
+  try {
+    const references = await fetchErpReferenceSuppliers(request.body?.ocrConnectionSettings)
+    response.json({ ...references, fetchedAt: new Date().toISOString(), source: 'erp' })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/weighbridge/current-weight', async (_request, response) => {
   try {
     const reading = await readCurrentWeighbridgeWeight()
@@ -1416,9 +1452,63 @@ app.get('/api/ocr/jobs', async (request, response, next) => {
 app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
   try {
     const jobs = (await listJobs()).filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
+    const receptions = await listMilkReceptions()
+    const receptionsByRouteKey = new Map()
+    for (const record of receptions) {
+      if (String(record.vehicleCategory || '').toUpperCase() === 'OTHER') continue
+      const date = normalizeReconciliationDate(record.receptionDate)
+      const truckKey = normalizeReconciliationKey(record.vehicleRegistration)
+      const routeKey = normalizeReconciliationKey(record.routeId)
+      if (!date || !truckKey || !routeKey) continue
+      const key = `${date}|${truckKey}|${routeKey}`
+      if (!receptionsByRouteKey.has(key)) receptionsByRouteKey.set(key, [])
+      receptionsByRouteKey.get(key).push(record)
+    }
+    const receptionMatchForJob = (job) => {
+      const date = normalizeReconciliationDate(job.data?.date)
+      const truckKey = normalizeReconciliationKey(job.data?.vehicleRegistration)
+      const routeKey = normalizeReconciliationKey(job.data?.route)
+      if (!date || !truckKey || !routeKey) {
+        return {
+          status: 'incomplete',
+          matchCount: 0,
+          receptionId: null,
+          receptionDate: date || null,
+          truck: job.data?.vehicleRegistration || null,
+          route: job.data?.route || null,
+          netQuantityKg: null,
+          calculatedLiters: null,
+        }
+      }
+      const matches = receptionsByRouteKey.get(`${date}|${truckKey}|${routeKey}`) || []
+      if (matches.length === 1) {
+        const match = matches[0]
+        return {
+          status: 'matched',
+          matchCount: 1,
+          receptionId: match.receptionId,
+          receptionDate: match.receptionDate,
+          truck: match.vehicleRegistration,
+          route: match.routeId,
+          netQuantityKg: finiteNumber(match.netQuantityKg),
+          calculatedLiters: finiteNumber(match.calculatedLiters),
+        }
+      }
+      return {
+        status: matches.length > 1 ? 'conflict' : 'no_match',
+        matchCount: matches.length,
+        receptionId: matches[0]?.receptionId ?? null,
+        receptionDate: date,
+        truck: job.data?.vehicleRegistration || null,
+        route: job.data?.route || null,
+        netQuantityKg: matches[0] ? finiteNumber(matches[0].netQuantityKg) : null,
+        calculatedLiters: matches[0] ? finiteNumber(matches[0].calculatedLiters) : null,
+      }
+    }
     const rows = jobs.flatMap((job) => {
       const publicJob = toPublicJob(job, false)
       const dataRows = Array.isArray(job.data?.rows) ? job.data.rows : []
+      const receptionMatch = receptionMatchForJob(job)
       return dataRows.map((row) => ({
         id: `${job.id}-${row.rowNumber}`,
         jobId: job.id,
@@ -1445,9 +1535,13 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
         noticeNumber: row.noticeNumber ?? null,
         confidence: row.confidence ?? null,
         uncertainFields: Array.isArray(row.uncertainFields) ? row.uncertainFields : [],
+        receptionMatch,
       }))
     })
     const totalLiters = rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0)
+    const receptionMatchedCount = rows.filter((row) => row.receptionMatch?.status === 'matched').length
+    const receptionNoMatchCount = rows.filter((row) => row.receptionMatch?.status === 'no_match').length
+    const receptionIssueCount = rows.filter((row) => ['no_match', 'incomplete', 'conflict'].includes(row.receptionMatch?.status)).length
     response.json({
       rows,
       summary: {
@@ -1457,6 +1551,9 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
         reviewedDocumentCount: jobs.filter((job) => job.reviewStatus === 'reviewed').length,
         failedDocumentCount: jobs.filter((job) => job.status === 'failed').length,
         totalLiters,
+        receptionMatchedCount,
+        receptionNoMatchCount,
+        receptionIssueCount,
       },
     })
   } catch (error) {
@@ -1583,6 +1680,32 @@ app.get('/api/ocr/drivers', async (request, response, next) => {
   }
 })
 
+app.get('/api/ocr/reception-routes', async (request, response, next) => {
+  try {
+    const date = normalizeReconciliationDate(request.query.date)
+    if (!date) return response.json({ routes: [] })
+    const records = await listMilkReceptions({ date })
+    const routes = records
+      .filter((record) => String(record.vehicleCategory || '').toUpperCase() !== 'OTHER')
+      .map((record) => ({
+        receptionId: record.receptionId,
+        receptionDate: record.receptionDate,
+        truck: record.vehicleRegistration,
+        route: record.routeId,
+        milkType: record.milkType,
+        netQuantityKg: finiteNumber(record.netQuantityKg),
+        calculatedLiters: finiteNumber(record.calculatedLiters),
+        status: record.combinationDiagnosis,
+      }))
+      .sort((left, right) =>
+        String(left.truck || '').localeCompare(String(right.truck || ''), undefined, { numeric: true }) ||
+        String(left.route || '').localeCompare(String(right.route || ''), undefined, { numeric: true }))
+    response.json({ routes })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/ocr/vehicles', async (request, response, next) => {
   try {
     const routeSettings = await listMilkReceptionRouteSettings()
@@ -1626,7 +1749,8 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
     }
     clearReferenceCaches()
     const normalizedData = normalizeMonthlyData(current.data)
-    const matches = await matchMonthlyProducers(normalizedData)
+    const references = await referenceSuppliersForOcrRequest(request)
+    const matches = await matchMonthlyProducers(normalizedData, references || {})
     const data = {
       ...normalizedData,
       layoutType: matches.layoutType,
@@ -1805,7 +1929,8 @@ app.post('/api/ocr/jobs/:id/centers/match', async (request, response, next) => {
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (!current.data?.rows) return response.status(409).json({ error: 'OCR data is not ready.' })
-    const centerMatches = await matchCentersForRows(current.data.rows)
+    const referenceCenters = await referenceCentersForOcrRequest(request)
+    const centerMatches = await matchCentersForRows(current.data.rows, referenceCenters ? { centers: referenceCenters } : {})
     const data = {
       ...current.data,
       rows: current.data.rows.map((row) => {
@@ -1831,7 +1956,11 @@ app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) =>
     if (!Number.isFinite(rowNumber) || name.length < 3) return response.json({ match: null })
     const ocrFallbackMatch = addOcrOriginalCenterSuggestion(current, null, rowNumber, name)
     try {
-      const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
+      const referenceCenters = await referenceCentersForOcrRequest(request)
+      const [match] = await matchCentersForRows(
+        [{ rowNumber, collectionCenter: name }],
+        referenceCenters ? { centers: referenceCenters } : {},
+      )
       const mergedMatch = addOcrOriginalCenterSuggestion(
         current,
         match ? { ...match, status: match.suggestions.length ? 'suggested' : 'unmatched', selectedCode: null, selectedName: null } : null,
@@ -2035,7 +2164,7 @@ app.use((request, response, next) => {
 })
 
 app.use((error, _request, response, _next) => {
-  const status = error instanceof multer.MulterError ? 400 : 500
+  const status = error instanceof multer.MulterError ? 400 : Number(error?.status || error?.statusCode || 500)
   response.status(status).json({ error: error instanceof Error ? error.message : 'Unexpected server error.' })
 })
 

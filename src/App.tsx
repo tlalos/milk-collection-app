@@ -31,7 +31,7 @@ import {
   createSuppliesOrderPayload,
   sendSuppliesOrderPayloadToErp,
 } from './store/suppliesOrderStore'
-import { ApiError, testConnection } from './api/client'
+import { ApiError, testLoginConnection } from './api/client'
 import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
@@ -196,6 +196,7 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings>(() => ocrConnectionSettingsStore.get())
   const [saved, setSaved] = useState(false)
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
+  const [testMessage, setTestMessage] = useState('')
 
   useEffect(() => {
     if (!saved) return
@@ -207,6 +208,7 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
     setSettings((current) => ({ ...current, [key]: value }))
     setSaved(false)
     setTestStatus('idle')
+    setTestMessage('')
   }
 
   function handleSave() {
@@ -217,8 +219,10 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
   async function handleTest() {
     if (testStatus === 'testing') return
     setTestStatus('testing')
-    const ok = await testConnection(settings.serverUrl)
-    setTestStatus(ok ? 'ok' : 'fail')
+    setTestMessage('')
+    const result = await testLoginConnection(settings)
+    setTestStatus(result.ok ? 'ok' : 'fail')
+    setTestMessage(result.message)
   }
 
   return (
@@ -309,6 +313,11 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
           />
         </label>
       </div>
+      {testMessage && (
+        <p className={`home-ocr-test-message ${testStatus === 'ok' ? 'ok' : 'fail'}`} role={testStatus === 'fail' ? 'alert' : undefined}>
+          {testMessage}
+        </p>
+      )}
     </section>
   )
 }

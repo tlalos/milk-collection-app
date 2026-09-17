@@ -1,4 +1,6 @@
 import { settingsStore } from '../store/settingsStore'
+import type { LoginResponse } from '../types/auth'
+import type { AppSettings } from '../types/settings'
 
 export class ApiError extends Error {
   constructor(
@@ -125,5 +127,64 @@ export async function testConnection(serverUrl: string): Promise<boolean> {
       && !looksLikeHtmlResponse(text, res.headers.get('Content-Type'))
   } catch {
     return false
+  }
+}
+
+export interface ConnectionTestResult {
+  ok: boolean
+  message: string
+}
+
+export async function testLoginConnection(settings: AppSettings): Promise<ConnectionTestResult> {
+  const serverUrl = settings.serverUrl.trim()
+  const username = settings.apiUsername.trim()
+  const password = settings.apiPassword
+
+  if (!serverUrl) return { ok: false, message: 'Server URL is required.' }
+  if (!username || !password) return { ok: false, message: 'API username and password are required.' }
+
+  const url = buildApiUrl(serverUrl, 'Accounts/Login')
+  const ac = new AbortController()
+  const timeoutMs = Math.max(1000, Number(settings.requestTimeoutMs) || 8000)
+  const timer = window.setTimeout(() => ac.abort(), timeoutMs)
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        Username: username,
+        Password: password,
+        fiscalyear: settings.defaultFiscalYear,
+      }),
+      signal: ac.signal,
+    })
+    const text = await res.text().catch(() => '')
+
+    if (res.status === 404) {
+      return { ok: false, message: 'Login endpoint not found (404). Check the Server URL.' }
+    }
+
+    if (looksLikeHtmlResponse(text, res.headers.get('Content-Type'))) {
+      return { ok: false, message: 'Server returned a web page instead of ERP API data.' }
+    }
+
+    if (!res.ok) {
+      return { ok: false, message: `ERP login failed (${res.status}). Check username, password, and fiscal year.` }
+    }
+
+    const payload = parseApiResponse<Partial<LoginResponse>>(text, res.headers.get('Content-Type'))
+    if (!payload?.access_token) {
+      return { ok: false, message: 'Login answered, but no access token was returned.' }
+    }
+
+    return { ok: true, message: `ERP login OK for ${payload.user_name || username}.` }
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      return { ok: false, message: `ERP login timed out after ${timeoutMs} ms.` }
+    }
+    return { ok: false, message: (error as Error).message || 'Could not reach the ERP API.' }
+  } finally {
+    window.clearTimeout(timer)
   }
 }

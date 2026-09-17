@@ -28,6 +28,18 @@ interface DailyAvizRow {
   noticeNumber: string | null
   confidence: number | null
   uncertainFields: string[]
+  receptionMatch?: DailyAvizReceptionMatch
+}
+
+interface DailyAvizReceptionMatch {
+  status: 'matched' | 'no_match' | 'incomplete' | 'conflict'
+  matchCount: number
+  receptionId: string | null
+  receptionDate: string | null
+  truck: string | null
+  route: string | null
+  netQuantityKg: number | null
+  calculatedLiters: number | null
 }
 
 interface DailyAvizSummary {
@@ -37,6 +49,9 @@ interface DailyAvizSummary {
   reviewedDocumentCount: number
   failedDocumentCount: number
   totalLiters: number
+  receptionMatchedCount: number
+  receptionNoMatchCount: number
+  receptionIssueCount: number
 }
 
 interface DailyAvizPayload {
@@ -53,6 +68,9 @@ const emptySummary: DailyAvizSummary = {
   reviewedDocumentCount: 0,
   failedDocumentCount: 0,
   totalLiters: 0,
+  receptionMatchedCount: 0,
+  receptionNoMatchCount: 0,
+  receptionIssueCount: 0,
 }
 
 function displayDate(value: string | null | undefined) {
@@ -125,6 +143,30 @@ function statusLabel(status: string | null | undefined) {
 function displayMilkType(value: string | null | undefined) {
   if (!value) return '-'
   return value.replace(/^MILK[-_\s]*/iu, '').trim() || value
+}
+
+function receptionStatusLabel(match: DailyAvizReceptionMatch | null | undefined) {
+  if (!match) return 'Unknown'
+  if (match.status === 'matched') return 'Matched'
+  if (match.status === 'no_match') return 'No reception'
+  if (match.status === 'conflict') return 'Conflict'
+  return 'Incomplete'
+}
+
+function receptionStatusTitle(row: DailyAvizRow) {
+  const match = row.receptionMatch
+  if (!match) return 'Reception status was not calculated.'
+  const key = [
+    `date ${displayDate(row.documentDate)}`,
+    `truck ${row.vehicleRegistration || '-'}`,
+    `route ${row.route || '-'}`,
+  ].join(', ')
+  if (match.status === 'matched') {
+    return `Matched against reception ${match.receptionId || '-'} (${key}). ${formatNumber(match.netQuantityKg, 2)} kg, ${formatNumber(match.calculatedLiters, 2)} L.`
+  }
+  if (match.status === 'no_match') return `No milk reception row matches ${key}.`
+  if (match.status === 'conflict') return `${match.matchCount} milk reception rows match ${key}; this should be checked.`
+  return `Cannot compare with reception because the OCR row is missing date, truck, or route.`
 }
 
 function initialMonthFilter() {
@@ -236,6 +278,8 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
           <div><span>Pending docs</span><strong>{summary.pendingDocumentCount}</strong></div>
           <div><span>Failed docs</span><strong>{summary.failedDocumentCount}</strong></div>
           <div><span>Total liters</span><strong>{formatNumber(summary.totalLiters)}</strong></div>
+          <div><span>Reception matched</span><strong>{summary.receptionMatchedCount}</strong></div>
+          <div><span>Reception issues</span><strong>{summary.receptionIssueCount}</strong></div>
         </section>
 
         <section className="daily-aviz-toolbar" aria-label="Daily aviz filters">
@@ -340,6 +384,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                   <th>Aviz no</th>
                   <th>Truck no</th>
                   <th>Route</th>
+                  <th>Reception</th>
                   <th>Driver</th>
                   <th>Center</th>
                   <th>Milk type</th>
@@ -355,18 +400,23 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={16} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
+                  <tr><td colSpan={17} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
                 )}
                 {!loading && filteredRows.length === 0 && (
-                  <tr><td colSpan={16} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
+                  <tr><td colSpan={17} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
                 )}
                 {!loading && filteredRows.map((row) => (
-                  <tr key={row.id}>
+                  <tr className={`reception-row-${row.receptionMatch?.status || 'unknown'}`} key={row.id}>
                     <td>{row.rowNumber ?? '-'}</td>
                     <td>{displayDate(row.documentDate)}</td>
                     <td>{row.noticeNumber || '-'}</td>
                     <td>{row.vehicleRegistration || '-'}</td>
                     <td>{row.route || '-'}</td>
+                    <td>
+                      <span className={`daily-aviz-badge reception-${row.receptionMatch?.status || 'unknown'}`} title={receptionStatusTitle(row)}>
+                        {receptionStatusLabel(row.receptionMatch)}
+                      </span>
+                    </td>
                     <td>{row.driverName || '-'}</td>
                     <td title={row.collectionCenter || ''}>{row.collectionCenter || '-'}</td>
                     <td title={row.milkType || ''}>{displayMilkType(row.milkType)}</td>

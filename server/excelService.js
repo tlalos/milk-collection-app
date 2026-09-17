@@ -380,12 +380,47 @@ function isUsedExcelValue(value) {
   return true
 }
 
-export async function matchCentersForRows(rows) {
-  const centers = await loadReferenceCenters()
+function normalizeReferenceCenters(centers) {
+  return Array.isArray(centers)
+    ? centers
+      .map((center) => ({ code: String(center?.code || '').trim(), name: String(center?.name || '').trim() }))
+      .filter((center) => center.code && center.name)
+    : []
+}
+
+function normalizeReferenceProducers(producers) {
+  return Array.isArray(producers)
+    ? producers
+      .map((producer) => ({
+        producerCode: String(producer?.producerCode || producer?.code || '').trim(),
+        producerName: String(producer?.producerName || producer?.name || '').trim(),
+        centerCode: String(producer?.centerCode || '').trim(),
+        centerName: String(producer?.centerName || '').trim(),
+        trn: String(producer?.trn || '').trim(),
+      }))
+      .filter((producer) => producer.producerCode && producer.producerName)
+    : []
+}
+
+function centerSearchVariants(value) {
+  const normalized = normalizeValue(value)
+  if (!normalized) return []
+  const variants = new Set([normalized])
+  if (/^CO+P?L?$/u.test(normalized) || normalized === 'COP') {
+    variants.add('COOP')
+    variants.add('COOPERATIVA')
+    variants.add('COOPERATIVE')
+    variants.add('COOPERATIE')
+  }
+  return [...variants]
+}
+
+export async function matchCentersForRows(rows, options = {}) {
+  const centers = options.centers ? normalizeReferenceCenters(options.centers) : await loadReferenceCenters()
   return rows.map((row) => {
     const originalName = row.collectionCenter || ''
     const suggestions = centers
-      .map((center) => ({ ...center, score: centerSimilarity(originalName, center.name) }))
+      .map((center) => ({ ...center, score: centerSimilarity(originalName, center.name, center.code) }))
       .filter((center) => center.score >= 0.32)
       .sort((left, right) => right.score - left.score)
       .slice(0, 5)
@@ -403,8 +438,8 @@ export async function matchCentersForRows(rows) {
   })
 }
 
-export async function listReferenceCenters(query = '') {
-  const centers = await loadReferenceCenters()
+export async function listReferenceCenters(query = '', options = {}) {
+  const centers = options.centers ? normalizeReferenceCenters(options.centers) : await loadReferenceCenters()
   const search = String(query || '').trim()
   const sortedCenters = centers
     .slice()
@@ -420,12 +455,14 @@ export async function listReferenceCenters(query = '') {
     .map((center) => ({ ...center, score: Number(center.score.toFixed(3)) }))
 }
 
-export async function listReferenceProducers(query = '', kind = 'producer', headerCenterName = '') {
-  const producers = await loadReferenceProducers()
+export async function listReferenceProducers(query = '', kind = 'producer', headerCenterName = '', options = {}) {
+  const producers = options.producers ? normalizeReferenceProducers(options.producers) : await loadReferenceProducers()
   const search = String(query || '').trim()
   const centerSearch = String(headerCenterName || '').trim()
   const candidates = kind === 'center'
-    ? [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
+    ? (options.centers
+      ? normalizeReferenceCenters(options.centers)
+      : [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()])
     : producers.map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn }))
   if (!search) return candidates.slice(0, 50)
   return candidates
@@ -467,10 +504,12 @@ export async function readPricingEntryManualStore() {
   }
 }
 
-export async function matchMonthlyProducers(data) {
-  const producers = await loadReferenceProducers()
+export async function matchMonthlyProducers(data, options = {}) {
+  const producers = options.producers ? normalizeReferenceProducers(options.producers) : await loadReferenceProducers()
   const layoutType = data.layoutType
-  const centers = [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
+  const centers = options.centers
+    ? normalizeReferenceCenters(options.centers)
+    : [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
   const headerSuggestions = centers.map((item) => ({ ...item, score: similarity(data.headerCenterName, item.name) }))
     .filter((item) => item.score >= 0.32).sort((left, right) => right.score - left.score).slice(0, 5)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
@@ -928,19 +967,33 @@ function similarity(leftValue, rightValue) {
   return Math.max(characterScore * 0.72 + tokenScore * 0.28, containment * 0.92)
 }
 
-function centerSimilarity(leftValue, rightValue) {
-  const left = normalizeValue(leftValue)
+function centerSimilarity(leftValue, rightValue, codeValue = '') {
+  const variants = centerSearchVariants(leftValue)
+  const left = variants[0] || ''
   const right = normalizeValue(rightValue)
+  const code = normalizeValue(codeValue)
   const compactLeft = left.replace(/\s+/gu, '')
   const compactRight = right.replace(/\s+/gu, '')
+  const compactCode = code.replace(/\s+/gu, '')
   const baseScore = similarity(left, right)
   if (!left || !right) return baseScore
+  const variantScore = variants.reduce((best, variant) => {
+    const compactVariant = variant.replace(/\s+/gu, '')
+    if (right.split(' ').some((token) => token.startsWith(variant))) return Math.max(best, 0.92)
+    if (right.includes(variant)) return Math.max(best, 0.82)
+    if (compactRight.includes(compactVariant)) return Math.max(best, 0.82)
+    if (code && code.includes(variant)) return Math.max(best, 0.82)
+    if (compactCode && compactCode.includes(compactVariant)) return Math.max(best, 0.82)
+    return Math.max(best, similarity(variant, right))
+  }, baseScore)
   if (right.startsWith(left)) return Math.max(baseScore, 0.96)
   if (right.split(' ').some((token) => token.startsWith(left))) return Math.max(baseScore, 0.92)
   if (right.includes(left)) return Math.max(baseScore, 0.82)
   if (compactRight.startsWith(compactLeft)) return Math.max(baseScore, 0.96)
   if (compactRight.includes(compactLeft)) return Math.max(baseScore, 0.82)
-  return baseScore
+  if (code && code.includes(left)) return Math.max(baseScore, 0.82)
+  if (compactCode && compactCode.includes(compactLeft)) return Math.max(baseScore, 0.82)
+  return variantScore
 }
 
 function driverSimilarity(leftValue, rightValue) {

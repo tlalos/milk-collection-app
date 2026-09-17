@@ -506,6 +506,26 @@ button {
   color: #9d342d;
 }
 
+.home-ocr-test-message {
+  margin: 12px 0 0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.home-ocr-test-message.ok {
+  border: 1px solid #95c9a9;
+  background: #e5f3ea;
+  color: #17613a;
+}
+
+.home-ocr-test-message.fail {
+  border: 1px solid #efb0ab;
+  background: #fff0ef;
+  color: #9d342d;
+}
+
 .home-access-note {
   color: var(--color-text-muted);
   font-size: 0.78rem;

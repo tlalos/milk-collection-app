@@ -57,7 +57,7 @@
 
 .daily-aviz-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
 }
 
@@ -210,7 +210,7 @@
 
 .daily-aviz-table {
   width: 100%;
-  min-width: 1500px;
+  min-width: 1620px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -240,19 +240,28 @@
 .daily-aviz-table th:nth-child(3) { width: 88px; }
 .daily-aviz-table th:nth-child(4) { width: 112px; }
 .daily-aviz-table th:nth-child(5) { width: 70px; }
-.daily-aviz-table th:nth-child(6) { width: 104px; }
-.daily-aviz-table th:nth-child(8) { width: 88px; }
-.daily-aviz-table th:nth-child(9) { width: 74px; }
-.daily-aviz-table th:nth-child(10) { width: 56px; }
-.daily-aviz-table th:nth-child(11),
-.daily-aviz-table th:nth-child(12) { width: 58px; }
-.daily-aviz-table th:nth-child(13),
-.daily-aviz-table th:nth-child(14) { width: 94px; }
-.daily-aviz-table th:nth-child(15) { width: 96px; }
-.daily-aviz-table th:nth-child(16) { width: 136px; }
+.daily-aviz-table th:nth-child(6) { width: 122px; }
+.daily-aviz-table th:nth-child(7) { width: 104px; }
+.daily-aviz-table th:nth-child(9) { width: 88px; }
+.daily-aviz-table th:nth-child(10) { width: 74px; }
+.daily-aviz-table th:nth-child(11) { width: 56px; }
+.daily-aviz-table th:nth-child(12),
+.daily-aviz-table th:nth-child(13) { width: 58px; }
+.daily-aviz-table th:nth-child(14),
+.daily-aviz-table th:nth-child(15) { width: 94px; }
+.daily-aviz-table th:nth-child(16) { width: 96px; }
+.daily-aviz-table th:nth-child(17) { width: 136px; }
 
 .daily-aviz-table tbody tr:nth-child(even) {
   background: #f8fbf9;
+}
+
+.daily-aviz-table tbody tr.reception-row-no_match {
+  background: #fff9e9;
+}
+
+.daily-aviz-table tbody tr.reception-row-conflict {
+  background: #fff0ef;
 }
 
 .daily-aviz-empty {
@@ -296,6 +305,27 @@
 .daily-aviz-badge.processing {
   background: #e7f3f8;
   color: #1f5b7a;
+}
+
+.daily-aviz-badge.reception-matched {
+  background: #dff4e8;
+  color: #0e5a35;
+}
+
+.daily-aviz-badge.reception-no_match {
+  background: #fff0c8;
+  color: #8a5a00;
+}
+
+.daily-aviz-badge.reception-incomplete,
+.daily-aviz-badge.reception-unknown {
+  background: #eef4f1;
+  color: #58645f;
+}
+
+.daily-aviz-badge.reception-conflict {
+  background: #fbe8e8;
+  color: #9c2f2f;
 }
 
 .daily-aviz-actions {

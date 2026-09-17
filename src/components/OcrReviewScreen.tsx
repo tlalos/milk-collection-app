@@ -4,6 +4,7 @@ import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLangua
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
 import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
+import { getCachedOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
@@ -47,6 +48,7 @@ interface AttentionSummary {
 }
 
 interface CenterSuggestion { code: string; name: string; score: number; source?: 'ocr_original' | string }
+type ReferenceCenter = OcrReferenceCenter
 interface CenterMatch {
   rowNumber: number
   originalName: string | null
@@ -77,6 +79,17 @@ interface RouteMatch {
   vehicle: string | null
   existingRoutes: string[]
   optionIndex?: number | null
+}
+
+interface ReceptionRouteSummary {
+  receptionId: string
+  receptionDate: string
+  truck: string
+  route: string
+  milkType: string
+  netQuantityKg: number | null
+  calculatedLiters: number | null
+  status: string
 }
 
 interface RowValueSource {
@@ -171,6 +184,8 @@ let cachedVehicleOptions: string[] | null = null
 let vehicleOptionsRequest: Promise<string[]> | null = null
 const cachedRouteOptions = new Map<string, string[]>()
 const routeOptionsRequests = new Map<string, Promise<string[]>>()
+const cachedReceptionRoutes = new Map<string, ReceptionRouteSummary[]>()
+const receptionRoutesRequests = new Map<string, Promise<ReceptionRouteSummary[]>>()
 
 function loadDriverOptions() {
   if (cachedDriverOptions) return Promise.resolve(cachedDriverOptions)
@@ -215,6 +230,24 @@ function loadRouteOptions(vehicleRegistration = '') {
     routeOptionsRequests.set(cacheKey, request)
   }
   return routeOptionsRequests.get(cacheKey)!
+}
+
+function loadReceptionRoutes(date = '') {
+  const normalizedDate = String(date || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(normalizedDate)) return Promise.resolve([])
+  if (cachedReceptionRoutes.has(normalizedDate)) return Promise.resolve(cachedReceptionRoutes.get(normalizedDate)!)
+  if (!receptionRoutesRequests.has(normalizedDate)) {
+    const params = new URLSearchParams({ date: normalizedDate })
+    const request = fetch(appPath(`/api/ocr/reception-routes?${params.toString()}`)).then(async (response) => {
+      const payload = await response.json() as { routes?: ReceptionRouteSummary[]; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not load milk reception routes.')
+      const routes = payload.routes ?? []
+      cachedReceptionRoutes.set(normalizedDate, routes)
+      return routes
+    }).finally(() => { receptionRoutesRequests.delete(normalizedDate) })
+    receptionRoutesRequests.set(normalizedDate, request)
+  }
+  return receptionRoutesRequests.get(normalizedDate)!
 }
 
 function cloneData(data: ExtractedData) {
@@ -405,6 +438,122 @@ function formatOcrDuration(job: OcrJob) {
   return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`
 }
 
+function normalizeCenterValue(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/gu, ' ')
+    .trim()
+    .replace(/\s+/gu, ' ')
+}
+
+function levenshteinDistance(left: string, right: string) {
+  const matrix = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0))
+  for (let index = 0; index <= left.length; index += 1) matrix[index][0] = index
+  for (let index = 0; index <= right.length; index += 1) matrix[0][index] = index
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      matrix[leftIndex][rightIndex] = Math.min(
+        matrix[leftIndex - 1][rightIndex] + 1,
+        matrix[leftIndex][rightIndex - 1] + 1,
+        matrix[leftIndex - 1][rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      )
+    }
+  }
+  return matrix[left.length][right.length]
+}
+
+function textSimilarity(leftValue: unknown, rightValue: unknown) {
+  const left = normalizeCenterValue(leftValue)
+  const right = normalizeCenterValue(rightValue)
+  if (!left || !right) return 0
+  if (left === right) return 1
+  const distance = levenshteinDistance(left, right)
+  const characterScore = 1 - distance / Math.max(left.length, right.length)
+  const leftTokens = new Set(left.split(' '))
+  const rightTokens = new Set(right.split(' '))
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length
+  const tokenScore = intersection / new Set([...leftTokens, ...rightTokens]).size
+  const containment = left.includes(right) || right.includes(left) ? Math.min(left.length, right.length) / Math.max(left.length, right.length) : 0
+  return Math.max(characterScore * 0.72 + tokenScore * 0.28, containment * 0.92)
+}
+
+function centerSearchVariants(value: unknown) {
+  const normalized = normalizeCenterValue(value)
+  if (!normalized) return []
+  const variants = new Set([normalized])
+  if (/^CO+P?L?$/u.test(normalized) || normalized === 'COP') {
+    variants.add('COOP')
+    variants.add('COOPERATIVA')
+    variants.add('COOPERATIVE')
+    variants.add('COOPERATIE')
+  }
+  return [...variants]
+}
+
+function centerSimilarity(searchValue: unknown, center: ReferenceCenter) {
+  const variants = centerSearchVariants(searchValue)
+  const left = variants[0] || ''
+  const right = normalizeCenterValue(center.name)
+  const code = normalizeCenterValue(center.code)
+  const compactLeft = left.replace(/\s+/gu, '')
+  const compactRight = right.replace(/\s+/gu, '')
+  const compactCode = code.replace(/\s+/gu, '')
+  const baseScore = textSimilarity(left, right)
+  if (!left || !right) return baseScore
+  const variantScore = variants.reduce((best, variant) => {
+    const compactVariant = variant.replace(/\s+/gu, '')
+    if (right.split(' ').some((token) => token.startsWith(variant))) return Math.max(best, 0.92)
+    if (right.includes(variant)) return Math.max(best, 0.82)
+    if (compactRight.includes(compactVariant)) return Math.max(best, 0.82)
+    if (code.includes(variant)) return Math.max(best, 0.82)
+    if (compactCode.includes(compactVariant)) return Math.max(best, 0.82)
+    return Math.max(best, textSimilarity(variant, right))
+  }, baseScore)
+  if (right.startsWith(left)) return Math.max(baseScore, 0.96)
+  if (right.split(' ').some((token) => token.startsWith(left))) return Math.max(baseScore, 0.92)
+  if (right.includes(left)) return Math.max(baseScore, 0.82)
+  if (compactRight.startsWith(compactLeft)) return Math.max(baseScore, 0.96)
+  if (compactRight.includes(compactLeft)) return Math.max(baseScore, 0.82)
+  if (code.includes(left)) return Math.max(baseScore, 0.82)
+  if (compactCode.includes(compactLeft)) return Math.max(baseScore, 0.82)
+  return variantScore
+}
+
+function centerMatchForRow(rowNumber: number, originalName: string | null, centers: ReferenceCenter[], autoSelect: boolean): CenterMatch {
+  const suggestions = centers
+    .map((center) => ({ ...center, score: centerSimilarity(originalName, center) }))
+    .filter((center) => center.score >= 0.32)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name, undefined, { numeric: true }))
+    .slice(0, 5)
+    .map((center) => ({ code: center.code, name: center.name, score: Number(center.score.toFixed(3)) }))
+  const best = suggestions[0]
+  const shouldSelect = autoSelect && best?.score >= 0.6
+  return {
+    rowNumber,
+    originalName,
+    status: shouldSelect ? 'auto_replaced' : suggestions.length ? 'suggested' : 'unmatched',
+    selectedCode: shouldSelect ? best.code : null,
+    selectedName: shouldSelect ? best.name : null,
+    suggestions,
+  }
+}
+
+function centerMatchesForRows(rows: ExtractedRow[], centers: ReferenceCenter[], autoSelect: boolean) {
+  return rows.map((row) => centerMatchForRow(row.rowNumber, row.collectionCenter, centers, autoSelect))
+}
+
+function applyCenterMatchesToData(data: ExtractedData, matches: CenterMatch[]) {
+  return {
+    ...data,
+    rows: data.rows.map((row) => {
+      const match = matches.find((item) => item.rowNumber === row.rowNumber && item.status === 'auto_replaced')
+      return match?.selectedName ? { ...row, collectionCenter: match.selectedName, uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter') } : row
+    }),
+  }
+}
+
 function applyAutomaticCenterReplacements(job: OcrJob) {
   if (!job.data || !job.centerMatches?.length) return job
   const centerMatches = job.centerMatches.map((match) => {
@@ -446,6 +595,10 @@ export function OcrReviewScreen() {
   const [selected, setSelected] = useState<OcrJob | null>(null)
   const [draft, setDraft] = useState<ExtractedData | null>(null)
   const [centerMatches, setCenterMatches] = useState<CenterMatch[]>([])
+  const [centerSearchMatches, setCenterSearchMatches] = useState<Record<number, CenterMatch>>({})
+  const [referenceCenters, setReferenceCenters] = useState<ReferenceCenter[]>([])
+  const [referenceCentersLoaded, setReferenceCentersLoaded] = useState(false)
+  const [referenceCentersError, setReferenceCentersError] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [selectedSummary, setSelectedSummary] = useState<OcrJob | null>(null)
   const [error, setError] = useState('')
@@ -456,6 +609,9 @@ export function OcrReviewScreen() {
   const [driverOptions, setDriverOptions] = useState<string[]>([])
   const [vehicleOptions, setVehicleOptions] = useState<string[]>([])
   const [routeOptions, setRouteOptions] = useState<string[]>([])
+  const [receptionRoutes, setReceptionRoutes] = useState<ReceptionRouteSummary[]>([])
+  const [receptionRoutesLoading, setReceptionRoutesLoading] = useState(false)
+  const [receptionRoutesError, setReceptionRoutesError] = useState('')
   const [saving, setSaving] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [reprocessingId, setReprocessingId] = useState('')
@@ -569,6 +725,40 @@ export function OcrReviewScreen() {
   }, [loadJobs])
 
   useEffect(() => {
+    let cancelled = false
+    async function loadReferenceCenters() {
+      setReferenceCentersLoaded(false)
+      setReferenceCentersError('')
+      const cachedReferences = getCachedOcrReferenceSuppliers()
+      if (cachedReferences) {
+        setReferenceCenters(cachedReferences.centers)
+        const fetchedAtLabel = new Intl.DateTimeFormat(isRo ? 'ro-RO' : 'en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(new Date(cachedReferences.fetchedAt))
+        setSuccess(isRo
+          ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${cachedReferences.centers.length} centre.`
+          : `Using ERP list refreshed at ${fetchedAtLabel}: ${cachedReferences.centers.length} centers.`)
+        setReferenceCentersLoaded(true)
+        return
+      }
+      if (!cancelled) {
+        const message = isRo
+          ? 'Lista ERP nu a fost încărcată. Deschideți pagina de încărcare OCR pentru actualizare.'
+          : 'ERP list is not loaded. Open the OCR upload page to refresh it.'
+        setReferenceCentersError(message)
+        setError(message)
+        setReferenceCentersLoaded(true)
+      }
+    }
+    void loadReferenceCenters()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     if (!draft || dataTab !== 'document') return
     void loadDriverOptions().then(setDriverOptions).catch(() => undefined)
     void loadVehicleOptions().then(setVehicleOptions).catch(() => undefined)
@@ -578,6 +768,36 @@ export function OcrReviewScreen() {
     if (!draft || dataTab !== 'document') return
     void loadRouteOptions(draft.vehicleRegistration || '').then(setRouteOptions).catch(() => setRouteOptions([]))
   }, [dataTab, draft?.vehicleRegistration])
+
+  useEffect(() => {
+    let cancelled = false
+    async function refreshReceptionRoutes() {
+      const date = draft?.date || ''
+      if (!draft || dataTab !== 'document' || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
+        setReceptionRoutes([])
+        setReceptionRoutesError('')
+        setReceptionRoutesLoading(false)
+        return
+      }
+      setReceptionRoutesLoading(true)
+      setReceptionRoutesError('')
+      try {
+        const routes = await loadReceptionRoutes(date)
+        if (!cancelled) setReceptionRoutes(routes)
+      } catch (routeError) {
+        if (!cancelled) {
+          setReceptionRoutes([])
+          setReceptionRoutesError((routeError as Error).message || 'Could not load milk reception routes.')
+        }
+      } finally {
+        if (!cancelled) setReceptionRoutesLoading(false)
+      }
+    }
+    void refreshReceptionRoutes()
+    return () => {
+      cancelled = true
+    }
+  }, [dataTab, draft?.date])
 
   useEffect(() => {
     if (!selected || !draft || selected.status !== 'completed' || saving || rematchingReferences) return
@@ -656,6 +876,8 @@ export function OcrReviewScreen() {
       setSelected(normalized)
       setDraft(cloneData(normalized.data!))
       setCenterMatches(structuredClone(normalized.centerMatches ?? []))
+      setCenterSearchMatches({})
+      setOpenCenterSuggestions(null)
       setLoadingId('')
       return
     }
@@ -670,6 +892,8 @@ export function OcrReviewScreen() {
       setSelected(detail)
       setDraft(detail.data ? cloneData(detail.data) : null)
       setCenterMatches(structuredClone(detail.centerMatches ?? []))
+      setCenterSearchMatches({})
+      setOpenCenterSuggestions(null)
       setError('')
     } catch (loadError) {
       setError((loadError as Error).message || 'Could not load this document.')
@@ -736,77 +960,92 @@ export function OcrReviewScreen() {
     })
     if (field === 'collectionCenter') {
       const rowNumber = draft?.rows[index]?.rowNumber
-      setCenterMatches((current) => current.map((match) => match.rowNumber === rowNumber ? { ...match, selectedCode: null, selectedName: null, status: match.suggestions.length ? 'suggested' : 'unmatched' } : match))
       if (rowNumber != null) scheduleCenterSearch(rowNumber, input)
     }
   }
 
   function scheduleCenterSearch(rowNumber: number, input: string) {
     const existing = centerSearchTimersRef.current.get(rowNumber)
-    if (existing) window.clearTimeout(existing)
-    if (input.trim().length < 3 || !selected) {
+    if (existing) {
+      window.clearTimeout(existing)
+      centerSearchTimersRef.current.delete(rowNumber)
+    }
+    if (input.trim().length < 3) {
       if (openCenterSuggestions === rowNumber) setOpenCenterSuggestions(null)
+      setCenterSearchMatches((current) => {
+        if (!current[rowNumber]) return current
+        const next = { ...current }
+        delete next[rowNumber]
+        return next
+      })
       return
     }
-    const jobId = selected.id
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch(appPath(`/api/ocr/jobs/${jobId}/centers/suggest`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rowNumber, name: input }),
-        })
-        const payload = await response.json() as { match?: CenterMatch | null; error?: string }
-        if (!response.ok) throw new Error(payload.error || 'Could not search collection centers.')
-        if (!payload.match) return
-        setCenterMatches((current) => {
-          const remaining = current.filter((match) => match.rowNumber !== rowNumber)
-          return [...remaining, payload.match!].sort((left, right) => left.rowNumber - right.rowNumber)
-        })
-        setOpenCenterSuggestions(payload.match.suggestions.length ? rowNumber : null)
-      } catch (searchError) {
-        setError((searchError as Error).message || 'Could not search collection centers.')
-      } finally {
-        centerSearchTimersRef.current.delete(rowNumber)
+    const timer = window.setTimeout(() => {
+      if (!referenceCentersLoaded) return
+      if (referenceCentersError) {
+        setError(referenceCentersError)
+        return
       }
+      const nextMatch = centerMatchForRow(rowNumber, input, referenceCenters, false)
+      setCenterSearchMatches((current) => ({ ...current, [rowNumber]: nextMatch }))
+      setOpenCenterSuggestions(nextMatch.suggestions.length ? rowNumber : null)
+      centerSearchTimersRef.current.delete(rowNumber)
     }, 450)
     centerSearchTimersRef.current.set(rowNumber, timer)
   }
 
-  function selectCenter(rowNumber: number, code: string) {
-    const selectedMatch = centerMatches
-      .find((match) => match.rowNumber === rowNumber)
-      ?.suggestions
-      .find((suggestion) => String(suggestion.code) === String(code))
-    setCenterMatches((current) => current.map((match) => {
-      if (match.rowNumber !== rowNumber) return match
-      const selected = match.suggestions.find((suggestion) => String(suggestion.code) === String(code))
-      if (!selected) return { ...match, selectedCode: null, selectedName: null, status: match.suggestions.length ? 'suggested' : 'unmatched' }
-      if (selected.code === '__OCR_ORIGINAL__') return { ...match, selectedCode: null, selectedName: selected.name, status: 'confirmed' }
-      return { ...match, selectedCode: selected.code, selectedName: selected.name, status: 'confirmed' }
-    }))
-    if (selectedMatch) setDraft((current) => current ? { ...current, rows: current.rows.map((row) => row.rowNumber === rowNumber ? { ...row, collectionCenter: selectedMatch.name, uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter') } : row) } : current)
-    setOpenCenterSuggestions(null)
-  }
-
   async function findSimilarCenters() {
-    if (!selected || matchingCenters) return
+    if (!selected || !draft || matchingCenters) return
     setMatchingCenters(true)
     setError('')
     try {
-      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/centers/match`), { method: 'POST' })
-      const payload = await response.json() as { job?: OcrJob; error?: string }
-      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not search Ref_Centers.')
-      setCenterMatches(structuredClone(payload.job.centerMatches ?? []))
-      setDraft(payload.job.data ? cloneData(payload.job.data) : null)
-      jobCacheRef.current.set(payload.job.id, payload.job)
-      setSelected(payload.job)
-      setSuccess(isRo ? 'Sugestiile din Ref_Centers au fost actualizate.' : 'Ref_Centers suggestions updated.')
+      if (!referenceCentersLoaded) throw new Error('ERP centers are still loading. Try again in a moment.')
+      if (referenceCentersError) throw new Error(referenceCentersError)
+      const nextMatches = centerMatchesForRows(draft.rows, referenceCenters, true)
+      const nextDraft = applyCenterMatchesToData(draft, nextMatches)
+      setCenterMatches(structuredClone(nextMatches))
+      setCenterSearchMatches({})
+      setOpenCenterSuggestions(null)
+      setDraft(nextDraft)
+      setSelected((current) => current ? { ...current, data: nextDraft, centerMatches: nextMatches } : current)
+      setSuccess(isRo ? 'Sugestiile din ERP au fost actualizate.' : 'ERP center suggestions updated.')
     } catch (matchError) {
-      setError((matchError as Error).message || 'Could not search Ref_Centers.')
+      setError((matchError as Error).message || 'Could not search ERP centers.')
     } finally {
       setMatchingCenters(false)
     }
+  }
+
+  function selectCenter(rowNumber: number, code: string) {
+    const savedMatch = centerMatches.find((match) => match.rowNumber === rowNumber)
+    const searchMatch = centerSearchMatches[rowNumber]
+    const activeMatch = openCenterSuggestions === rowNumber && searchMatch ? searchMatch : savedMatch
+    const selectedMatch = activeMatch?.suggestions.find((suggestion) => String(suggestion.code) === String(code))
+    setCenterMatches((current) => {
+      const existing = current.find((match) => match.rowNumber === rowNumber)
+      if (!existing && !activeMatch) return current
+      const matchToUpdate = existing ?? activeMatch!
+      const existingSuggestions = matchToUpdate.suggestions
+      const selected = selectedMatch
+      const suggestions = selected && !existingSuggestions.some((suggestion) => String(suggestion.code) === String(selected.code))
+        ? [selected, ...existingSuggestions]
+        : existingSuggestions
+      const updated: CenterMatch = !selected
+        ? { ...matchToUpdate, suggestions, selectedCode: null, selectedName: null, status: suggestions.length ? 'suggested' : 'unmatched' }
+        : selected.code === '__OCR_ORIGINAL__'
+          ? { ...matchToUpdate, suggestions, selectedCode: null, selectedName: selected.name, status: 'confirmed' }
+          : { ...matchToUpdate, suggestions, selectedCode: selected.code, selectedName: selected.name, status: 'confirmed' }
+      if (existing) return current.map((match) => match.rowNumber === rowNumber ? updated : match)
+      return [...current, updated].sort((left, right) => left.rowNumber - right.rowNumber)
+    })
+    if (selectedMatch) setDraft((current) => current ? { ...current, rows: current.rows.map((row) => row.rowNumber === rowNumber ? { ...row, collectionCenter: selectedMatch.name, uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter') } : row) } : current)
+    setCenterSearchMatches((current) => {
+      if (!current[rowNumber]) return current
+      const next = { ...current }
+      delete next[rowNumber]
+      return next
+    })
+    setOpenCenterSuggestions(null)
   }
 
   function updateRowNumber(index: number, field: RowNumberField, input: string) {
@@ -932,14 +1171,14 @@ export function OcrReviewScreen() {
         setDraft(null)
         setSelectedId('')
         setSelectedSummary(null)
-        setSuccess('Corrections saved and document marked as reviewed.')
+        setSuccess(isRo ? 'Corecțiile au fost salvate și documentul a fost marcat ca verificat.' : 'Corrections saved and document marked as reviewed.')
         await loadJobs()
       } else {
         setSelected(savedJob)
         setDraft(savedJob.data ? cloneData(savedJob.data) : null)
         setCenterMatches(structuredClone(savedJob.centerMatches ?? []))
         setSelectedSummary(savedJob)
-        setSuccess('Corrections saved on the server.')
+        setSuccess(isRo ? 'Corecțiile au fost salvate pe server.' : 'Corrections saved on the server.')
         await loadJobs()
       }
     } catch (saveError) {
@@ -1266,11 +1505,41 @@ export function OcrReviewScreen() {
   const excelExportStatus = selected?.excelExport?.status || 'not_ready'
   const excelExportInProgress = excelExportStatus === 'queued' || excelExportStatus === 'exporting'
   const excelAlreadyExported = excelExportStatus === 'exported'
+  const sortedReceptionRoutes = [...receptionRoutes].sort((left, right) =>
+    Number(receptionRouteMatches(right)) - Number(receptionRouteMatches(left)) ||
+    String(left.truck || '').localeCompare(String(right.truck || ''), undefined, { numeric: true }) ||
+    String(left.route || '').localeCompare(String(right.route || ''), undefined, { numeric: true }))
+  const hasReceptionRouteMatch = sortedReceptionRoutes.some(receptionRouteMatches)
+  const hasOcrReceptionKey = Boolean(
+    draft?.date &&
+    normalizeCenterValue(draft.vehicleRegistration) &&
+    normalizeCenterValue(draft.route),
+  )
+  const receptionRouteMismatch = Boolean(
+    hasOcrReceptionKey &&
+    !receptionRoutesLoading &&
+    !receptionRoutesError &&
+    !hasReceptionRouteMatch,
+  )
 
   function rowSource(rowNumber: number, field: keyof RowValueSourceEntry['fields'], value: string | number | null) {
     const source = selected?.rowValueSources?.find((item) => item.rowNumber === rowNumber)?.fields[field]
     if (source?.source === 'not_found') return value === null || value === '' ? source : null
     return source && String(source.value) === String(value ?? '') ? source : null
+  }
+
+  function receptionRouteMatches(route: ReceptionRouteSummary) {
+    if (!draft) return false
+    return Boolean(
+      normalizeCenterValue(route.truck) &&
+      normalizeCenterValue(route.route) &&
+      normalizeCenterValue(route.truck) === normalizeCenterValue(draft.vehicleRegistration) &&
+      normalizeCenterValue(route.route) === normalizeCenterValue(draft.route),
+    )
+  }
+
+  function formatReceptionAmount(value: number | null | undefined) {
+    return typeof value === 'number' && Number.isFinite(value) ? formatLiters(value) : '-'
   }
 
   function rowSourceLabel(source: RowValueSource) {
@@ -1463,6 +1732,9 @@ export function OcrReviewScreen() {
                   <div className="review-data-title"><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><span>{isRo ? 'Editați câmpurile și salvați-le pe server' : 'Edit fields and save them to the server'}</span><button className={`review-fit-columns ${columnsFit ? 'active' : ''}`} type="button" onClick={toggleColumnsFit} title={columnsFit ? (isRo ? 'Restabiliți aspectul anterior' : 'Restore previous layout') : (isRo ? 'Afișați toate coloanele' : 'Fit all columns')} aria-pressed={columnsFit}><span aria-hidden="true">↔</span>{columnsFit ? (isRo ? 'Restabiliți' : 'Restore') : (isRo ? 'Potriviți coloanele' : 'Fit columns')}</button></div>
                   <div className="review-heading-badges">
                     {formatOcrDuration(selected) && <b className="review-ocr-time-badge">{isRo ? 'Durată OCR' : 'OCR time'}: {formatOcrDuration(selected)}</b>}
+                    <button className="review-manual-save" type="button" onClick={() => void saveDocument(false)} disabled={saving || autoSaveStatus === 'saving'}>
+                      {saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}
+                    </button>
                     <b className={`review-autosave-status status-${autoSaveStatus}`}>{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>
                     {selected.reviewStatus === 'reviewed' ? <b className="reviewed-badge">{isRo ? 'Verificat' : 'Reviewed'}</b> : selected.attention?.needsAttention ? <b className="attention-badge">! {isRo ? 'Necesită verificare' : 'Needs verification'}</b> : <b className="clear-badge">{isRo ? 'Fără avertizări OCR' : 'No OCR warnings'}</b>}
                   </div>
@@ -1544,18 +1816,68 @@ export function OcrReviewScreen() {
                   <label>{isRo ? 'Total litri' : 'Total liters'}<input inputMode="decimal" value={draft.totalLiters ?? ''} onChange={(event) => updateTotalLiters(event.target.value)} /></label>
                 </div>
 
-                <div className="review-openai-usage">
-                  <strong>{isRo ? 'Utilizare OCR' : 'OCR usage'}</strong>
-                  {selected.openai?.usage && selected.openai.cost ? (
-                    <span>
-                      {isRo ? 'Estimat' : 'Estimated'} {formatCost(selected)} · {selected.openai.usage.inputTokens.toLocaleString()} input · {selected.openai.usage.outputTokens.toLocaleString()} output · {selected.openai.usage.totalTokens.toLocaleString()} total · {selected.openai.model}
-                    </span>
-                  ) : (
-                    <span>{isRo ? 'Nu a fost înregistrat pentru acest document. Costul este urmărit pentru documentele procesate recent.' : 'Not recorded for this document. Cost tracking applies to newly processed documents.'}</span>
-                  )}
+                <div className="review-context-strip">
+                  <details className="review-openai-usage-details">
+                    <summary>
+                      <strong>{isRo ? 'Utilizare OCR' : 'OCR usage'}</strong>
+                      <span>{selected.openai?.model || (isRo ? 'Fără detalii' : 'No details')}</span>
+                    </summary>
+                    <div>
+                      {selected.openai?.usage && selected.openai.cost ? (
+                        <span>
+                          {isRo ? 'Estimat' : 'Estimated'} {formatCost(selected)} · {selected.openai.usage.inputTokens.toLocaleString()} input · {selected.openai.usage.outputTokens.toLocaleString()} output · {selected.openai.usage.totalTokens.toLocaleString()} total · {selected.openai.model}
+                        </span>
+                      ) : (
+                        <span>{isRo ? 'Nu a fost înregistrat pentru acest document. Costul este urmărit pentru documentele procesate recent.' : 'Not recorded for this document. Cost tracking applies to newly processed documents.'}</span>
+                      )}
+                    </div>
+                  </details>
+
+                  <details className={`review-reception-routes ${receptionRouteMismatch ? 'no-match' : ''}`} aria-label={isRo ? 'Rute recepție din aceeași zi' : 'Same-day reception routes'}>
+                    <summary className="review-reception-routes-heading">
+                      <strong>{isRo ? 'Rute recepție' : 'Reception routes'}</strong>
+                      <span>
+                        {draft.date ? displayDate(draft.date) : (isRo ? 'Fără dată' : 'No date')}
+                        {draft.date && !receptionRoutesLoading && !receptionRoutesError ? ` · ${sortedReceptionRoutes.length}` : ''}
+                        {receptionRouteMismatch ? ` · ${isRo ? 'fără potrivire' : 'no match'}` : ''}
+                      </span>
+                    </summary>
+                    <div className="review-reception-routes-body">
+                      {receptionRoutesLoading ? (
+                        <p>{isRo ? 'Se încarcă rutele din recepție…' : 'Loading reception routes…'}</p>
+                      ) : receptionRoutesError ? (
+                        <p className="error">{receptionRoutesError}</p>
+                      ) : !draft.date ? (
+                        <p>{isRo ? 'Introduceți data documentului pentru rutele disponibile.' : 'Enter the document date to see available routes.'}</p>
+                      ) : sortedReceptionRoutes.length === 0 ? (
+                        <p className={receptionRouteMismatch ? 'warning' : ''}>{isRo ? 'Nu există potrivire în recepție pentru această dată, camion și rută.' : 'No match exists in reception for this date, truck, and route.'}</p>
+                      ) : (
+                        <>
+                          {receptionRouteMismatch && <p className="warning">{isRo ? 'Nu există potrivire în recepție pentru această dată, camion și rută. Verificați rutele disponibile mai jos.' : 'No match exists in reception for this date, truck, and route. Check the available routes below.'}</p>}
+                          <div className="review-reception-route-list">
+                            {sortedReceptionRoutes.map((route) => (
+                              <article className={receptionRouteMatches(route) ? 'matches-current' : ''} key={route.receptionId}>
+                                <b>{route.route || '-'}</b>
+                                <span>{route.truck || '-'}</span>
+                                <small>{displayDate(route.receptionDate)} · {formatReceptionAmount(route.netQuantityKg)} kg · {formatReceptionAmount(route.calculatedLiters)} L</small>
+                              </article>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </details>
                 </div>
 
-                {draft.warnings.length > 0 && <div className="review-warnings"><strong>{isRo ? 'Elemente de verificat' : 'Items to verify'}</strong><ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
+                {draft.warnings.length > 0 && (
+                  <details className="review-warnings">
+                    <summary>
+                      <strong>{isRo ? 'Elemente de verificat' : 'Items to verify'}</strong>
+                      <span>{draft.warnings.length} {isRo ? 'elemente' : draft.warnings.length === 1 ? 'item' : 'items'}</span>
+                    </summary>
+                    <ul>{draft.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+                  </details>
+                )}
 
                 <details className="review-transcription"><summary>{isRo ? 'Transcriere brută' : 'Raw transcription'}</summary><textarea value={draft.rawTranscription} onChange={(event) => setDraft((current) => current ? { ...current, rawTranscription: event.target.value } : current)} /></details>
                 </div>) : (<div className="review-tab-content review-centers-tab">
@@ -1589,22 +1911,23 @@ export function OcrReviewScreen() {
                         })()}</span></td>
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
+                          const searchMatch = centerSearchMatches[row.rowNumber]
                           const needsReview = centerNameNeedsReview(row, match)
                           const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter', match)
                           return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : needsSoftReview ? 'review-cell-warning' : ''}`}>
                             <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
                             {match ? <>
-                              {openCenterSuggestions !== row.rowNumber && <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
+                              <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
                                 <option value="">{match.suggestions.length ? (isRo ? `Alegeți o sugestie (${match.suggestions.length})…` : `Choose a suggestion (${match.suggestions.length})…`) : (isRo ? 'Nicio potrivire găsită (0)' : 'No match found (0)')}</option>
                                 {match.suggestions.map((suggestion) => <option className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-option' : ''} key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{suggestion.source === 'ocr_original' ? `${suggestion.name} · ${isRo ? 'OCR original' : 'OCR original'}` : `${Math.round(suggestion.score * 100)}% · ${suggestion.name} · ${suggestion.code}`}</option>)}
-                              </select>}
-                              {openCenterSuggestions === row.rowNumber && match.suggestions.length > 0 && (
+                              </select>
+                              {openCenterSuggestions === row.rowNumber && searchMatch?.suggestions.length ? (
                                 <div className="review-center-suggestion-menu" role="listbox" aria-label={isRo ? `Sugestii pentru rândul ${row.rowNumber}` : `Suggestions for row ${row.rowNumber}`}>
-                                  <strong>{isRo ? `${match.suggestions.length} sugestii găsite` : `${match.suggestions.length} suggestions found`}</strong>
-                                  {match.suggestions.map((suggestion) => <button className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-suggestion' : ''} type="button" role="option" key={`${suggestion.code}-${suggestion.name}`} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{suggestion.source === 'ocr_original' ? 'OCR' : `${Math.round(suggestion.score * 100)}%`}</span><b>{suggestion.name}</b><small>{suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</small></button>)}
+                                  <strong>{isRo ? `${searchMatch.suggestions.length} sugestii găsite` : `${searchMatch.suggestions.length} suggestions found`}</strong>
+                                  {searchMatch.suggestions.map((suggestion) => <button className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-suggestion' : ''} type="button" role="option" key={`${suggestion.code}-${suggestion.name}`} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{suggestion.source === 'ocr_original' ? 'OCR' : `${Math.round(suggestion.score * 100)}%`}</span><b>{suggestion.name}</b><small>{suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</small></button>)}
                                   <button className="review-center-suggestion-close" type="button" onClick={() => setOpenCenterSuggestions(null)}>{isRo ? 'Închideți' : 'Close'}</button>
                                 </div>
-                              )}
+                              ) : null}
                               <small className={match.status === 'auto_replaced' ? 'system-replaced' : match.selectedCode ? 'confirmed' : 'neutral'}>
                                 {match.status === 'auto_replaced'
                                   ? (isRo ? `Înlocuit de sistem: „${match.originalName || '—'}” → „${match.selectedName}”` : `Replaced by system: “${match.originalName || '—'}” → “${match.selectedName}”`)
@@ -1635,7 +1958,7 @@ export function OcrReviewScreen() {
                 <div className={`review-save-actions tab-${dataTab}`}>
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
-                  <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea Excel' : 'Redo Excel matching')}</button>
+                  <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea ERP' : 'Redo ERP matching')}</button>
                   {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
                   <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp} disabled title={isRo ? 'Trimiterea în ERP este dezactivată temporar.' : 'ERP sending is temporarily disabled.'}>{isRo ? 'ERP dezactivat' : 'ERP disabled'}</button>
                   <button className="review-complete" type="button" onClick={() => selected.reviewStatus === 'pending' ? void saveDocument(true) : void retryExcelExport()} disabled={saving || autoSaveStatus === 'saving' || exporting || sendToExcelBlocked || excelAlreadyExported || excelExportInProgress} title={excelAlreadyExported ? (isRo ? 'Acest document a fost deja trimis în Excel' : 'This document has already been sent to Excel') : sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>
