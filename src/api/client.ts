@@ -135,13 +135,13 @@ export interface ConnectionTestResult {
   message: string
 }
 
-export async function testLoginConnection(settings: AppSettings): Promise<ConnectionTestResult> {
+export async function loginToErp(settings: AppSettings): Promise<LoginResponse> {
   const serverUrl = settings.serverUrl.trim()
   const username = settings.apiUsername.trim()
   const password = settings.apiPassword
 
-  if (!serverUrl) return { ok: false, message: 'Server URL is required.' }
-  if (!username || !password) return { ok: false, message: 'API username and password are required.' }
+  if (!serverUrl) throw new Error('Server URL is required.')
+  if (!username || !password) throw new Error('API username and password are required.')
 
   const url = buildApiUrl(serverUrl, 'Accounts/Login')
   const ac = new AbortController()
@@ -161,30 +161,76 @@ export async function testLoginConnection(settings: AppSettings): Promise<Connec
     })
     const text = await res.text().catch(() => '')
 
-    if (res.status === 404) {
-      return { ok: false, message: 'Login endpoint not found (404). Check the Server URL.' }
-    }
-
+    if (res.status === 404) throw new Error('Login endpoint not found (404). Check the Server URL.')
     if (looksLikeHtmlResponse(text, res.headers.get('Content-Type'))) {
-      return { ok: false, message: 'Server returned a web page instead of ERP API data.' }
+      throw new Error('Server returned a web page instead of ERP API data.')
     }
+    if (!res.ok) throw new Error(`ERP login failed (${res.status}). Check username, password, and fiscal year.`)
 
-    if (!res.ok) {
-      return { ok: false, message: `ERP login failed (${res.status}). Check username, password, and fiscal year.` }
-    }
-
-    const payload = parseApiResponse<Partial<LoginResponse>>(text, res.headers.get('Content-Type'))
-    if (!payload?.access_token) {
-      return { ok: false, message: 'Login answered, but no access token was returned.' }
-    }
-
-    return { ok: true, message: `ERP login OK for ${payload.user_name || username}.` }
+    const payload = parseApiResponse<LoginResponse>(text, res.headers.get('Content-Type'))
+    if (!payload?.access_token) throw new Error('Login answered, but no access token was returned.')
+    return payload
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
-      return { ok: false, message: `ERP login timed out after ${timeoutMs} ms.` }
+      throw new Error(`ERP login timed out after ${timeoutMs} ms.`)
     }
-    return { ok: false, message: (error as Error).message || 'Could not reach the ERP API.' }
+    throw error
   } finally {
     window.clearTimeout(timer)
+  }
+}
+
+export async function fetchErpSupplierList(
+  settings: AppSettings,
+  accessToken: string,
+): Promise<Record<string, unknown>[]> {
+  const serverUrl = settings.serverUrl.trim()
+  const username = settings.apiUsername.trim()
+  const token = accessToken.trim()
+
+  if (!serverUrl) throw new Error('Server URL is required.')
+  if (!username || !token) throw new Error('ERP username and access token are required.')
+
+  const params = new URLSearchParams({ mode: 'ALL', username })
+  const url = `${buildApiUrl(serverUrl, 'WMS/ERP_RomSuppliersList')}?${params.toString()}`
+  const ac = new AbortController()
+  const timeoutMs = Math.max(1000, Number(settings.requestTimeoutMs) || 15000)
+  const timer = window.setTimeout(() => ac.abort(), timeoutMs)
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: ac.signal,
+      cache: 'no-store',
+    })
+    const text = await res.text().catch(() => '')
+
+    if (res.status === 404) throw new Error('ERP supplier-list endpoint was not found (404).')
+    if (looksLikeHtmlResponse(text, res.headers.get('Content-Type'))) {
+      throw new Error('ERP supplier list returned a web page instead of API data.')
+    }
+    if (!res.ok) throw new Error(`ERP supplier-list request failed (${res.status}).`)
+
+    const payload = parseApiResponse<unknown>(text, res.headers.get('Content-Type'))
+    if (!Array.isArray(payload)) throw new Error('ERP supplier-list response was not an array.')
+    return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      throw new Error(`ERP supplier-list request timed out after ${timeoutMs} ms.`)
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+export async function testLoginConnection(settings: AppSettings): Promise<ConnectionTestResult> {
+  try {
+    const payload = await loginToErp(settings)
+    const username = settings.apiUsername.trim()
+    return { ok: true, message: `ERP login OK for ${payload.user_name || username}.` }
+  } catch (error) {
+    return { ok: false, message: (error as Error).message || 'Could not reach the ERP API.' }
   }
 }

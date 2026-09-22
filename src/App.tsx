@@ -6,6 +6,7 @@ import { LoginScreen } from './components/LoginScreen'
 import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
+import { MilkDeliveriesScreen } from './components/MilkDeliveriesScreen'
 import { DailyAvizScreen } from './components/DailyAvizScreen'
 import { MonthClosureScreen } from './components/MonthClosureScreen'
 import { MonthlyReconciliationScreen } from './components/MonthlyReconciliationScreen'
@@ -36,6 +37,7 @@ import type { AuthUser } from './types/auth'
 import type { SubmittedCollection, Supplier } from './types'
 import type { ERP_SuppliesPickingOrder } from './types/suppliesOrder'
 import type { AppSettings } from './types/settings'
+import { loadOcrReferenceSuppliers } from './store/ocrReferenceSuppliersStore'
 import './App.css'
 import './components/OcrHeaderControls.css'
 import { appPath, routePathname } from './ocrPaths'
@@ -51,6 +53,7 @@ type Screen =
   | 'journal'
   | 'transport'
   | 'milkReception'
+  | 'milkDeliveries'
   | 'dailyAviz'
   | 'monthClosure'
   | 'monthlyReconciliation'
@@ -67,6 +70,7 @@ type Screen =
 type HomeMenuGroup = 'milkCollection' | 'ocr' | null
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
 type SyncStatus = 'idle' | 'syncing' | 'done' | 'error'
+type ErpReferenceRefreshStatus = 'idle' | 'loading' | 'ok' | 'error'
 
 interface HomeWebUser {
   id: string
@@ -80,6 +84,14 @@ function webLoginErrorMessage(error: unknown) {
     return 'Cannot reach the MilkCollect server. Check that the local server is running.'
   }
   return message || 'Login failed.'
+}
+
+function formatRefreshTime(value: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(value))
 }
 
 function initialScreen(): Screen {
@@ -97,6 +109,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/month-closure') return 'monthClosure'
   if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
+  if (routePathname() === '/milk-deliveries') return 'milkDeliveries'
   return 'startup'
 }
 
@@ -420,6 +433,8 @@ export function App() {
   const [showOcrConnectionSettings, setShowOcrConnectionSettings] = useState(false)
   const [homeOcrUser, setHomeOcrUser] = useState<HomeWebUser | null>(null)
   const [homeOcrChecking, setHomeOcrChecking] = useState(true)
+  const [erpReferenceRefreshStatus, setErpReferenceRefreshStatus] = useState<ErpReferenceRefreshStatus>('idle')
+  const [erpReferenceRefreshMessage, setErpReferenceRefreshMessage] = useState('')
   const [prevScreen, setPrevScreen] = useState<Screen>('main')
   const [loginReturnScreen, setLoginReturnScreen] = useState<Screen>('home')
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -466,6 +481,21 @@ export function App() {
   function openSettings(from: Screen) {
     setPrevScreen(from)
     setScreen('settings')
+  }
+
+  async function refreshOcrErpReferenceList() {
+    setErpReferenceRefreshStatus('loading')
+    setErpReferenceRefreshMessage('Fetching ERP supplier list...')
+    try {
+      const references = await loadOcrReferenceSuppliers({ force: true })
+      setErpReferenceRefreshStatus('ok')
+      setErpReferenceRefreshMessage(
+        `ERP list refreshed at ${formatRefreshTime(references.fetchedAt)}: ${references.centers.length} centers, ${references.producers.length} producers.`,
+      )
+    } catch (error) {
+      setErpReferenceRefreshStatus('error')
+      setErpReferenceRefreshMessage(`ERP refresh failed: ${(error as Error).message || 'Could not load ERP suppliers.'}`)
+    }
   }
 
   function openErpLogin(returnTo: Screen) {
@@ -623,6 +653,12 @@ export function App() {
       {screen === 'milkReception' && (
         <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in" description="Sign in as a Web user to use Milk Reception.">
           <MilkReceptionScreen onBack={openOcrMenu} />
+        </OcrAuthGate>
+      )}
+
+      {screen === 'milkDeliveries' && (
+        <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in" description="Sign in as a Web user to use Milk Deliveries.">
+          <MilkDeliveriesScreen onBack={openOcrMenu} />
         </OcrAuthGate>
       )}
 
@@ -888,6 +924,23 @@ export function App() {
                 <HomeOcrConnectionPanel onClose={() => setShowOcrConnectionSettings(false)} />
               ) : null}
 
+              <section className={`home-erp-reference-panel ${erpReferenceRefreshStatus}`}>
+                <div>
+                  <strong>ERP supplier list</strong>
+                  <span>Manual refresh for OCR suggestions and month closure invoice fields.</span>
+                  {erpReferenceRefreshMessage && (
+                    <p>{erpReferenceRefreshMessage}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void refreshOcrErpReferenceList()}
+                  disabled={erpReferenceRefreshStatus === 'loading'}
+                >
+                  {erpReferenceRefreshStatus === 'loading' ? 'Fetching...' : 'Fetch ERP list'}
+                </button>
+              </section>
+
               <button
                 className="home-tile"
                 type="button"
@@ -941,6 +994,25 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Milk Reception</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/milk-deliveries') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7h11v10H3z" />
+                    <path d="M14 10h4l3 3v4h-7z" />
+                    <path d="M6 7V4h5v3" />
+                    <circle cx="7" cy="18" r="2" />
+                    <circle cx="18" cy="18" r="2" />
+                    <path d="M5 11h6" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Milk Deliveries</span>
               </button>
 
               <button

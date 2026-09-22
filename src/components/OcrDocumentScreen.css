@@ -47,6 +47,7 @@
 .ocr-document-row > button svg { width: 18px; }
 .ocr-notice { margin: 14px 0 0; padding: 11px 13px; border-radius: 10px; background: #e8f3ec; color: #24583a; font-size: .8rem; line-height: 1.4; }
 .ocr-reference-notice { margin: 0 0 14px; border: 1px solid #c2dacb; }
+.ocr-reference-notice.warning { border-color: #ecd28b; background: #fff8df; color: #71520f; }
 .ocr-reference-notice.error { border-color: #efc7c3; background: #fff0ee; color: #a13a31; }
 .ocr-process-button { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 20px; border: 0; border-radius: 14px; background: #1a6b3c; color: white; font: inherit; font-size: .95rem; font-weight: 800; box-shadow: 0 5px 16px rgba(26,107,60,.24); }
 .ocr-process-button:disabled { background: #b9c4bd; box-shadow: none; cursor: not-allowed; }

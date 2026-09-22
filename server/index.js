@@ -67,7 +67,15 @@ import {
   upsertMilkReceptionDriver,
   upsertMilkReceptionRouteSetting,
 } from './milkReceptionStore.js'
-import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows } from './sqlOcrStore.js'
+import {
+  createMilkDelivery,
+  deleteMilkDelivery,
+  getMilkDelivery,
+  initializeMilkDeliveryStore,
+  listMilkDeliveries,
+  updateMilkDelivery,
+} from './milkDeliveryStore.js'
+import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
@@ -152,7 +160,7 @@ async function referenceSuppliersForOcrRequest(request) {
     }
   }
   if (!request.body?.ocrConnectionSettings) return null
-  return await fetchErpReferenceSuppliers(request.body.ocrConnectionSettings)
+  return await fetchErpReferenceSuppliers(request.body.ocrConnectionSettings, request.body?.accessToken)
 }
 
 function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSources = []) {
@@ -1131,7 +1139,8 @@ app.get('/api/ocr/health', async (_request, response) => {
 
 app.post('/api/ocr/reference-centers', async (request, response, next) => {
   try {
-    const { centers } = await fetchErpReferenceSuppliers(request.body?.ocrConnectionSettings)
+    console.log('[ERP reference] /api/ocr/reference-centers request received', new Date().toISOString())
+    const { centers } = await fetchErpReferenceSuppliers(request.body?.ocrConnectionSettings, request.body?.accessToken)
     response.json({ centers, fetchedAt: new Date().toISOString(), source: 'erp' })
   } catch (error) {
     next(error)
@@ -1140,7 +1149,9 @@ app.post('/api/ocr/reference-centers', async (request, response, next) => {
 
 app.post('/api/ocr/reference-suppliers', async (request, response, next) => {
   try {
-    const references = await fetchErpReferenceSuppliers(request.body?.ocrConnectionSettings)
+    console.log('[ERP reference] /api/ocr/reference-suppliers request received', new Date().toISOString())
+    const references = await referenceSuppliersForOcrRequest(request)
+    if (!references) throw new Error('ERP supplier references were not provided.')
     response.json({ ...references, fetchedAt: new Date().toISOString(), source: 'erp' })
   } catch (error) {
     next(error)
@@ -1361,6 +1372,57 @@ app.delete('/api/milk-receptions/:id', async (request, response, next) => {
     const deleted = await deleteMilkReception(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'Milk reception record not found.' })
     await auditAction({ request, user: request.authUser, action: 'milk_reception.delete', entityType: 'MilkReception', entityId: request.params.id, before })
+    response.json({ deleted: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.use('/api/milk-deliveries', requirePermission('milk_reception'))
+
+app.get('/api/milk-deliveries', async (request, response, next) => {
+  try {
+    const records = await listMilkDeliveries({
+      date: request.query.date,
+      search: request.query.search,
+      status: request.query.status,
+    })
+    response.json({ records })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/milk-deliveries', async (request, response, next) => {
+  try {
+    const user = request.authUser
+    const record = await createMilkDelivery(request.body, user?.username || '')
+    await auditAction({ request, user, action: 'milk_delivery.create', entityType: 'MilkDelivery', entityId: record.deliveryId, after: record })
+    response.status(201).json({ record })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
+  try {
+    const user = request.authUser
+    const before = await getMilkDelivery(request.params.id)
+    const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '')
+    if (!record) return response.status(404).json({ error: 'Milk delivery record not found.' })
+    await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
+    response.json({ record })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
+  try {
+    const before = await getMilkDelivery(request.params.id)
+    const deleted = await deleteMilkDelivery(request.params.id)
+    if (!deleted) return response.status(404).json({ error: 'Milk delivery record not found.' })
+    await auditAction({ request, user: request.authUser, action: 'milk_delivery.delete', entityType: 'MilkDelivery', entityId: request.params.id, before })
     response.json({ deleted: true })
   } catch (error) {
     next(error)
@@ -1667,6 +1729,68 @@ app.get('/api/month-closure/pricing-rows', async (request, response, next) => {
       : []
     response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows))
   } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/month-closure/pricing-rows', requirePermission('ocr_documents'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) {
+      return response.status(503).json({ error: 'SQL pricing storage is not enabled.' })
+    }
+
+    const month = String(request.body?.month || '').trim()
+    const inputRows = Array.isArray(request.body?.rows) ? request.body.rows : []
+    if (!/^\d{4}-\d{2}$/u.test(month)) return response.status(400).json({ error: 'Choose a valid pricing month.' })
+    if (!inputRows.length) return response.status(400).json({ error: 'No changed pricing rows were provided.' })
+
+    const numberOrNull = (value, field, rowNumber) => {
+      if (value === null || value === undefined || String(value).trim() === '') return null
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Row ${rowNumber}: ${field} must be a positive number or zero.`)
+      }
+      return parsed
+    }
+    const rows = inputRows.map((row, index) => {
+      const producerCode = String(row?.producerCode || '').trim()
+      const milkType = normalizeMonthlyReconciliationMilkType(row?.milkType)
+      if (!producerCode) throw new Error(`Row ${index + 1}: producer code is required.`)
+      if (!milkType) throw new Error(`Row ${index + 1}: milk type is required.`)
+      const responsiblePrice = numberOrNull(row?.responsiblePrice, 'price', index + 1)
+      const receiverCommission = numberOrNull(row?.receiverCommission, 'commission', index + 1)
+      const electricity = numberOrNull(row?.electricity, 'electricity', index + 1)
+      const hasValue = responsiblePrice !== null || receiverCommission !== null || electricity !== null
+      return {
+        monthKey: month,
+        producerCode,
+        milkType,
+        producerName: String(row?.producerName || '').trim(),
+        centerCode: String(row?.centerCode || '').trim(),
+        centerName: String(row?.centerName || '').trim(),
+        responsiblePrice,
+        receiverCommission,
+        electricity,
+        responsibleComment: String(row?.responsibleComment || '').trim(),
+        pricingStatus: hasValue ? 'SAVED' : 'DRAFT',
+        lastSaved: new Date(),
+      }
+    })
+
+    const result = await upsertMonthlyProducerPricingRows(rows)
+    await auditAction({
+      request,
+      user: request.authUser,
+      action: 'month_closure.pricing.save',
+      entityType: 'MonthlyProducerPricing',
+      entityId: month,
+      after: result,
+    })
+    response.json({ month, ...result })
+  } catch (error) {
+    if (/^Row \d+:/u.test(String(error?.message || ''))) {
+      return response.status(400).json({ error: error.message })
+    }
     next(error)
   }
 })
@@ -2171,6 +2295,7 @@ app.use((error, _request, response, _next) => {
 await initializeAuthStore()
 await initializeJobStore()
 await initializeOcrSettingsStore()
+await initializeMilkDeliveryStore()
 await resumePendingJobs()
 await resumeExcelExports()
 startOcrArchiveCleanup()

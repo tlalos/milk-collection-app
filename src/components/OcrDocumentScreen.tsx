@@ -3,7 +3,6 @@ import './OcrDocumentScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
-import { loadOcrReferenceSuppliers } from '../store/ocrReferenceSuppliersStore'
 
 interface OcrDocumentScreenProps {
   onBack: () => void
@@ -37,14 +36,6 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function formatRefreshTime(value: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date(value))
-}
-
 export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   const { language, setLanguage, isRo } = useOcrLanguage()
   const [documents, setDocuments] = useState<QueuedDocument[]>([])
@@ -52,39 +43,9 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [uploadedJobs, setUploadedJobs] = useState<UploadedJob[]>([])
   const [documentCategory, setDocumentCategory] = useState('')
-  const [erpReferenceNotice, setErpReferenceNotice] = useState('')
-  const [erpReferenceError, setErpReferenceError] = useState('')
   const documentsRef = useRef<QueuedDocument[]>([])
   const documentInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function refreshErpReferences() {
-      setErpReferenceNotice(isRo ? 'Se actualizează lista ERP pentru sugestiile OCR…' : 'Refreshing ERP list for OCR suggestions…')
-      setErpReferenceError('')
-      try {
-        const references = await loadOcrReferenceSuppliers({ force: true })
-        if (cancelled) return
-        const fetchedAt = formatRefreshTime(references.fetchedAt, isRo ? 'ro-RO' : 'en-GB')
-        setErpReferenceNotice(isRo
-          ? `Lista ERP actualizată la ${fetchedAt}: ${references.centers.length} centre, ${references.producers.length} producători.`
-          : `ERP list refreshed at ${fetchedAt}: ${references.centers.length} centers, ${references.producers.length} producers.`)
-      } catch (error) {
-        if (cancelled) return
-        const message = (error as Error).message || 'Could not load ERP suppliers.'
-        setErpReferenceError(isRo
-          ? `Actualizarea ERP a eșuat: ${message}. Sugestiile pot folosi datele salvate pe document.`
-          : `ERP refresh failed: ${message}. Suggestions may use saved document data.`)
-        setErpReferenceNotice('')
-      }
-    }
-
-    void refreshErpReferences()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     documentsRef.current = documents
@@ -212,9 +173,6 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
       </header>
 
       <main className="ocr-body">
-        {erpReferenceNotice && <p className="ocr-notice ocr-reference-notice" role="status">{erpReferenceNotice}</p>}
-        {erpReferenceError && <p className="ocr-notice ocr-reference-notice error" role="alert">{erpReferenceError}</p>}
-
         <section className="ocr-upload-card" aria-labelledby="ocr-add-title">
           <div className="ocr-upload-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

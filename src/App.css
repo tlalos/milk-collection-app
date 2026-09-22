@@ -549,6 +549,71 @@ button {
   font-weight: 800;
 }
 
+.home-erp-reference-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.home-erp-reference-panel div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.home-erp-reference-panel strong {
+  color: var(--color-green-dark);
+  font-size: 0.9rem;
+}
+
+.home-erp-reference-panel span,
+.home-erp-reference-panel p {
+  margin: 0;
+  color: #5f6f66;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.home-erp-reference-panel.ok {
+  border-color: #b9dac5;
+  background: #f3fbf6;
+}
+
+.home-erp-reference-panel.error {
+  border-color: #efc7c3;
+  background: #fff0ee;
+}
+
+.home-erp-reference-panel.error p {
+  color: #9d342d;
+}
+
+.home-erp-reference-panel button {
+  min-height: 38px;
+  border: 1px solid #b9d7c6;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #f8fcfa;
+  color: var(--color-green-dark);
+  font: inherit;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.home-erp-reference-panel button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .home-tile {
   min-height: 132px;
   display: flex;

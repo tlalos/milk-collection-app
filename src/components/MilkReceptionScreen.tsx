@@ -563,10 +563,14 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         }
       }
       if (patch.vehicleRegistration !== undefined) {
-        const vehicleSetting = vehicleSettingFor(patch.vehicleRegistration, next.vehicleCategory)
-        const routes = routeOptionsForVehicle(patch.vehicleRegistration, next.vehicleCategory)
-        if (routes.length && !routes.includes(String(next.routeId || '').trim())) next.routeId = routes[0]
-        if (vehicleSetting && !routes.length) next.routeId = ''
+        if (next.vehicleCategory === 'OTHER') {
+          next.routeId = ''
+        } else {
+          const vehicleSetting = vehicleSettingFor(patch.vehicleRegistration, next.vehicleCategory)
+          const routes = routeOptionsForVehicle(patch.vehicleRegistration, next.vehicleCategory)
+          if (routes.length && !routes.includes(String(next.routeId || '').trim())) next.routeId = routes[0]
+          if (vehicleSetting && !routes.length) next.routeId = ''
+        }
       }
       if (patch.vehicleCategory !== undefined) {
         next.vehicleCategory = normalizeVehicleCategory(patch.vehicleCategory)
@@ -645,6 +649,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function routeOptionsForVehicle(vehicleRegistration: string, vehicleCategory?: VehicleCategory) {
+    if (vehicleCategory && normalizeVehicleCategory(vehicleCategory) === 'OTHER') return []
     const vehicleSetting = vehicleSettingFor(vehicleRegistration, vehicleCategory)
     const specificRoutes = vehicleSetting?.routes?.filter(Boolean) || []
     if (vehicleSetting && !specificRoutes.length) return []
@@ -953,7 +958,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     if (!record.milkType) return 'Milk type is required.'
     const duplicate = findDuplicateReception(record)
     if (duplicate) {
-      return `A reception already exists for ${record.receptionDate}, truck ${record.vehicleRegistration.trim().toUpperCase()}, route ${record.routeId.trim().toUpperCase()}. Existing reception: ${duplicate.receptionId}.`
+      return `A reception already exists for ${record.receptionDate}, truck ${record.vehicleRegistration.trim().toUpperCase()}, category ${record.vehicleCategory}, route ${record.routeId.trim().toUpperCase() || 'none'}. Existing reception: ${duplicate.receptionId}.`
     }
     if (full == null || full <= 0) return 'Full truck weight must be a positive number.'
     if (empty != null && empty <= 0) return 'Empty truck weight must be a positive number.'
@@ -1252,8 +1257,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           </select>
                         </td>
                         <td>
-                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER' && !routeOptions.length}>
-                            <option value="">{record.vehicleCategory === 'OTHER' && !routeOptions.length ? 'No route' : 'Route'}</option>
+                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER'}>
+                            <option value="">{record.vehicleCategory === 'OTHER' ? 'No route' : 'Route'}</option>
                             {record.routeId && !routeOptions.includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
                             {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
                           </select>
@@ -1320,11 +1325,12 @@ function normalizeText(value: string) {
     .trim()
 }
 
-function receptionCombinationKey(record: Pick<MilkReceptionRecord, 'receptionDate' | 'vehicleRegistration' | 'routeId'>) {
+function receptionCombinationKey(record: Pick<MilkReceptionRecord, 'receptionDate' | 'vehicleRegistration' | 'vehicleCategory' | 'routeId'>) {
   const date = String(record.receptionDate || '').trim()
   const truck = normalizeText(record.vehicleRegistration)
-  const route = normalizeText(record.routeId)
-  return date && truck && route ? `${date}|${truck}|${route}` : ''
+  const category = normalizeText(record.vehicleCategory)
+  const route = normalizeText(record.routeId) || '__NO_ROUTE__'
+  return date && truck && category ? `${date}|${truck}|${category}|${route}` : ''
 }
 
 function normalizeName(value: unknown) {

@@ -1,0 +1,815 @@
+.milk-deliveries-screen {
+  min-height: 100vh;
+  color: var(--color-text);
+}
+
+.app-topbar.milk-deliveries-topbar {
+  justify-content: flex-start;
+  gap: 16px;
+  padding-right: calc(18px + var(--ocr-auth-session-space, 204px));
+}
+
+.milk-deliveries-topbar .app-title-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.milk-deliveries-new {
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 8px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.milk-deliveries-new:hover {
+  background: rgba(255, 255, 255, 0.23);
+}
+
+.milk-deliveries-content {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 14px calc(var(--safe-bottom) + 28px);
+}
+
+.milk-deliveries-prototype {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e7c872;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fff8dc;
+  color: #664c00;
+  font-size: 0.82rem;
+}
+
+.milk-deliveries-prototype strong {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+}
+
+.milk-deliveries-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.milk-deliveries-summary div {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid #d4e2da;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(16, 74, 45, 0.06);
+}
+
+.milk-deliveries-summary span,
+.milk-deliveries-toolbar span,
+.milk-delivery-fields label > span {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.milk-deliveries-summary strong {
+  color: #10482d;
+  font-size: 1.42rem;
+  line-height: 1;
+}
+
+.milk-deliveries-toolbar {
+  display: grid;
+  grid-template-columns: minmax(165px, 210px) minmax(260px, 1fr) minmax(165px, 210px) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.milk-deliveries-toolbar label {
+  display: grid;
+  gap: 6px;
+}
+
+.milk-deliveries-toolbar input,
+.milk-deliveries-toolbar select,
+.milk-deliveries-toolbar button {
+  min-height: 42px;
+  box-sizing: border-box;
+  border: 1px solid #cddbd3;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.milk-deliveries-toolbar button {
+  border-color: var(--color-green-mid);
+  background: var(--color-green-mid);
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.milk-deliveries-toolbar button:hover {
+  background: #145d39;
+}
+
+.milk-deliveries-toolbar button.secondary {
+  border-color: #c3d7cb;
+  background: #fff;
+  color: #155938;
+}
+
+.milk-deliveries-toolbar button.secondary:hover {
+  background: #e8f5ee;
+}
+
+.milk-deliveries-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.milk-deliveries-notice {
+  border: 1px solid #a9d5bd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #eaf7ef;
+  color: #125b37;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.milk-deliveries-error {
+  border: 1px solid #efb3b3;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fff0f0;
+  color: #a12b2b;
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.milk-deliveries-list {
+  overflow: hidden;
+  border: 1px solid #d4e2da;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(16, 74, 45, 0.06);
+}
+
+.milk-deliveries-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #dce7e0;
+}
+
+.milk-deliveries-list-heading h2,
+.milk-deliveries-list-heading p {
+  margin: 0;
+}
+
+.milk-deliveries-list-heading > span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.milk-deliveries-list-heading h2 {
+  font-size: 1.06rem;
+}
+
+.milk-deliveries-list-heading p {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.milk-deliveries-table-scroll {
+  overflow-x: auto;
+}
+
+.milk-deliveries-list table {
+  width: 100%;
+  min-width: 1020px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.milk-deliveries-list th:first-child {
+  width: 42px;
+  padding-inline: 8px;
+}
+
+.milk-deliveries-list td:first-child {
+  width: 42px;
+  padding-inline: 8px;
+}
+
+.milk-deliveries-list th {
+  padding: 11px 12px;
+  background: #e7f1eb;
+  color: #06482a;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.milk-deliveries-list td {
+  padding: 11px 12px;
+  border-top: 1px solid #dce7e0;
+  vertical-align: middle;
+  font-weight: 720;
+}
+
+.milk-deliveries-list td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.milk-deliveries-list .milk-deliveries-entry-table {
+  min-width: 1920px;
+  table-layout: fixed;
+}
+
+.milk-deliveries-entry-table th:nth-child(1) { width: 44px; }
+.milk-deliveries-entry-table th:nth-child(2) { width: 132px; }
+.milk-deliveries-entry-table th:nth-child(3),
+.milk-deliveries-entry-table th:nth-child(4) { width: 142px; }
+.milk-deliveries-entry-table th:nth-child(5) { width: 145px; }
+.milk-deliveries-entry-table th:nth-child(6) { width: 130px; }
+.milk-deliveries-entry-table th:nth-child(7),
+.milk-deliveries-entry-table th:nth-child(8) { width: 140px; }
+.milk-deliveries-entry-table th:nth-child(9),
+.milk-deliveries-entry-table th:nth-child(10) { width: 90px; }
+.milk-deliveries-entry-table th:nth-child(11) { width: 115px; }
+.milk-deliveries-entry-table th:nth-child(12) { width: 180px; }
+.milk-deliveries-entry-table th:nth-child(13) { width: 135px; }
+.milk-deliveries-entry-table th:nth-child(14) { width: 78px; }
+
+.milk-deliveries-entry-table input,
+.milk-deliveries-entry-table select {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  border: 1px solid #cfdcd4;
+  border-radius: 7px;
+  padding: 0 8px;
+  background: #fff;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.milk-deliveries-entry-table input:focus,
+.milk-deliveries-entry-table select:focus {
+  border-color: var(--color-green-mid);
+  outline: 3px solid rgba(35, 122, 80, 0.14);
+}
+
+.delivery-readonly-value {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid #d5e2da;
+  border-radius: 7px;
+  background: #f0f6f2;
+  color: #0c5935;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.delivery-weight-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 5px;
+}
+
+.delivery-weight-input-stack {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.delivery-weight-input-stack small {
+  overflow: hidden;
+  color: #5f7066;
+  font-size: 0.56rem !important;
+  font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-weight-entry button {
+  width: 34px;
+  min-height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #a9c7b5;
+  border-radius: 7px;
+  padding: 0;
+  background: #eef7f1;
+  color: #155d36;
+  cursor: pointer;
+}
+
+.delivery-weight-entry button:hover:not(:disabled) {
+  border-color: #1a6b3c;
+  background: #d8eddf;
+}
+
+.delivery-weight-entry button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.delivery-weight-entry svg,
+.delivery-row-actions svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+}
+
+.delivery-row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 32px);
+  justify-content: center;
+  gap: 5px;
+}
+
+.delivery-row-actions button {
+  width: 32px;
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #1a6b3c;
+  border-radius: 7px;
+  padding: 0;
+  background: #1a6b3c;
+  color: #fff;
+  cursor: pointer;
+}
+
+.delivery-row-actions button.danger {
+  border-color: #efb8b4;
+  background: #fff0ef;
+  color: #a23b32;
+}
+
+.delivery-row-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.number-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.delivery-expand {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: #dff0e5;
+  color: #17613a;
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.delivery-expand:hover {
+  background: #bfe3cc;
+}
+
+.delivery-register-row.awaiting_greece td {
+  background: #fffdf5;
+}
+
+.milk-deliveries-empty {
+  padding: 28px 16px !important;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.milk-delivery-detail-row > td {
+  padding: 0;
+  background: #f7faf8;
+}
+
+.milk-delivery-inline-form {
+  display: grid;
+  gap: 12px;
+  width: calc(100vw - 58px);
+  max-width: 100%;
+  box-sizing: border-box;
+  border-left: 4px solid #1a6b3c;
+  padding: 14px;
+  background: #f7faf8;
+}
+
+.delivery-status {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #edf1ef;
+  color: #46584e;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.delivery-status.awaiting_greece {
+  background: #fff4cc;
+  color: #735500;
+}
+
+.delivery-status.complete {
+  background: #dff3e7;
+  color: #115d37;
+}
+
+.delivery-open {
+  min-height: 34px;
+  border: 1px solid #b9d2c4;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+  color: #0e5b35;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.delivery-open:hover {
+  background: #e9f5ee;
+}
+
+.milk-delivery-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: start center;
+  overflow-y: auto;
+  padding: calc(var(--safe-top) + 24px) 16px calc(var(--safe-bottom) + 24px);
+  background: rgba(8, 29, 19, 0.55);
+}
+
+.milk-delivery-window {
+  width: min(1180px, 100%);
+  overflow: hidden;
+  border: 1px solid #a9cabb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(5, 24, 15, 0.34);
+}
+
+.milk-delivery-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 18px;
+  background: #135e38;
+  color: #fff;
+}
+
+.milk-delivery-window-header p,
+.milk-delivery-window-header h2 {
+  margin: 0;
+}
+
+.milk-delivery-window-header p {
+  margin-bottom: 3px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.milk-delivery-window-header h2 {
+  font-size: 1.15rem;
+}
+
+.milk-delivery-window-header button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.milk-delivery-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  background: #f6f9f7;
+}
+
+.milk-delivery-stage {
+  overflow: hidden;
+  border: 1px solid #ccddd3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.milk-delivery-stage.locked {
+  border-style: dashed;
+}
+
+.milk-delivery-stage-heading {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #dce7e0;
+  background: #edf5f0;
+}
+
+.arrival-stage .milk-delivery-stage-heading {
+  background: #eef3f7;
+}
+
+.milk-delivery-stage-heading > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #187a49;
+  color: #fff;
+  font-weight: 950;
+}
+
+.arrival-stage .milk-delivery-stage-heading > span {
+  background: #356b88;
+}
+
+.milk-delivery-stage-heading h3,
+.milk-delivery-stage-heading p {
+  margin: 0;
+}
+
+.milk-delivery-stage-heading h3 {
+  font-size: 0.96rem;
+}
+
+.milk-delivery-stage-heading p {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.milk-delivery-stage-heading strong {
+  color: #35614c;
+  font-size: 0.74rem;
+}
+
+.milk-delivery-stage fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.milk-delivery-stage fieldset:disabled {
+  opacity: 0.56;
+}
+
+.milk-delivery-fields {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.departure-fields {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.arrival-fields {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
+.departure-notes-fields {
+  grid-template-columns: minmax(260px, 1fr);
+}
+
+.milk-delivery-fields label {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.milk-delivery-fields input,
+.milk-delivery-fields select,
+.milk-delivery-fields textarea,
+.milk-delivery-fields output {
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  border: 1px solid #c9d9d0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.milk-delivery-fields textarea {
+  min-height: 64px;
+  resize: vertical;
+  padding-block: 9px;
+}
+
+.milk-delivery-fields input:focus,
+.milk-delivery-fields select:focus,
+.milk-delivery-fields textarea:focus {
+  border-color: var(--color-green-mid);
+  outline: 3px solid rgba(35, 122, 80, 0.14);
+}
+
+.milk-delivery-fields output {
+  display: flex;
+  align-items: center;
+  background: #edf4f0;
+  color: #0a5631;
+  font-size: 0.94rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+}
+
+.departure-fields .wide-field,
+.departure-fields .comments-field {
+  grid-column: span 2;
+}
+
+.arrival-fields .comments-field {
+  grid-column: span 3;
+}
+
+.milk-delivery-form-error {
+  border: 1px solid #ecb0b0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff0f0;
+  color: #a12626;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.milk-delivery-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.milk-delivery-inline-actions button {
+  min-height: 42px;
+  border: 1px solid #187a49;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #187a49;
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.milk-delivery-inline-actions button:hover {
+  background: #115c36;
+}
+
+.milk-delivery-inline-actions button.secondary {
+  border-color: #bfd2c7;
+  background: #fff;
+  color: #244d39;
+}
+
+.milk-delivery-inline-actions button.secondary:hover {
+  background: #edf5f0;
+}
+
+.milk-delivery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 13px 18px;
+  border-top: 1px solid #d6e2db;
+  background: #fff;
+}
+
+.milk-delivery-actions button {
+  min-height: 42px;
+  border: 1px solid #187a49;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #187a49;
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.milk-delivery-actions button:hover {
+  background: #115c36;
+}
+
+.milk-delivery-actions button.secondary {
+  border-color: #bfd2c7;
+  background: #fff;
+  color: #244d39;
+}
+
+.milk-delivery-actions button.secondary:hover {
+  background: #edf5f0;
+}
+
+@media (max-width: 1040px) {
+  .departure-fields {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .app-topbar.milk-deliveries-topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    padding: 62px 14px 14px;
+  }
+
+  .milk-deliveries-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .milk-deliveries-prototype {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .departure-fields,
+  .arrival-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .departure-fields .wide-field,
+  .departure-fields .comments-field,
+  .arrival-fields .comments-field {
+    grid-column: span 1;
+  }
+
+  .milk-delivery-stage-heading {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .milk-delivery-stage-heading > strong {
+    grid-column: 2;
+  }
+
+  .milk-delivery-actions,
+  .milk-delivery-inline-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

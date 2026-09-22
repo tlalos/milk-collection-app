@@ -52,7 +52,7 @@ async function getPool() {
 
 function duplicateReceptionError(existingId = '') {
   const suffix = existingId ? ` Existing reception: ${existingId}.` : ''
-  const error = new Error(`A milk reception already exists for this date, truck, and route.${suffix}`)
+  const error = new Error(`A milk reception already exists for this date, truck, category, and route.${suffix}`)
   error.status = 409
   error.code = 'DUPLICATE_MILK_RECEPTION_COMBINATION'
   return error
@@ -164,17 +164,23 @@ BEGIN
   );
 END;
 
+IF COL_LENGTH(N'dbo.MilkReceptions', N'vehicleCategory') IS NULL
+  ALTER TABLE dbo.MilkReceptions ADD vehicleCategory NVARCHAR(40) NOT NULL CONSTRAINT DF_MilkReceptions_VehicleCategory DEFAULT N'COLLECTION';
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkReceptions_DateVehicleRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptions'))
   CREATE INDEX IX_MilkReceptions_DateVehicleRoute ON dbo.MilkReceptions(receptionDate, vehicleRegistration, routeId);
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptions_DateVehicleRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptions'))
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptions_DateVehicleRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptions'))
+  DROP INDEX UX_MilkReceptions_DateVehicleRoute ON dbo.MilkReceptions;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptions_DateVehicleCategoryRoute' AND object_id = OBJECT_ID(N'dbo.MilkReceptions'))
    AND NOT EXISTS (
     SELECT 1
     FROM dbo.MilkReceptions
-    GROUP BY receptionDate, vehicleRegistration, routeId
+    GROUP BY receptionDate, vehicleRegistration, vehicleCategory, routeId
     HAVING COUNT(*) > 1
   )
-  CREATE UNIQUE INDEX UX_MilkReceptions_DateVehicleRoute ON dbo.MilkReceptions(receptionDate, vehicleRegistration, routeId);
+  CREATE UNIQUE INDEX UX_MilkReceptions_DateVehicleCategoryRoute ON dbo.MilkReceptions(receptionDate, vehicleRegistration, vehicleCategory, routeId);
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkReceptions_Status' AND object_id = OBJECT_ID(N'dbo.MilkReceptions'))
   CREATE INDEX IX_MilkReceptions_Status ON dbo.MilkReceptions(combinationDiagnosis, conformityResult);
@@ -193,9 +199,6 @@ BEGIN
     updatedBy NVARCHAR(160) NULL
   );
 END;
-
-IF COL_LENGTH(N'dbo.MilkReceptions', N'vehicleCategory') IS NULL
-  ALTER TABLE dbo.MilkReceptions ADD vehicleCategory NVARCHAR(40) NOT NULL CONSTRAINT DF_MilkReceptions_VehicleCategory DEFAULT N'COLLECTION';
 
 IF COL_LENGTH(N'dbo.MilkReceptions', N'driverName') IS NULL
   ALTER TABLE dbo.MilkReceptions ADD driverName NVARCHAR(160) NULL;
@@ -483,6 +486,7 @@ export async function createMilkReception(input, username = '') {
   await initializeMilkReceptionStore()
   const pool = await getPool()
   const record = normalizeReception(input)
+  if (record.vehicleCategory === 'OTHER') record.routeId = ''
   await assertUniqueReceptionCombination(pool, record)
   record.receptionId = await nextReceptionId(pool, record)
   const now = new Date()
@@ -508,6 +512,9 @@ export async function updateMilkReception(id, input, username = '') {
   const existing = await getMilkReception(id)
   if (!existing) return null
   const record = normalizeReception({ ...existing, ...input, receptionId: id })
+  if (record.vehicleCategory === 'OTHER') {
+    record.routeId = existing.vehicleCategory === 'OTHER' ? existing.routeId : ''
+  }
   const pool = await getPool()
   await assertUniqueReceptionCombination(pool, record, id)
   const request = pool.request()
@@ -660,10 +667,11 @@ WHERE receptionDate = @date AND vehicleRegistration = @vehicleRegistration AND r
 }
 
 async function assertUniqueReceptionCombination(pool, record, excludeReceptionId = '') {
-  if (!record.receptionDate || !record.vehicleRegistration || !record.routeId) return
+  if (!record.receptionDate || !record.vehicleRegistration) return
   const result = await pool.request()
     .input('date', sql.Date, isoDateValue(record.receptionDate))
     .input('vehicleRegistration', sql.NVarChar(80), record.vehicleRegistration)
+    .input('vehicleCategory', sql.NVarChar(40), record.vehicleCategory)
     .input('routeId', sql.NVarChar(40), record.routeId)
     .input('excludeReceptionId', sql.NVarChar(120), excludeReceptionId || '')
     .query(`
@@ -671,6 +679,7 @@ SELECT TOP (1) receptionId
 FROM dbo.MilkReceptions WITH (UPDLOCK, HOLDLOCK)
 WHERE receptionDate = @date
   AND vehicleRegistration = @vehicleRegistration
+  AND vehicleCategory = @vehicleCategory
   AND routeId = @routeId
   AND (@excludeReceptionId = N'' OR receptionId <> @excludeReceptionId);
 `)
