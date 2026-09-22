@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '../ocrPaths'
-import { getCachedOcrReferenceSuppliers, type OcrReferenceProducer } from '../store/ocrReferenceSuppliersStore'
+import {
+  getCachedOcrReferenceSuppliers,
+  loadOcrReferenceSuppliers,
+  type OcrReferenceProducer,
+} from '../store/ocrReferenceSuppliersStore'
 import './MonthClosureScreen.css'
 
 type ReconciliationStatus = 'ok' | 'difference' | 'missing_monthly' | 'missing_aviz'
@@ -204,6 +208,8 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   const [erpReferenceProducers, setErpReferenceProducers] = useState<OcrReferenceProducer[]>(() =>
     getCachedOcrReferenceSuppliers()?.producers || [],
   )
+  const [erpReferenceLoading, setErpReferenceLoading] = useState(false)
+  const [erpReferenceError, setErpReferenceError] = useState('')
 
   async function loadRows(month = monthFilter) {
     setLoading(true)
@@ -376,8 +382,35 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   }, [pricingDrafts, pricingSaveStatus])
 
   useEffect(() => {
+    if (view !== 'erpInvoices' && view !== 'bankNote') return
+
+    let cancelled = false
     const cachedReferences = getCachedOcrReferenceSuppliers()
-    setErpReferenceProducers(cachedReferences?.producers || [])
+    const cachedProducers = cachedReferences?.producers || []
+    const cacheIncludesIbanField = cachedProducers.some((producer) => Object.prototype.hasOwnProperty.call(producer, 'iban'))
+
+    if (cachedProducers.length && cacheIncludesIbanField) {
+      setErpReferenceProducers(cachedProducers)
+      setErpReferenceError('')
+      return
+    }
+
+    setErpReferenceLoading(true)
+    setErpReferenceError('')
+    void loadOcrReferenceSuppliers({ force: cachedProducers.length > 0 })
+      .then((references) => {
+        if (!cancelled) setErpReferenceProducers(references.producers || [])
+      })
+      .catch((referenceError) => {
+        if (!cancelled) setErpReferenceError((referenceError as Error).message || 'Could not load ERP producer details.')
+      })
+      .finally(() => {
+        if (!cancelled) setErpReferenceLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [view])
 
   useEffect(() => {
@@ -394,10 +427,22 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   const erpProducerByCode = useMemo(() => new Map(
     erpReferenceProducers.map((producer) => [producer.producerCode.trim().toLocaleLowerCase(), producer]),
   ), [erpReferenceProducers])
-  const bankProducerOptions = useMemo(() => [...erpReferenceProducers]
-    .filter((producer) => producer.producerCode && producer.producerName)
-    .sort((left, right) => left.producerName.localeCompare(right.producerName, undefined, { numeric: true })),
-  [erpReferenceProducers])
+  const bankProducerOptions = useMemo(() => {
+    const producersByCode = new Map<string, OcrReferenceProducer>()
+    for (const row of rows) {
+      const code = String(row.producerCode || '').trim()
+      const name = String(row.producer || '').trim()
+      if (code && name) producersByCode.set(normalizedSearch(code), { producerCode: code, producerName: name })
+    }
+    for (const producer of erpReferenceProducers) {
+      if (producer.producerCode && producer.producerName) {
+        producersByCode.set(normalizedSearch(producer.producerCode), producer)
+      }
+    }
+    return [...producersByCode.values()]
+      .filter((producer) => normalizedSearch(producer.producerCode).startsWith('p'))
+      .sort((left, right) => left.producerName.localeCompare(right.producerName, undefined, { numeric: true }))
+  }, [erpReferenceProducers, rows])
   const bankProducerByOption = useMemo(() => new Map(
     bankProducerOptions.map((producer) => [bankProducerOption(producer), producer]),
   ), [bankProducerOptions])
@@ -767,37 +812,43 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
 
           {view === 'pricing' && (
             <div className={`month-closure-pricing-tools ${pricingSaveStatus}`}>
-              <div>
-                <strong>Monthly pricing history</strong>
-                <span aria-live="polite">
-                  {pricingSaveStatus === 'saving' || pricingSaveStatus === 'error'
-                    ? pricingSaveMessage
-                    : changedPricingRows.length
-                      ? `${changedPricingRows.length} edited row${changedPricingRows.length === 1 ? '' : 's'} waiting for autosave.`
-                      : pricingSaveMessage || 'Autosave on. Prices, commission and electricity are stored separately for each month.'}
+              <div className="month-closure-save-actions">
+                <span
+                  className={`month-closure-save-indicator ${pricingSaveStatus}`}
+                  aria-live="polite"
+                  title={pricingSaveMessage || undefined}
+                >
+                  {pricingSaveStatus === 'saving'
+                    ? 'Saving...'
+                    : pricingSaveStatus === 'error'
+                      ? 'Save failed'
+                      : changedPricingRows.length
+                        ? 'Waiting...'
+                        : 'Saved'}
                 </span>
+                <button type="button" onClick={() => void savePricingRows()} disabled={!changedPricingRows.length || pricingSaveStatus === 'saving'}>
+                  {`Save now${changedPricingRows.length ? ` (${changedPricingRows.length})` : ''}`}
+                </button>
               </div>
-              <button type="button" onClick={() => void savePricingRows()} disabled={!changedPricingRows.length || pricingSaveStatus === 'saving'}>
-                {pricingSaveStatus === 'saving' ? 'Saving...' : `Save now${changedPricingRows.length ? ` (${changedPricingRows.length})` : ''}`}
-              </button>
             </div>
           )}
 
           {view === 'erpInvoices' && (
             <div className="month-closure-invoice-tools">
-              <div>
-                <strong>ERP invoice preview</strong>
-                <span>
-                  Result is price x qty. Extra = 1 adds 8%; otherwise regular VAT adds 11%.
-                  {' '}
-                  {erpReferenceProducers.length
-                    ? `${erpReferenceProducers.length} ERP suppliers available. ${matchedInvoiceRows} invoice rows matched${missingInvoiceMatches ? `, ${missingInvoiceMatches} missing ERP match` : ''}${matchedRowsMissingTaxFields ? `, ${matchedRowsMissingTaxFields} matched rows missing VAT/extra` : ''}.`
-                    : 'ERP supplier details not loaded. Use the OCR menu refresh button when the API is available.'}
-                  {' '}
-                  {`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}
-                </span>
-              </div>
-              <button type="button" disabled>Export Excel</button>
+              <details className="month-closure-invoice-info">
+                <summary aria-label="ERP invoice information" title="ERP invoice information">i</summary>
+                <div className="month-closure-invoice-info-panel" role="note">
+                  <strong>ERP invoice information</strong>
+                  <p>Result is price x qty. Extra = 1 adds 8%; otherwise regular VAT adds 11%.</p>
+                  <p>
+                    {erpReferenceProducers.length
+                      ? `${erpReferenceProducers.length} ERP suppliers available. ${matchedInvoiceRows} invoice rows matched${missingInvoiceMatches ? `, ${missingInvoiceMatches} missing ERP match` : ''}${matchedRowsMissingTaxFields ? `, ${matchedRowsMissingTaxFields} matched rows missing VAT/extra` : ''}.`
+                      : 'ERP supplier details not loaded. Use the OCR menu refresh button when the API is available.'}
+                  </p>
+                  <p>{`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}</p>
+                </div>
+              </details>
+              <button type="button" disabled>Export to ERP</button>
             </div>
           )}
 
@@ -806,7 +857,13 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
               <div className="month-closure-bank-tools">
                 <div>
                   <strong>{readyBankRows} ready for bank</strong>
-                  <span>{pendingBankRows.length - readyBankRows} pending rows need an IBAN or final amount. Connected account is optional.</span>
+                  <span>
+                    {erpReferenceLoading
+                      ? 'Loading producer names and IBANs from ERP...'
+                      : erpReferenceError
+                        ? `ERP producer details could not be loaded: ${erpReferenceError}`
+                        : `${pendingBankRows.length - readyBankRows} pending rows need an IBAN or final amount. Connected account is optional.`}
+                  </span>
                 </div>
                 <button type="button" onClick={exportSelectedBankRows} disabled={!selectedBankRows.length}>
                   Export Excel{selectedBankRows.length ? ` (${selectedBankRows.length})` : ''}
@@ -1137,7 +1194,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                           value={bankRow.connectedAccount}
                           onChange={(event) => updateBankNoteDraft(bankRow.id, 'connectedAccount', event.currentTarget.value)}
                           aria-label={`Connected account for ${bankRow.producerName}`}
-                          placeholder="Optional: choose producer..."
+                          placeholder="No connected account"
                         />
                       </td>
                       <td>
@@ -1156,6 +1213,15 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 })}
               </tbody>
             </table>
+            )}
+            {view === 'bankNote' && (
+              <datalist id="month-closure-bank-producers">
+                {bankProducerOptions.map((producer) => (
+                  <option key={producer.producerCode} value={bankProducerOption(producer)}>
+                    {producer.producerName}
+                  </option>
+                ))}
+              </datalist>
             )}
           </div>
         </section>

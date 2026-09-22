@@ -1404,7 +1404,7 @@ export function OcrReviewScreen() {
     }
   }
 
-  async function rematchExcelReferences() {
+  async function rematchOperationalReferences() {
     if (!selected || !draft || rematchingReferences) return
     setRematchingReferences(true)
     setError('')
@@ -1416,7 +1416,7 @@ export function OcrReviewScreen() {
         body: JSON.stringify({ data: draft }),
       })
       const payload = await response.json() as { job?: OcrJob; error?: string }
-      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not redo Excel matching.')
+      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not refresh driver, vehicle, and route matching.')
       jobCacheRef.current.set(payload.job.id, payload.job)
       lastSavedRef.current = JSON.stringify({ data: payload.job.data, centerMatches: payload.job.centerMatches ?? [] })
       setSelected(payload.job)
@@ -1428,11 +1428,11 @@ export function OcrReviewScreen() {
       setDriverOptions(drivers)
       setVehicleOptions(vehicles)
       setSuccess(isRo
-        ? 'Potrivirea Excel pentru șofer, vehicul și rută a fost refăcută fără OCR.'
-        : 'Excel matching for driver, vehicle and route was refreshed without running OCR.')
+        ? 'Potrivirea SQL pentru șofer, vehicul și rută a fost refăcută fără OCR.'
+        : 'SQL matching for driver, vehicle, and route was refreshed without running OCR.')
       await loadJobs()
     } catch (matchError) {
-      setError((matchError as Error).message || 'Could not redo Excel matching.')
+      setError((matchError as Error).message || 'Could not refresh driver, vehicle, and route matching.')
     } finally {
       setRematchingReferences(false)
     }
@@ -1475,6 +1475,7 @@ export function OcrReviewScreen() {
       ? (isRo ? 'verificate' : 'reviewed')
       : (isRo ? 'eșuate' : 'failed')
   const normalizedSearch = jobSearch.trim().toLocaleLowerCase()
+  const jobFiltersActive = Boolean(normalizedSearch || jobDateFilter)
   const filteredJobs = jobs.filter((job) => {
     const liveData = job.id === selectedId ? draft : null
     const dateValue = liveData?.date ?? job.summary?.date ?? job.data?.date ?? null
@@ -1629,7 +1630,7 @@ export function OcrReviewScreen() {
           </div>
           <label className="review-job-search">
             <span aria-hidden="true">⌕</span>
-            <input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={jobDateFilter ? (isRo ? `Dată: ${displayDate(jobDateFilter)}` : `Date: ${displayDate(jobDateFilter)}`) : (isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…')} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
+            <input className="review-job-search-input" type="text" role="searchbox" inputMode="search" autoComplete="off" spellCheck={false} value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={jobDateFilter ? (isRo ? `Dată: ${displayDate(jobDateFilter)}` : `Date: ${displayDate(jobDateFilter)}`) : (isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…')} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
             <input className="review-job-date-picker" type="date" value={jobDateFilter} onChange={(event) => setJobDateFilter(event.target.value)} aria-label={isRo ? 'Filtrați după dată' : 'Filter by date'} title={isRo ? 'Alegeți data documentului' : 'Choose document date'} />
             {(jobSearch || jobDateFilter) && <button type="button" onClick={() => { setJobSearch(''); setJobDateFilter('') }} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
           </label>
@@ -1643,10 +1644,10 @@ export function OcrReviewScreen() {
           ) : queueView === 'failed' ? (
             <div className="review-failed-count"><strong>{failedCount}</strong> {isRo ? 'documente eșuate OCR sau Excel' : 'failed OCR or Excel documents'}</div>
           ) : (
-            <div className="review-reviewed-count"><strong>{completedCount}</strong> {isRo ? 'documente verificate' : 'reviewed documents'}</div>
+            <div className="review-reviewed-count"><strong>{jobFiltersActive ? filteredJobs.length : completedCount}</strong> {jobFiltersActive ? (isRo ? 'documente verificate găsite' : 'matching reviewed documents') : (isRo ? 'documente verificate' : 'reviewed documents')}</div>
           )}
 
-          {filteredJobs.length === 0 ? <p className="review-empty">{jobSearch ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${emptyQueueName} documents.`)}</p> : (
+          {filteredJobs.length === 0 ? <p className="review-empty">{jobFiltersActive ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${emptyQueueName} documents.`)}</p> : (
             <div className="review-job-list">
               {visibleJobs.map((job) => (
                 <article className={`review-job-item ${selectedId === job.id ? 'selected' : ''} status-${job.status}`} key={job.id}>
@@ -1788,27 +1789,27 @@ export function OcrReviewScreen() {
                   <label>{isRo ? 'Data' : 'Date'}<span className="review-date-input"><input inputMode="numeric" placeholder="dd/MM/yyyy" value={displayDate(draft.date)} onChange={(event) => updateTextField('date', storedDate(event.target.value))} /><input className="review-date-picker" type="date" value={/^\d{4}-\d{2}-\d{2}$/u.test(draft.date ?? '') ? draft.date! : ''} onChange={(event) => updateTextField('date', event.target.value)} aria-label={isRo ? 'Alegeți data din calendar' : 'Choose date from calendar'} /></span></label>
                   <label>
                     <span className="review-field-label">{isRo ? 'Șofer' : 'Driver'}
-                      {selected.driverMatch?.status === 'auto_replaced' && draft.driverName === selected.driverMatch.selectedName && <b className="review-driver-replaced">{isRo ? 'Înlocuit din Excel' : 'Replaced from Excel'}</b>}
-                      {selected.driverMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
-                      {selected.driverMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                      {selected.driverMatch?.status === 'auto_replaced' && draft.driverName === selected.driverMatch.selectedName && <b className="review-driver-replaced">{isRo ? 'Înlocuit din SQL' : 'Replaced from SQL'}</b>}
+                      {selected.driverMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
+                      {selected.driverMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
                     <input list="ocr-driver-options" autoComplete="off" value={draft.driverName ?? ''} onChange={(event) => updateTextField('driverName', event.target.value)} />
                     <datalist id="ocr-driver-options">{driverOptions.map((driver) => <option value={driver} key={driver} />)}</datalist>
                   </label>
                   <label>
                     <span className="review-field-label">{isRo ? 'Vehicul' : 'Vehicle'}
-                      {selected.vehicleMatch?.status === 'auto_replaced' && draft.vehicleRegistration === selected.vehicleMatch.selectedValue && <b className="review-driver-replaced">{isRo ? 'Înlocuit din Excel' : 'Replaced from Excel'}</b>}
-                      {selected.vehicleMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
-                      {selected.vehicleMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                      {selected.vehicleMatch?.status === 'auto_replaced' && draft.vehicleRegistration === selected.vehicleMatch.selectedValue && <b className="review-driver-replaced">{isRo ? 'Înlocuit din SQL' : 'Replaced from SQL'}</b>}
+                      {selected.vehicleMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
+                      {selected.vehicleMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
                     <input list="ocr-vehicle-options" autoComplete="off" value={draft.vehicleRegistration ?? ''} onChange={(event) => updateTextField('vehicleRegistration', event.target.value)} />
                     <datalist id="ocr-vehicle-options">{vehicleOptions.map((vehicle) => <option value={vehicle} key={vehicle} />)}</datalist>
                   </label>
                   <label>
                     <span className="review-field-label">{isRo ? 'Rută' : 'Route'}
-                      {selected.routeMatch?.status === 'resolved' && draft.route === selected.routeMatch.selectedRoute && <b className="review-driver-replaced">{isRo ? 'Obținută din Excel' : 'Retrieved from Excel'}</b>}
-                      {selected.routeMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire Excel' : 'No Excel match'}</b>}
-                      {selected.routeMatchError && <b className="review-reference-error">{isRo ? 'Căutare Excel eșuată' : 'Excel lookup failed'}</b>}
+                      {selected.routeMatch?.status === 'resolved' && draft.route === selected.routeMatch.selectedRoute && <b className="review-driver-replaced">{isRo ? 'Obținută din SQL' : 'Retrieved from SQL'}</b>}
+                      {selected.routeMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
+                      {selected.routeMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
                     <input list="ocr-route-options" autoComplete="off" value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
                     <datalist id="ocr-route-options">{routeOptions.map((route) => <option value={route} key={route} />)}</datalist>
@@ -1958,7 +1959,7 @@ export function OcrReviewScreen() {
                 <div className={`review-save-actions tab-${dataTab}`}>
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
-                  <button className="review-rematch" type="button" onClick={() => void rematchExcelReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți potrivirea ERP' : 'Redo ERP matching')}</button>
+                  <button className="review-rematch" type="button" onClick={() => void rematchOperationalReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți șofer/vehicul/rută' : 'Refresh driver/truck/routes')}</button>
                   {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
                   <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp} disabled title={isRo ? 'Trimiterea în ERP este dezactivată temporar.' : 'ERP sending is temporarily disabled.'}>{isRo ? 'ERP dezactivat' : 'ERP disabled'}</button>
                   <button className="review-complete" type="button" onClick={() => selected.reviewStatus === 'pending' ? void saveDocument(true) : void retryExcelExport()} disabled={saving || autoSaveStatus === 'saving' || exporting || sendToExcelBlocked || excelAlreadyExported || excelExportInProgress} title={excelAlreadyExported ? (isRo ? 'Acest document a fost deja trimis în Excel' : 'This document has already been sent to Excel') : sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>

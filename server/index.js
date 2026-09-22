@@ -44,10 +44,15 @@ import {
   matchCentersForRows,
   listReferenceProducers,
   matchMonthlyProducers,
-  matchReferenceDriver,
-  matchReferenceVehicle,
-  resolveReferenceRoute,
 } from './excelService.js'
+import {
+  listDailyOcrDrivers,
+  listDailyOcrRoutes,
+  listDailyOcrVehicles,
+  matchDailyOcrDriver,
+  matchDailyOcrVehicle,
+  resolveDailyOcrRoute,
+} from './dailyOcrReferenceService.js'
 import { fetchErpReferenceCenters, fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
 import {
   createMilkReception,
@@ -94,24 +99,6 @@ const localDevOrigins = new Set([
 function normalizeBasePath(value) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/gu, '')
   return normalized ? `/${normalized}` : ''
-}
-
-function filterOptionValues(values, query = '') {
-  const search = normalizeOptionValue(query)
-  const filtered = search
-    ? values.filter((value) => normalizeOptionValue(value).includes(search))
-    : values
-  return [...new Set(filtered.map((value) => String(value || '').trim()).filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
-}
-
-function normalizeOptionValue(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/gu, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/gu, ' ')
-    .trim()
 }
 
 function normalizeSuggestionText(value) {
@@ -1797,7 +1784,7 @@ app.post('/api/month-closure/pricing-rows', requirePermission('ocr_documents'), 
 
 app.get('/api/ocr/drivers', async (request, response, next) => {
   try {
-    const drivers = await listReferenceDrivers(request.query.q)
+    const drivers = await listDailyOcrDrivers(request.query.q)
     response.json({ drivers })
   } catch (error) {
     next(error)
@@ -1832,10 +1819,7 @@ app.get('/api/ocr/reception-routes', async (request, response, next) => {
 
 app.get('/api/ocr/vehicles', async (request, response, next) => {
   try {
-    const routeSettings = await listMilkReceptionRouteSettings()
-    const vehicles = routeSettings.vehicles.length
-      ? filterOptionValues(routeSettings.vehicles, request.query.q)
-      : await listReferenceVehicles(request.query.q)
+    const vehicles = await listDailyOcrVehicles(request.query.q)
     response.json({ vehicles })
   } catch (error) {
     next(error)
@@ -1844,13 +1828,8 @@ app.get('/api/ocr/vehicles', async (request, response, next) => {
 
 app.get('/api/ocr/routes', async (request, response, next) => {
   try {
-    const routeSettings = await listMilkReceptionRouteSettings()
     const vehicle = String(request.query.vehicle || '').trim()
-    const savedVehicleRoutes = routeSettings.vehicleRoutes.find((item) => normalizeOptionValue(item.vehicle) === normalizeOptionValue(vehicle))
-    const savedRoutes = savedVehicleRoutes?.routes?.length ? savedVehicleRoutes.routes : routeSettings.routes
-    const routes = savedRoutes.length
-      ? filterOptionValues(savedRoutes, request.query.q)
-      : await listReferenceRoutes(vehicle)
+    const routes = await listDailyOcrRoutes(vehicle, request.query.q)
     response.json({ routes })
   } catch (error) {
     next(error)
@@ -2159,7 +2138,7 @@ app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next)
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed' || !current.data) {
-      return response.status(409).json({ error: 'OCR data must be completed before Excel matching can run.' })
+      return response.status(409).json({ error: 'OCR data must be completed before operational matching can run.' })
     }
 
     const parsedData = request.body?.data ? MilkCollectionDocumentSchema.safeParse(request.body.data) : null
@@ -2183,15 +2162,15 @@ app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next)
     let vehicleMatchError = null
     let routeMatch = null
     let routeMatchError = null
-    try { driverMatch = await matchReferenceDriver(driverSource) } catch (error) { driverMatchError = error instanceof Error ? error.message : 'Reference-driver lookup failed.' }
-    try { vehicleMatch = await matchReferenceVehicle(vehicleSource) } catch (error) { vehicleMatchError = error instanceof Error ? error.message : 'Reference-vehicle lookup failed.' }
+    try { driverMatch = await matchDailyOcrDriver(driverSource) } catch (error) { driverMatchError = error instanceof Error ? error.message : 'Reference-driver lookup failed.' }
+    try { vehicleMatch = await matchDailyOcrVehicle(vehicleSource) } catch (error) { vehicleMatchError = error instanceof Error ? error.message : 'Reference-vehicle lookup failed.' }
     const driverName = driverMatch?.status === 'auto_replaced' && driverMatch.selectedName
       ? driverMatch.selectedName
       : sourceData.driverName
     const vehicleRegistration = vehicleMatch?.status === 'auto_replaced' && vehicleMatch.selectedValue
       ? vehicleMatch.selectedValue
       : sourceData.vehicleRegistration
-    try { routeMatch = await resolveReferenceRoute(sourceData.date, vehicleRegistration) } catch (error) { routeMatchError = error instanceof Error ? error.message : 'Reference-route lookup failed.' }
+    try { routeMatch = await resolveDailyOcrRoute(sourceData.date, vehicleRegistration) } catch (error) { routeMatchError = error instanceof Error ? error.message : 'Reference-route lookup failed.' }
     const route = routeMatch?.status === 'resolved' && routeMatch.selectedRoute
       ? routeMatch.selectedRoute
       : sourceData.route

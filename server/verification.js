@@ -5,19 +5,19 @@ export function rebuildVerificationWarnings(data, context = {}) {
   const { driverMatch, vehicleMatch, routeMatch, rowValueSources = [] } = context
 
   if (driverMatch?.status === 'auto_replaced' && data.driverName === driverMatch.selectedName) {
-    warnings.push(`Driver replaced from Excel: “${driverMatch.originalName || '—'}” → “${driverMatch.selectedName}”. Verify the replacement.`)
+    warnings.push(`Driver replaced from the current SQL setup: “${driverMatch.originalName || '—'}” → “${driverMatch.selectedName}”. Verify the replacement.`)
   } else if (driverMatch?.status === 'unmatched') {
-    warnings.push(`Driver “${data.driverName || 'empty'}” was not matched in Excel and requires verification.`)
+    warnings.push(`Driver “${data.driverName || 'empty'}” was not matched in the current SQL setup and requires verification.`)
   }
   if (vehicleMatch?.status === 'auto_replaced' && data.vehicleRegistration === vehicleMatch.selectedValue) {
-    warnings.push(`Vehicle replaced from Excel: “${vehicleMatch.originalValue || '—'}” → “${vehicleMatch.selectedValue}”. Verify the replacement.`)
+    warnings.push(`Vehicle replaced from the current SQL setup: “${vehicleMatch.originalValue || '—'}” → “${vehicleMatch.selectedValue}”. Verify the replacement.`)
   } else if (vehicleMatch?.status === 'unmatched') {
-    warnings.push(`Vehicle “${data.vehicleRegistration || 'empty'}” was not matched in Excel and requires verification.`)
+    warnings.push(`Vehicle “${data.vehicleRegistration || 'empty'}” was not matched in the current SQL setup and requires verification.`)
   }
   if (routeMatch?.status === 'resolved' && data.route === routeMatch.selectedRoute) {
-    warnings.push(`Route “${routeMatch.selectedRoute}” was retrieved from Excel using the date and vehicle. Verify the selected route.`)
+    warnings.push(`Route “${routeMatch.selectedRoute}” was retrieved from the current SQL setup using the date and vehicle. Verify the selected route.`)
   } else if (routeMatch?.status === 'unmatched') {
-    warnings.push(`Route “${data.route || 'empty'}” could not be retrieved from Excel and requires verification.`)
+    warnings.push(`Route “${data.route || 'empty'}” could not be retrieved from the current SQL setup and requires verification.`)
   }
 
   const activeSources = rowValueSources.flatMap((entry) => Object.entries(entry.fields || {}).flatMap(([field, source]) => {

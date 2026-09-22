@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { extractMilkCollectionDocument } from './ocrService.js'
 import { getJob, getStoredFilePath, listJobs, updateJob } from './jobStore.js'
-import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matchMonthlyProducers, matchReferenceDriver, matchReferenceVehicle, resolveReferenceRoute } from './excelService.js'
+import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matchMonthlyProducers } from './excelService.js'
+import { matchDailyOcrDriver, matchDailyOcrVehicle, resolveDailyOcrRoute } from './dailyOcrReferenceService.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings } from './ocrSettingsStore.js'
 
@@ -87,12 +88,12 @@ async function processNext() {
       centerMatchError = error instanceof Error ? error.message : 'Reference-center lookup failed.'
     }
     try {
-      driverMatch = await matchReferenceDriver(extraction.data.driverName)
+      driverMatch = await matchDailyOcrDriver(extraction.data.driverName)
     } catch (error) {
       driverMatchError = error instanceof Error ? error.message : 'Reference-driver lookup failed.'
     }
     try {
-      vehicleMatch = await matchReferenceVehicle(extraction.data.vehicleRegistration)
+      vehicleMatch = await matchDailyOcrVehicle(extraction.data.vehicleRegistration)
     } catch (error) {
       vehicleMatchError = error instanceof Error ? error.message : 'Reference-vehicle lookup failed.'
     }
@@ -110,7 +111,7 @@ async function processNext() {
       ? { ...matchedDriverData, vehicleRegistration: vehicleMatch.selectedValue }
       : matchedDriverData
     try {
-      routeMatch = await resolveReferenceRoute(matchedVehicleData.date, matchedVehicleData.vehicleRegistration)
+      routeMatch = await resolveDailyOcrRoute(matchedVehicleData.date, matchedVehicleData.vehicleRegistration)
     } catch (error) {
       routeMatchError = error instanceof Error ? error.message : 'Reference-route lookup failed.'
     }

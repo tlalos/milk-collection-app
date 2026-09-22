@@ -34,6 +34,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 milk-collection-iis-*.zip
+milk-collection-dist-*.zip
+web-users-seed-*.zip
+weighbridge-agent-*.zip
 
 # Runtime OCR uploads and job metadata
 data/ocr/
@@ -42,7 +45,11 @@ data/settings/
 
 # Local development/test artifacts
 work/
+.deploy-stage/
 .deploy-stage-*/
+.milk-collection-iis-*/
+web-users-seed-*/
+weighbridge-agent-*/
 .venv-local-ocr/
 __pycache__/
 *.py[cod]
