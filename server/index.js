@@ -17,6 +17,7 @@ import {
   auditAction,
   getSessionUser,
   initializeAuthStore,
+  listAuditActivity,
   listWebUserAdminData,
   login,
   logout,
@@ -1025,6 +1026,11 @@ function requirePermission(permission) {
   }
 }
 
+function auditFailureReason(error) {
+  const status = Number(error?.status || error?.statusCode || 500)
+  return status >= 400 && status < 500 ? String(error?.message || 'Request rejected') : 'Server error'
+}
+
 app.post('/api/auth/login', async (request, response, next) => {
   try {
     const result = await login(request.body?.username, request.body?.password, sessionDays)
@@ -1068,6 +1074,34 @@ app.post('/api/auth/logout', async (request, response, next) => {
 app.get('/api/web-users/admin-data', requirePermission('app_admin'), async (_request, response, next) => {
   try {
     response.json(await listWebUserAdminData())
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/web-users/activity', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const area = String(request.query.area || '')
+    if (!['', 'reception', 'deliveries'].includes(area)) return response.status(400).json({ error: 'Unknown activity area.' })
+    const cursor = String(request.query.beforeId || '')
+    if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) return response.status(400).json({ error: 'Invalid activity cursor.' })
+    response.json(await listAuditActivity({ area, username: String(request.query.username || '').slice(0, 160), beforeId: cursor ? Number(cursor) : null }))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/activity/page-open', requirePermission('milk_reception'), async (request, response, next) => {
+  try {
+    const area = String(request.body?.area || '')
+    if (!['milk_reception', 'milk_delivery'].includes(area)) return response.status(400).json({ error: 'Unknown activity area.' })
+    await auditAction({
+      request,
+      user: request.authUser,
+      action: `${area}.open`,
+      entityType: area === 'milk_reception' ? 'MilkReception' : 'MilkDelivery',
+    })
+    response.status(204).end()
   } catch (error) {
     next(error)
   }
@@ -1335,6 +1369,7 @@ app.post('/api/milk-receptions', async (request, response, next) => {
     await auditAction({ request, user, action: 'milk_reception.create', entityType: 'MilkReception', entityId: record.receptionId, after: record })
     response.status(201).json({ record: recordWithReconciliation })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.create.failed', entityType: 'MilkReception', metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })
@@ -1349,6 +1384,7 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
     await auditAction({ request, user, action: 'milk_reception.update', entityType: 'MilkReception', entityId: request.params.id, before, after: record })
     response.json({ record: recordWithReconciliation })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.update.failed', entityType: 'MilkReception', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })
@@ -1361,6 +1397,7 @@ app.delete('/api/milk-receptions/:id', async (request, response, next) => {
     await auditAction({ request, user: request.authUser, action: 'milk_reception.delete', entityType: 'MilkReception', entityId: request.params.id, before })
     response.json({ deleted: true })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_reception.delete.failed', entityType: 'MilkReception', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })
@@ -1387,6 +1424,7 @@ app.post('/api/milk-deliveries', async (request, response, next) => {
     await auditAction({ request, user, action: 'milk_delivery.create', entityType: 'MilkDelivery', entityId: record.deliveryId, after: record })
     response.status(201).json({ record })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_delivery.create.failed', entityType: 'MilkDelivery', metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })
@@ -1400,6 +1438,7 @@ app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
     await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
     response.json({ record })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_delivery.update.failed', entityType: 'MilkDelivery', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })
@@ -1412,6 +1451,7 @@ app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
     await auditAction({ request, user: request.authUser, action: 'milk_delivery.delete', entityType: 'MilkDelivery', entityId: request.params.id, before })
     response.json({ deleted: true })
   } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_delivery.delete.failed', entityType: 'MilkDelivery', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
   }
 })

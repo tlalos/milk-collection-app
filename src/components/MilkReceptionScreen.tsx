@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './MilkReceptionScreen.css'
 import { appPath } from '../ocrPaths'
 import { db } from '../db/database'
@@ -35,6 +35,14 @@ type QualityDetailType = 'ORIGINAL' | 'CUSTOM'
 type DetailSectionType = 'RECONCILIATION' | QualityDetailType
 type WeightField = 'fullTruckWeightKg' | 'emptyTruckWeightKg'
 type WeighbridgeSource = 'server' | 'local-agent'
+type ReceptionSaveStatus = 'waiting' | 'pending' | 'saving' | 'saved' | 'error'
+
+interface ReceptionSaveState {
+  status: ReceptionSaveStatus
+  message?: string
+}
+
+const AUTO_SAVE_DELAY_MS = 1000
 
 interface RouteSetting {
   settingId: string
@@ -96,6 +104,7 @@ interface MilkReceptionReconciliation {
 
 interface MilkReceptionRecord {
   receptionId: string
+  clientKey?: string
   receptionDate: string
   vehicleRegistration: string
   vehicleCategory: VehicleCategory
@@ -294,13 +303,26 @@ function storedDateTimeInput(value: string) {
 
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [records, setRecords] = useState<MilkReceptionRecord[]>([])
+  const recordsRef = useRef<MilkReceptionRecord[]>([])
+  const revisionsRef = useRef(new Map<string, number>())
+  const savedRevisionsRef = useRef(new Map<string, number>())
+  const saveTimersRef = useRef(new Map<string, number>())
+  const savingRowsRef = useRef(new Set<string>())
+  const deletingRowsRef = useRef(new Set<string>())
+  const saveImmediatelyAfterFlightRef = useRef(new Set<string>())
+  const editEpochRef = useRef(0)
+  const savedEpochRef = useRef(0)
+  const lastEditEpochRef = useRef(new Map<string, number>())
+  const lastSavedEpochRef = useRef(new Map<string, number>())
+  const loadRequestRef = useRef(0)
+  const [saveStates, setSaveStates] = useState<Record<string, ReceptionSaveState>>({})
   const [options, setOptions] = useState<MilkReceptionOptions>(defaultOptions)
   const [localTrucks, setLocalTrucks] = useState<LocalTruck[]>([])
   const [expandedId, setExpandedId] = useState('')
   const [filterDate, setFilterDate] = useState(today())
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
-  const [savingId, setSavingId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'TRUCKS' | 'DRIVERS'>('TRUCKS')
   const [settingsTypeFilter, setSettingsTypeFilter] = useState<'ALL' | VehicleCategory>('ALL')
@@ -318,6 +340,11 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
+    void fetch(appPath('/api/activity/page-open'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ area: 'milk_reception' }),
+    }).catch(() => {})
     void loadOptions()
     void loadWeighbridgeConfig()
     void loadLocalTrucks()
@@ -327,6 +354,21 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const timer = window.setTimeout(() => void loadRecords(), 220)
     return () => window.clearTimeout(timer)
   }, [filterDate, search])
+
+  useEffect(() => {
+    const timers = saveTimersRef.current
+    const warnOnUnsaved = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnOnUnsaved)
+    return () => {
+      window.removeEventListener('beforeunload', warnOnUnsaved)
+      for (const timer of timers.values()) window.clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
 
   useEffect(() => {
     setRouteDrafts((current) => {
@@ -350,6 +392,79 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }, [options.vehicleRoutes])
 
   const visibleRecords = useMemo(() => records, [records])
+
+  function commitRecords(next: MilkReceptionRecord[]) {
+    recordsRef.current = next
+    setRecords(next)
+  }
+
+  function hasUnsavedChanges() {
+    return recordsRef.current.some((record) => record.isNew ||
+      (revisionsRef.current.get(record.receptionId) || 0) > (savedRevisionsRef.current.get(record.receptionId) || 0))
+  }
+
+  function handleBack() {
+    if (hasUnsavedChanges() && !window.confirm('Some reception changes are not saved yet. Leave this page anyway?')) return
+    onBack()
+  }
+
+  function setRowSaveState(id: string, status: ReceptionSaveStatus, message = '') {
+    setSaveStates((current) => {
+      if (current[id]?.status === status && current[id]?.message === message) return current
+      return { ...current, [id]: { status, message } }
+    })
+  }
+
+  function clearSaveTimer(id: string) {
+    const timer = saveTimersRef.current.get(id)
+    if (timer !== undefined) window.clearTimeout(timer)
+    saveTimersRef.current.delete(id)
+  }
+
+  function forgetRecord(id: string) {
+    clearSaveTimer(id)
+    revisionsRef.current.delete(id)
+    savedRevisionsRef.current.delete(id)
+    savingRowsRef.current.delete(id)
+    deletingRowsRef.current.delete(id)
+    saveImmediatelyAfterFlightRef.current.delete(id)
+    lastEditEpochRef.current.delete(id)
+    lastSavedEpochRef.current.delete(id)
+    setSaveStates((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  function scheduleAutoSave(id: string, immediate = false) {
+    clearSaveTimer(id)
+    const record = recordsRef.current.find((item) => item.receptionId === id)
+    if (!record) return ''
+    if (deletingRowsRef.current.has(id)) return ''
+    const validation = validate(withCalculations(record))
+    if (validation) {
+      setRowSaveState(id, 'waiting', validation)
+      return validation
+    }
+    setRowSaveState(id, savingRowsRef.current.has(id) ? 'saving' : 'pending')
+    if (immediate) {
+      void saveRecord(id, 'scale')
+    } else {
+      saveTimersRef.current.set(id, window.setTimeout(() => {
+        saveTimersRef.current.delete(id)
+        void saveRecord(id, 'auto')
+      }, AUTO_SAVE_DELAY_MS))
+    }
+    return ''
+  }
+
+  function markRecordDirty(id: string, immediate = false) {
+    revisionsRef.current.set(id, (revisionsRef.current.get(id) || 0) + 1)
+    lastEditEpochRef.current.set(id, ++editEpochRef.current)
+    return scheduleAutoSave(id, immediate)
+  }
+
   const savedVehicleRoutes = useMemo(() => options.vehicleRoutes.filter((group) => group.vehicle), [options.vehicleRoutes])
   const visibleVehicleRoutes = useMemo(() => {
     if (settingsTypeFilter === 'ALL') return savedVehicleRoutes
@@ -476,6 +591,9 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function loadRecords() {
+    const requestId = ++loadRequestRef.current
+    const editEpochAtStart = editEpochRef.current
+    const savedEpochAtStart = savedEpochRef.current
     setLoading(true)
     setError('')
     try {
@@ -485,17 +603,31 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       const response = await fetch(appPath(`/api/milk-receptions?${params.toString()}`))
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not load milk receptions.')
-      setRecords((payload.records || []).map((record: MilkReceptionRecord) => ({
+      if (requestId !== loadRequestRef.current) return
+      const loaded: MilkReceptionRecord[] = (payload.records || []).map((record: MilkReceptionRecord) => ({
         ...record,
         driverName: record.driverName || '',
         qualityDetails: normalizeQualityDetails(record.qualityDetails),
         vehicleCategory: normalizeVehicleCategory(record.vehicleCategory),
         isNew: false,
-      })))
+      }))
+      const preserved = recordsRef.current.filter((record) => {
+        const id = record.receptionId
+        return record.isNew || savingRowsRef.current.has(id) ||
+          (revisionsRef.current.get(id) || 0) > (savedRevisionsRef.current.get(id) || 0) ||
+          (lastEditEpochRef.current.get(id) || 0) > editEpochAtStart ||
+          (lastSavedEpochRef.current.get(id) || 0) > savedEpochAtStart
+      })
+      const preservedById = new Map(preserved.map((record) => [record.receptionId, record]))
+      const loadedIds = new Set(loaded.map((record) => record.receptionId))
+      commitRecords([
+        ...preserved.filter((record) => !loadedIds.has(record.receptionId)),
+        ...loaded.map((record) => preservedById.get(record.receptionId) || record),
+      ])
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load milk receptions.')
+      if (requestId === loadRequestRef.current) setError(loadError instanceof Error ? loadError.message : 'Could not load milk receptions.')
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestRef.current) setLoading(false)
     }
   }
 
@@ -505,9 +637,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     setNotice('')
     setError('')
     setExpandedId(id)
-    setRecords((current) => [
+    commitRecords([
       {
         receptionId: id,
+        clientKey: id,
         receptionDate: filterDate || today(),
         vehicleRegistration: '',
         vehicleCategory: 'COLLECTION',
@@ -547,12 +680,17 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         qualityDetails: normalizeQualityDetails(),
         isNew: true,
       },
-      ...current,
+      ...recordsRef.current,
     ])
+    revisionsRef.current.set(id, 1)
+    savedRevisionsRef.current.set(id, 0)
+    lastEditEpochRef.current.set(id, ++editEpochRef.current)
+    setRowSaveState(id, 'waiting', 'Choose a truck and enter a full weight to save.')
   }
 
-  function updateRecord(id: string, patch: Partial<MilkReceptionRecord>) {
-    setRecords((current) => current.map((record) => {
+  function updateRecord(id: string, patch: Partial<MilkReceptionRecord>, saveImmediately = false) {
+    if (!recordsRef.current.some((record) => record.receptionId === id)) return ''
+    commitRecords(recordsRef.current.map((record) => {
       if (record.receptionId !== id) return record
       const next = { ...record, ...patch }
       if (patch.milkType) {
@@ -590,6 +728,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       }
       return withCalculations(next)
     }))
+    return markRecordDirty(id, saveImmediately)
   }
 
   async function readScaleWeight(id: string, field: WeightField) {
@@ -607,11 +746,13 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       if (!Number.isFinite(weight)) throw new Error('The scale returned a value that could not be used.')
       if (reading.stable === false) throw new Error('The scale reading is not stable yet.')
       const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
-      updateRecord(id, {
+      const validation = updateRecord(id, {
         [field]: String(weight),
         [timestampField]: localDateTimeText(reading.capturedAt),
-      } as Partial<MilkReceptionRecord>)
-      setNotice(`${label} filled from scale: ${formatNumber(weight, 0)} kg.`)
+      } as Partial<MilkReceptionRecord>, true)
+      setNotice(validation
+        ? `${label} filled from scale: ${formatNumber(weight, 0)} kg. ${validation} It will save when the row is complete.`
+        : `${label} filled from scale: ${formatNumber(weight, 0)} kg. Saving...`)
     } catch (readError) {
       setError(readError instanceof Error ? readError.message : 'Could not read the scale.')
       setNotice('')
@@ -621,7 +762,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function updateQualityDetail(id: string, detailType: QualityDetailType, patch: Partial<QualityDetail>) {
-    setRecords((current) => current.map((record) => {
+    if (!recordsRef.current.some((record) => record.receptionId === id)) return
+    commitRecords(recordsRef.current.map((record) => {
       if (record.receptionId !== id) return record
       const qualityDetails = normalizeQualityDetails(record.qualityDetails)
       const next = {
@@ -637,6 +779,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       }
       return withCalculations(next)
     }))
+    markRecordDirty(id)
   }
 
   function vehicleSettingFor(vehicleRegistration: string, vehicleCategory?: VehicleCategory) {
@@ -789,56 +932,119 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }
   }
 
-  async function saveRecord(record: MilkReceptionRecord) {
+  async function saveRecord(id: string, reason: 'auto' | 'manual' | 'scale') {
+    if (deletingRowsRef.current.has(id)) return
+    clearSaveTimer(id)
+    const currentRecord = recordsRef.current.find((item) => item.receptionId === id)
+    if (!currentRecord) return
+    const record = withCalculations(currentRecord)
     const validation = validate(record)
     if (validation) {
-      setError(validation)
+      setRowSaveState(id, 'waiting', validation)
+      if (reason !== 'auto') setError(validation)
+      return
+    }
+    if (savingRowsRef.current.has(id)) {
+      if (reason !== 'auto') saveImmediatelyAfterFlightRef.current.add(id)
       return
     }
 
-    setSavingId(record.receptionId)
+    const revisionAtStart = revisionsRef.current.get(id) || 0
+    savingRowsRef.current.add(id)
+    setRowSaveState(id, 'saving')
     setError('')
-    setNotice('')
+    let needsResave = false
+    let savedId = id
     try {
       const response = await fetch(record.isNew ? appPath('/api/milk-receptions') : appPath(`/api/milk-receptions/${encodeURIComponent(record.receptionId)}`), {
         method: record.isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record),
       })
-      const payload = await response.json()
+      const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not save milk reception.')
       const savedRecord = { ...payload.record, qualityDetails: normalizeQualityDetails(payload.record.qualityDetails), isNew: false }
-      setRecords((current) => current.map((item) => item.receptionId === record.receptionId ? savedRecord : item))
-      setExpandedId(payload.record.receptionId)
-      setNotice(`Reception ${payload.record.receptionId} saved.`)
+      savedId = savedRecord.receptionId
+      const currentRevision = revisionsRef.current.get(id) || 0
+      needsResave = currentRevision !== revisionAtStart
+      const latest = recordsRef.current.find((item) => item.receptionId === id)
+      const nextRecord = latest
+        ? withCalculations({ ...savedRecord, ...latest, receptionId: savedId, isNew: false, createdAt: savedRecord.createdAt, updatedAt: savedRecord.updatedAt, reconciliation: savedRecord.reconciliation })
+        : savedRecord
+      commitRecords(recordsRef.current.map((item) => item.receptionId === id ? nextRecord : item))
+      revisionsRef.current.set(savedId, currentRevision)
+      savedRevisionsRef.current.set(savedId, revisionAtStart)
+      lastSavedEpochRef.current.set(savedId, ++savedEpochRef.current)
+      if (savedId !== id) {
+        clearSaveTimer(id)
+        revisionsRef.current.delete(id)
+        savedRevisionsRef.current.delete(id)
+        lastEditEpochRef.current.set(savedId, lastEditEpochRef.current.get(id) || 0)
+        lastEditEpochRef.current.delete(id)
+        lastSavedEpochRef.current.delete(id)
+        setSaveStates((current) => {
+          const next = { ...current }
+          delete next[id]
+          return next
+        })
+        setExpandedId((current) => current === id ? savedId : current)
+        setDetailSectionOpen((current) => {
+          const next = { ...current }
+          for (const section of ['RECONCILIATION', 'ORIGINAL', 'CUSTOM'] as DetailSectionType[]) {
+            const oldKey = detailSectionKey(id, section)
+            if (oldKey in next) {
+              next[detailSectionKey(savedId, section)] = next[oldKey]
+              delete next[oldKey]
+            }
+          }
+          return next
+        })
+      }
+      setRowSaveState(savedId, needsResave ? 'pending' : 'saved')
+      if (!needsResave && reason !== 'auto') setNotice(`Reception ${savedId} saved.`)
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save milk reception.')
+      const message = saveError instanceof Error ? saveError.message : 'Could not save milk reception.'
+      setError(message)
+      setRowSaveState(id, 'error', message)
+      needsResave = !record.isNew && (revisionsRef.current.get(id) || 0) !== revisionAtStart
     } finally {
-      setSavingId('')
+      savingRowsRef.current.delete(id)
+      const immediately = saveImmediatelyAfterFlightRef.current.delete(id)
+      if (needsResave) scheduleAutoSave(savedId, immediately)
     }
   }
 
   async function deleteRecord(record: MilkReceptionRecord) {
+    if (savingRowsRef.current.has(record.receptionId)) return
     const rowLabel = [record.vehicleRegistration, record.receptionDate].filter(Boolean).join(' / ') || 'this row'
     const confirmed = window.confirm(`Delete reception row ${rowLabel}?\n\nThis cannot be undone.`)
     if (!confirmed) return
 
+    clearSaveTimer(record.receptionId)
     if (record.isNew) {
-      setRecords((current) => current.filter((item) => item.receptionId !== record.receptionId))
+      commitRecords(recordsRef.current.filter((item) => item.receptionId !== record.receptionId))
+      forgetRecord(record.receptionId)
       return
     }
-    setSavingId(record.receptionId)
+    deletingRowsRef.current.add(record.receptionId)
+    setDeletingId(record.receptionId)
     setError('')
     try {
       const response = await fetch(appPath(`/api/milk-receptions/${encodeURIComponent(record.receptionId)}`), { method: 'DELETE' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not delete milk reception.')
-      setRecords((current) => current.filter((item) => item.receptionId !== record.receptionId))
+      commitRecords(recordsRef.current.filter((item) => item.receptionId !== record.receptionId))
+      forgetRecord(record.receptionId)
       setNotice(`Reception ${record.receptionId} deleted.`)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete milk reception.')
+      deletingRowsRef.current.delete(record.receptionId)
+      if ((revisionsRef.current.get(record.receptionId) || 0) > (savedRevisionsRef.current.get(record.receptionId) || 0)) {
+        scheduleAutoSave(record.receptionId)
+      }
     } finally {
-      setSavingId('')
+      deletingRowsRef.current.delete(record.receptionId)
+      setDeletingId('')
     }
   }
 
@@ -969,7 +1175,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   function findDuplicateReception(record: MilkReceptionRecord) {
     const key = receptionCombinationKey(record)
     if (!key) return null
-    return records.find((item) => item.receptionId !== record.receptionId && receptionCombinationKey(item) === key) || null
+    return recordsRef.current.find((item) => item.receptionId !== record.receptionId && receptionCombinationKey(item) === key) || null
   }
 
   function renderWeightInput(record: MilkReceptionRecord, field: WeightField) {
@@ -1003,7 +1209,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     <div className="app-shell reception-screen">
       <header className="app-topbar workflow-topbar reception-topbar">
         <div className="reception-topbar-left">
-          <button className="back-button" type="button" onClick={onBack}>Back</button>
+          <button className="back-button" type="button" onClick={handleBack}>Back</button>
           <div>
             <p className="topbar-label">Factory workflow</p>
             <h1>Milk Reception</h1>
@@ -1225,7 +1431,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   const filteredTruckOptions = truckOptionsForCategory(record.vehicleCategory)
                   const routeOptions = routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory)
                   return (
-                    <Fragment key={record.receptionId}>
+                    <Fragment key={record.clientKey || record.receptionId}>
                       <tr className={statusClass(computed.combinationDiagnosis)}>
                         <td>
                           <button className="reception-expand" type="button" onClick={() => expanded ? setExpandedId('') : expandReceptionDetails(record.receptionId)} aria-label={expanded ? 'Collapse row' : 'Expand row'}>
@@ -1278,10 +1484,18 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         <td><span className="reception-status">{computed.combinationDiagnosis}</span></td>
                         <td>
                           <div className="reception-actions">
-                            <button type="button" title="Save" aria-label="Save reception row" onClick={() => void saveRecord(computed)} disabled={savingId === record.receptionId}>
-                              {savingId === record.receptionId ? '...' : <SaveIcon />}
+                            <button type="button" title="Save now" aria-label="Save reception row" onClick={() => void saveRecord(record.receptionId, 'manual')} disabled={saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}>
+                              {saveStates[record.receptionId]?.status === 'saving' ? '...' : <SaveIcon />}
                             </button>
-                            <button type="button" className="danger" title="Delete" aria-label="Delete reception row" onClick={() => void deleteRecord(record)} disabled={savingId === record.receptionId}><TrashIcon /></button>
+                            <button type="button" className="danger" title="Delete" aria-label="Delete reception row" onClick={() => void deleteRecord(record)} disabled={saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}><TrashIcon /></button>
+                            {saveStates[record.receptionId] && (
+                              <span className={`reception-save-state ${saveStates[record.receptionId].status}`} role="status" title={saveStates[record.receptionId].message || undefined}>
+                                {saveStates[record.receptionId].status === 'waiting' ? 'Needs details' :
+                                  saveStates[record.receptionId].status === 'pending' ? 'Unsaved' :
+                                    saveStates[record.receptionId].status === 'saving' ? 'Saving...' :
+                                      saveStates[record.receptionId].status === 'saved' ? 'Saved' : 'Save failed'}
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>

@@ -493,7 +493,7 @@
 .reception-table th:nth-child(13) { width: 112px; }
 .reception-table th:nth-child(14) { width: 180px; }
 .reception-table th:nth-child(15) { width: 185px; }
-.reception-table th:nth-child(16) { width: 78px; }
+.reception-table th:nth-child(16) { width: 112px; }
 
 .reception-table input,
 .reception-table select {
@@ -653,6 +653,20 @@
   cursor: not-allowed;
   opacity: 0.62;
 }
+
+.reception-save-state {
+  grid-column: 1 / -1;
+  min-height: 16px;
+  text-align: center;
+  font-size: .68rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #52695b;
+}
+
+.reception-save-state.saved { color: #17613a; }
+.reception-save-state.error,
+.reception-save-state.waiting { color: #9d342d; }
 
 .reception-status {
   display: inline-flex;
