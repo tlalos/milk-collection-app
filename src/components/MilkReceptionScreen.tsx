@@ -34,6 +34,7 @@ type VehicleCategory = 'COLLECTION' | 'OTHER'
 type QualityDetailType = 'ORIGINAL' | 'CUSTOM'
 type DetailSectionType = 'RECONCILIATION' | QualityDetailType
 type WeightField = 'fullTruckWeightKg' | 'emptyTruckWeightKg'
+type WeightSource = 'SCALE' | 'MANUAL'
 type WeighbridgeSource = 'server' | 'local-agent'
 type ReceptionSaveStatus = 'waiting' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -115,8 +116,12 @@ interface MilkReceptionRecord {
   densityFactor: number | string
   fullTruckWeightKg: number | string | null
   fullTruckWeighedAt: string
+  fullTruckWeightSource: WeightSource | null
+  fullTruckScaleCaptureId?: string
   emptyTruckWeightKg: number | string | null
   emptyTruckWeighedAt: string
+  emptyTruckWeightSource: WeightSource | null
+  emptyTruckScaleCaptureId?: string
   netQuantityKg: number | null
   calculatedLiters: number | null
   deliveryCategory: string
@@ -146,6 +151,41 @@ interface MilkReceptionRecord {
   createdAt?: string
   updatedAt?: string
   isNew?: boolean
+}
+
+interface WeightHistoryEvent {
+  eventId: string
+  weightKind: 'FULL' | 'EMPTY'
+  source: WeightSource
+  weightKg: number | null
+  previousWeightKg: number | null
+  previousSource: WeightSource | null
+  scaleCapturedAt: string | null
+  recordedAt: string
+  username: string
+}
+
+interface WeightHistoryState {
+  entries: WeightHistoryEvent[]
+  nextBeforeId: string | null
+  loading: boolean
+  error: string
+}
+
+function groupWeightHistory(entries: WeightHistoryEvent[]) {
+  const groups: WeightHistoryEvent[][] = []
+  for (const event of entries) {
+    const group = groups[groups.length - 1]
+    const previous = group?.[group.length - 1]
+    const closeInTime = previous && Math.abs(Date.parse(previous.recordedAt) - Date.parse(event.recordedAt)) <= 120000
+    if (group && previous?.source === 'MANUAL' && event.source === 'MANUAL' &&
+      previous.weightKind === event.weightKind && previous.username === event.username && closeInTime) {
+      group.push(event)
+    } else {
+      groups.push([event])
+    }
+  }
+  return groups
 }
 
 const defaultOptions: MilkReceptionOptions = {
@@ -338,6 +378,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
+  const [weightHistory, setWeightHistory] = useState<Record<string, WeightHistoryState>>({})
+  const [weightHistoryOpenId, setWeightHistoryOpenId] = useState('')
 
   useEffect(() => {
     void fetch(appPath('/api/activity/page-open'), {
@@ -651,8 +693,10 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         densityFactor: milk.densityFactor,
         fullTruckWeightKg: '',
         fullTruckWeighedAt: '',
+        fullTruckWeightSource: null,
         emptyTruckWeightKg: '',
         emptyTruckWeighedAt: '',
+        emptyTruckWeightSource: null,
         netQuantityKg: null,
         calculatedLiters: null,
         deliveryCategory: 'COLLECTION',
@@ -746,9 +790,13 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       if (!Number.isFinite(weight)) throw new Error('The scale returned a value that could not be used.')
       if (reading.stable === false) throw new Error('The scale reading is not stable yet.')
       const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
+      const sourceField = field === 'fullTruckWeightKg' ? 'fullTruckWeightSource' : 'emptyTruckWeightSource'
+      const captureField = field === 'fullTruckWeightKg' ? 'fullTruckScaleCaptureId' : 'emptyTruckScaleCaptureId'
       const validation = updateRecord(id, {
         [field]: String(weight),
         [timestampField]: localDateTimeText(reading.capturedAt),
+        [sourceField]: 'SCALE',
+        [captureField]: crypto.randomUUID(),
       } as Partial<MilkReceptionRecord>, true)
       setNotice(validation
         ? `${label} filled from scale: ${formatNumber(weight, 0)} kg. ${validation} It will save when the row is complete.`
@@ -758,6 +806,34 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       setNotice('')
     } finally {
       setScaleReadingTarget('')
+    }
+  }
+
+  async function loadWeightHistory(id: string, beforeId: string | null = null) {
+    setWeightHistory((current) => ({
+      ...current,
+      [id]: { entries: current[id]?.entries || [], nextBeforeId: current[id]?.nextBeforeId || null, loading: true, error: '' },
+    }))
+    try {
+      const params = beforeId ? `?beforeId=${encodeURIComponent(beforeId)}` : ''
+      const response = await fetch(appPath(`/api/milk-receptions/${encodeURIComponent(id)}/weight-events${params}`))
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not load weight history.')
+      setWeightHistory((current) => ({
+        ...current,
+        [id]: {
+          entries: beforeId ? [...(current[id]?.entries || []), ...(payload.entries || [])] : payload.entries || [],
+          nextBeforeId: payload.nextBeforeId || null,
+          loading: false,
+          error: '',
+        },
+      }))
+    } catch (loadError) {
+      setWeightHistory((current) => ({
+        ...current,
+        [id]: { entries: current[id]?.entries || [], nextBeforeId: current[id]?.nextBeforeId || null, loading: false,
+          error: loadError instanceof Error ? loadError.message : 'Could not load weight history.' },
+      }))
     }
   }
 
@@ -963,6 +1039,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not save milk reception.')
+      if (payload.linkWarning) setError(`Reception saved, but Daily Aviz links could not be updated: ${payload.linkWarning}`)
       const savedRecord = { ...payload.record, qualityDetails: normalizeQualityDetails(payload.record.qualityDetails), isNew: false }
       savedId = savedRecord.receptionId
       const currentRevision = revisionsRef.current.get(id) || 0
@@ -1001,6 +1078,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         })
       }
       setRowSaveState(savedId, needsResave ? 'pending' : 'saved')
+      if (weightHistoryOpenId === savedId) void loadWeightHistory(savedId)
       if (!needsResave && reason !== 'auto') setNotice(`Reception ${savedId} saved.`)
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save milk reception.'
@@ -1046,6 +1124,54 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       deletingRowsRef.current.delete(record.receptionId)
       setDeletingId('')
     }
+  }
+
+  function renderWeightHistorySection(record: MilkReceptionRecord) {
+    const history = weightHistory[record.receptionId]
+    const groups = groupWeightHistory(history?.entries || [])
+    const weightText = (value: number | null) => value == null ? 'Cleared' : `${value.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg`
+    const timeText = (value: string) => new Date(value).toLocaleString()
+    return (
+      <details
+        className="detail-section-card reception-weight-history"
+        open={weightHistoryOpenId === record.receptionId}
+        onToggle={(event) => {
+          if (event.currentTarget.open) {
+            setWeightHistoryOpenId(record.receptionId)
+            if (!history) void loadWeightHistory(record.receptionId)
+          } else if (weightHistoryOpenId === record.receptionId) {
+            setWeightHistoryOpenId('')
+          }
+        }}
+      >
+        <summary className="detail-section-summary">Weight history{history?.entries.length ? ` · ${history.entries.length} saved changes` : ''}</summary>
+        {history?.error && <p role="alert" className="reception-history-error">{history.error}</p>}
+        {history?.loading && <p>Loading weight history...</p>}
+        {!history?.loading && !history?.entries.length && !history?.error && <p>No saved weight changes recorded yet. Earlier weights may predate this history.</p>}
+        {groups.length > 0 && <div className="reception-history-list">
+          {groups.map((group) => {
+            const newest = group[0]
+            const oldest = group[group.length - 1]
+            return <div className="reception-history-item" key={newest.eventId}>
+              <span className="reception-history-time">{timeText(newest.recordedAt)}</span>
+              <strong>{newest.weightKind === 'FULL' ? 'Full kg' : 'Empty kg'}</strong>
+              <span>{newest.source === 'SCALE' ? 'Scale' : 'Manual'}</span>
+              <span>{weightText(oldest.previousWeightKg)} → {weightText(newest.weightKg)}</span>
+              <span>{newest.username || 'Unknown user'}</span>
+              {newest.source === 'SCALE' && newest.scaleCapturedAt && <small>Scale at {formatWeightTime(newest.scaleCapturedAt)}</small>}
+              {group.length > 1 && <details className="reception-history-intermediate">
+                <summary>{group.length} quick saves · show individual changes</summary>
+                {group.map((event) => <div key={event.eventId}>
+                  <time>{timeText(event.recordedAt)}</time>
+                  <span>{weightText(event.previousWeightKg)} → {weightText(event.weightKg)}</span>
+                </div>)}
+              </details>}
+            </div>
+          })}
+        </div>}
+        {history?.nextBeforeId && <button type="button" className="reception-history-more" disabled={history.loading} onClick={() => void loadWeightHistory(record.receptionId, history.nextBeforeId)}>Load older changes</button>}
+      </details>
+    )
   }
 
   function renderQualitySection(record: MilkReceptionRecord, detailType: QualityDetailType, title: string) {
@@ -1182,15 +1308,26 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const target = `${record.receptionId}:${field}`
     const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
     const weighedAt = field === 'fullTruckWeightKg' ? record.fullTruckWeighedAt : record.emptyTruckWeighedAt
+    const source = field === 'fullTruckWeightKg' ? record.fullTruckWeightSource : record.emptyTruckWeightSource
+    const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
+    const sourceField = field === 'fullTruckWeightKg' ? 'fullTruckWeightSource' : 'emptyTruckWeightSource'
+    const captureField = field === 'fullTruckWeightKg' ? 'fullTruckScaleCaptureId' : 'emptyTruckScaleCaptureId'
     return (
       <div className="reception-weight-entry">
         <div className="reception-weight-input-stack">
           <input
             inputMode="decimal"
             value={record[field] ?? ''}
-            onChange={(event) => updateRecord(record.receptionId, { [field]: event.target.value } as Partial<MilkReceptionRecord>)}
+            onChange={(event) => updateRecord(record.receptionId, {
+              [field]: event.target.value,
+              [timestampField]: '',
+              [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
+              [captureField]: '',
+            } as Partial<MilkReceptionRecord>)}
           />
-          {weighedAt && <small>{formatWeightTime(weighedAt)}</small>}
+          {numberValue(record[field]) !== null && <small title={source === 'SCALE' && weighedAt ? `Scale reading at ${formatWeightTime(weighedAt)}` : undefined}>
+            {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown source'}
+          </small>}
         </div>
         <button
           type="button"
@@ -1504,6 +1641,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           <td colSpan={16}>
                             <div className="reception-details">
                               {renderReconciliationSection(computed)}
+                              {!record.isNew && renderWeightHistorySection(record)}
                               {renderQualitySection(record, 'ORIGINAL', 'Original values')}
                               {renderQualitySection(record, 'CUSTOM', 'Custom values')}
                             </div>

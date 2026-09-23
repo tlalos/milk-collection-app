@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
 
@@ -23,49 +23,10 @@ interface WebUser {
   roleKeys: string[]
 }
 
-interface AuditRow {
-  auditId: string
-  occurredAt: string
-  username: string
-  action: string
-  entityType: string
-  entityId: string
-  ipAddress: string
-  reason: string
-  changes: { field: string; before: string | number | null; after: string | number | null }[]
-}
-
-type ActivityArea = '' | 'reception' | 'deliveries'
-
-const actionNames: Record<string, string> = {
-  'auth.login.success': 'Signed in',
-  'auth.login.failed': 'Sign-in failed',
-  'auth.logout': 'Signed out',
-  'milk_reception.open': 'Opened Milk Reception',
-  'milk_reception.create': 'Created reception',
-  'milk_reception.create.failed': 'Could not create reception',
-  'milk_reception.update': 'Updated reception',
-  'milk_reception.update.failed': 'Could not update reception',
-  'milk_reception.delete': 'Deleted reception',
-  'milk_reception.delete.failed': 'Could not delete reception',
-  'milk_delivery.open': 'Opened Milk Deliveries',
-  'milk_delivery.create': 'Created delivery',
-  'milk_delivery.create.failed': 'Could not create delivery',
-  'milk_delivery.update': 'Updated delivery',
-  'milk_delivery.update.failed': 'Could not update delivery',
-  'milk_delivery.delete': 'Deleted delivery',
-  'milk_delivery.delete.failed': 'Could not delete delivery',
-}
-
-function activityValue(value: string | number | null) {
-  return value === null || value === '' ? 'Empty' : String(value)
-}
-
 interface AdminData {
   users: WebUser[]
   roles: WebRole[]
   permissions: Permission[]
-  auditLog: AuditRow[]
 }
 
 const emptyUser: WebUser & { password: string } = {
@@ -86,7 +47,7 @@ const emptyRole: WebRole = {
 }
 
 export function WebUsersScreen({ onBack }: { onBack: () => void }) {
-  const [data, setData] = useState<AdminData>({ users: [], roles: [], permissions: [], auditLog: [] })
+  const [data, setData] = useState<AdminData>({ users: [], roles: [], permissions: [] })
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userDraft, setUserDraft] = useState(emptyUser)
   const [roleDraft, setRoleDraft] = useState(emptyRole)
@@ -94,50 +55,12 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [activityArea, setActivityArea] = useState<ActivityArea>('')
-  const [activityUsername, setActivityUsername] = useState('')
-  const [activity, setActivity] = useState<AuditRow[]>([])
-  const [activityCursor, setActivityCursor] = useState<string | null>(null)
-  const [activityLoading, setActivityLoading] = useState(false)
-  const [activityError, setActivityError] = useState('')
-  const activityRequestId = useRef(0)
 
   const editableRoles = useMemo(() => data.roles.filter((role) => role.roleKey !== 'admin'), [data.roles])
 
   useEffect(() => {
     void loadData()
   }, [])
-
-  const loadActivity = useCallback(async (beforeId: string | null) => {
-    const reset = beforeId === null
-    const requestId = ++activityRequestId.current
-    setActivityLoading(true)
-    setActivityError('')
-    if (reset) {
-      setActivity([])
-      setActivityCursor(null)
-    }
-    try {
-      const params = new URLSearchParams()
-      if (activityArea) params.set('area', activityArea)
-      if (activityUsername) params.set('username', activityUsername)
-      if (beforeId) params.set('beforeId', beforeId)
-      const response = await fetch(appPath(`/api/web-users/activity?${params.toString()}`))
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.error || 'Could not load activity.')
-      if (requestId !== activityRequestId.current) return
-      setActivity((current) => reset ? payload.entries : [...current, ...payload.entries])
-      setActivityCursor(payload.nextBeforeId)
-    } catch (loadError) {
-      if (requestId === activityRequestId.current) setActivityError(loadError instanceof Error ? loadError.message : 'Could not load activity.')
-    } finally {
-      if (requestId === activityRequestId.current) setActivityLoading(false)
-    }
-  }, [activityArea, activityUsername])
-
-  useEffect(() => {
-    void loadActivity(null)
-  }, [loadActivity])
 
   async function loadData() {
     setLoading(true)
@@ -254,6 +177,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
           <span>Administration</span>
           <h1>Web Users</h1>
         </div>
+        <button className="web-users-history-link" type="button" onClick={() => { window.location.href = appPath('/web-users/history') }}>User log history</button>
       </header>
 
       <main className="web-users-main">
@@ -346,52 +270,6 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
           </div>
         </section>
 
-        <section className="web-users-panel">
-          <div className="web-users-panel-title">
-            <h2>Recent Activity</h2>
-            <div className="web-users-activity-tools">
-              <select aria-label="Activity user" value={activityUsername} onChange={(event) => setActivityUsername(event.target.value)}>
-                <option value="">All users</option>
-                {data.users.map((user) => <option key={user.userId} value={user.username}>{user.fullName || user.username}</option>)}
-              </select>
-              <select aria-label="Activity area" value={activityArea} onChange={(event) => setActivityArea(event.target.value as ActivityArea)}>
-                <option value="">All activity</option>
-                <option value="reception">Milk Reception</option>
-                <option value="deliveries">Milk Deliveries</option>
-              </select>
-              <button type="button" onClick={() => void loadActivity(null)} disabled={activityLoading}>Refresh</button>
-            </div>
-          </div>
-          {activityError && <div className="web-users-alert error" role="alert">{activityError}</div>}
-          <div className="web-users-audit">
-            {activity.map((row) => (
-              <div key={row.auditId} className="web-users-audit-entry">
-                <div className="web-users-audit-row">
-                  <span>{new Date(row.occurredAt).toLocaleString()}</span>
-                  <strong>{row.username || '-'}</strong>
-                  <em>{actionNames[row.action] || row.action}</em>
-                  <small>{row.entityId || (row.entityType === 'MilkReception' ? 'Milk Reception' : row.entityType === 'MilkDelivery' ? 'Milk Deliveries' : row.entityType)}</small>
-                </div>
-                {row.reason && <p className="web-users-audit-reason">{row.reason}</p>}
-                {row.changes.length > 0 && (
-                  <details className="web-users-audit-details">
-                    <summary>{row.changes.length} field{row.changes.length === 1 ? '' : 's'} {row.action.endsWith('.create') ? 'recorded' : row.action.endsWith('.delete') ? 'removed' : 'changed'}</summary>
-                    <div className="web-users-audit-changes">
-                      {row.changes.map((change) => (
-                        <div className="web-users-audit-change" key={change.field}>
-                          <strong>{change.field}</strong>
-                          {row.action.endsWith('.create') ? <span>{activityValue(change.after)}</span> : row.action.endsWith('.delete') ? <span>{activityValue(change.before)}</span> : <span>{activityValue(change.before)} <span aria-hidden="true">→</span> {activityValue(change.after)}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </div>
-            ))}
-            {!activityLoading && activity.length === 0 && !activityError && <p className="web-users-muted web-users-audit-empty">No activity found.</p>}
-          </div>
-          {activityCursor && <div className="web-users-audit-more"><button type="button" onClick={() => void loadActivity(activityCursor)} disabled={activityLoading}>{activityLoading ? 'Loading...' : 'Load older activity'}</button></div>}
-        </section>
       </main>
     </div>
   )

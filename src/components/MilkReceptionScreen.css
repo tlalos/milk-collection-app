@@ -528,8 +528,8 @@
 
 .reception-weight-input-stack small {
   color: #5f7066;
-  font-size: 0.56rem;
-  font-weight: 800;
+  font-size: 0.65rem;
+  font-weight: 700;
   line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -752,6 +752,75 @@
   border-left: 4px solid #1a6b3c;
   background: #fbfdfc;
   box-sizing: border-box;
+}
+
+.reception-weight-history {
+  border: 1px solid #d8e5dd;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.reception-weight-history > p {
+  margin: 10px 0 2px;
+  color: #53645b;
+  font-size: 0.78rem;
+}
+
+.reception-weight-history .reception-history-error {
+  color: #9d342d;
+}
+
+.reception-history-list {
+  margin-top: 10px;
+  border-top: 1px solid #e2eae5;
+}
+
+.reception-history-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 75px 68px minmax(140px, 1.3fr) minmax(90px, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid #e2eae5;
+  font-size: 0.76rem;
+}
+
+.reception-history-time,
+.reception-history-item small {
+  color: #53645b;
+}
+
+.reception-history-item small,
+.reception-history-intermediate {
+  grid-column: 1 / -1;
+}
+
+.reception-history-intermediate summary {
+  cursor: pointer;
+  color: #175b38;
+  font-weight: 700;
+}
+
+.reception-history-intermediate div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 0 0 12px;
+}
+
+.reception-history-more {
+  margin-top: 10px;
+}
+
+@media (max-width: 700px) {
+  .reception-history-item {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .reception-history-time,
+  .reception-history-intermediate {
+    grid-column: 1 / -1;
+  }
 }
 
 .quality-detail-card {

@@ -66,6 +66,8 @@ import {
   importMilkReceptionRouteSettings,
   listMilkReceptionDrivers,
   listMilkReceptionRouteSettings,
+  listMilkReceptionWeightHistoryForAdmin,
+  listMilkReceptionWeightEvents,
   listMilkReceptions,
   milkReceptionOptions,
   replaceMilkReceptionTruckRoutes,
@@ -73,6 +75,12 @@ import {
   upsertMilkReceptionDriver,
   upsertMilkReceptionRouteSetting,
 } from './milkReceptionStore.js'
+import {
+  initializeDailyReconciliationLinks,
+  listDailyReconciliationLinks,
+  reconcileAllDailyReconciliationLinks,
+  refreshDailyReconciliationLinksForDates,
+} from './dailyReconciliationLinkStore.js'
 import {
   createMilkDelivery,
   deleteMilkDelivery,
@@ -963,6 +971,16 @@ async function attachMilkReceptionReconciliations(records) {
   }))
 }
 
+async function refreshSavedDailyLinks(dates) {
+  try {
+    await refreshDailyReconciliationLinksForDates(dates)
+    return null
+  } catch (error) {
+    console.error('[Daily reconciliation] Could not refresh saved links:', error)
+    return error instanceof Error ? error.message : 'Could not refresh saved daily reconciliation links.'
+  }
+}
+
 app.use((request, response, next) => {
   const origin = request.headers.origin
   if (origin && localDevOrigins.has(origin)) {
@@ -1085,7 +1103,34 @@ app.get('/api/web-users/activity', requirePermission('app_admin'), async (reques
     if (!['', 'reception', 'deliveries'].includes(area)) return response.status(400).json({ error: 'Unknown activity area.' })
     const cursor = String(request.query.beforeId || '')
     if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) return response.status(400).json({ error: 'Invalid activity cursor.' })
-    response.json(await listAuditActivity({ area, username: String(request.query.username || '').slice(0, 160), beforeId: cursor ? Number(cursor) : null }))
+    response.json(await listAuditActivity({
+      area,
+      username: String(request.query.username || '').slice(0, 160),
+      entityId: String(request.query.entityId || '').slice(0, 240),
+      beforeId: cursor ? Number(cursor) : null,
+    }))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/web-users/weight-history', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const source = String(request.query.source || '')
+    const weightKind = String(request.query.weightKind || '')
+    const cursor = String(request.query.beforeId || '')
+    if (!['', 'SCALE', 'MANUAL'].includes(source)) return response.status(400).json({ error: 'Unknown weight source.' })
+    if (!['', 'FULL', 'EMPTY'].includes(weightKind)) return response.status(400).json({ error: 'Unknown weight field.' })
+    if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) {
+      return response.status(400).json({ error: 'Invalid weight history cursor.' })
+    }
+    response.json(await listMilkReceptionWeightHistoryForAdmin({
+      username: String(request.query.username || '').slice(0, 160),
+      receptionId: String(request.query.receptionId || '').slice(0, 120),
+      source,
+      weightKind,
+      beforeId: cursor || null,
+    }))
   } catch (error) {
     next(error)
   }
@@ -1361,13 +1406,36 @@ app.get('/api/milk-receptions', async (request, response, next) => {
   }
 })
 
+app.get('/api/milk-receptions/:id/weight-events', async (request, response, next) => {
+  try {
+    const cursor = String(request.query.beforeId || '')
+    if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) {
+      return response.status(400).json({ error: 'Invalid weight history cursor.' })
+    }
+    response.json(await listMilkReceptionWeightEvents(request.params.id, cursor || null))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/api/daily-reconciliation/links', requirePermission('milk_reception'), requirePermission('ocr_documents'), async (request, response, next) => {
+  try {
+    const month = String(request.query.month || '')
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
+    response.json({ links: await listDailyReconciliationLinks(month) })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/milk-receptions', async (request, response, next) => {
   try {
     const user = request.authUser
     const record = await createMilkReception(request.body, user?.username || '')
+    const linkWarning = await refreshSavedDailyLinks([record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
     await auditAction({ request, user, action: 'milk_reception.create', entityType: 'MilkReception', entityId: record.receptionId, after: record })
-    response.status(201).json({ record: recordWithReconciliation })
+    response.status(201).json({ record: recordWithReconciliation, ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     await auditAction({ request, user: request.authUser, action: 'milk_reception.create.failed', entityType: 'MilkReception', metadata: { reason: auditFailureReason(error) } })
     next(error)
@@ -1380,9 +1448,10 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
     const before = await getMilkReception(request.params.id)
     const record = await updateMilkReception(request.params.id, request.body, user?.username || '')
     if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
+    const linkWarning = await refreshSavedDailyLinks([before?.receptionDate, record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
     await auditAction({ request, user, action: 'milk_reception.update', entityType: 'MilkReception', entityId: request.params.id, before, after: record })
-    response.json({ record: recordWithReconciliation })
+    response.json({ record: recordWithReconciliation, ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     await auditAction({ request, user: request.authUser, action: 'milk_reception.update.failed', entityType: 'MilkReception', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
@@ -1394,8 +1463,9 @@ app.delete('/api/milk-receptions/:id', async (request, response, next) => {
     const before = await getMilkReception(request.params.id)
     const deleted = await deleteMilkReception(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'Milk reception record not found.' })
+    const linkWarning = await refreshSavedDailyLinks([before?.receptionDate])
     await auditAction({ request, user: request.authUser, action: 'milk_reception.delete', entityType: 'MilkReception', entityId: request.params.id, before })
-    response.json({ deleted: true })
+    response.json({ deleted: true, ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     await auditAction({ request, user: request.authUser, action: 'milk_reception.delete.failed', entityType: 'MilkReception', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
     next(error)
@@ -1598,9 +1668,10 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
       const publicJob = toPublicJob(job, false)
       const dataRows = Array.isArray(job.data?.rows) ? job.data.rows : []
       const receptionMatch = receptionMatchForJob(job)
-      return dataRows.map((row) => ({
+      return dataRows.map((row, rowIndex) => ({
         id: `${job.id}-${row.rowNumber}`,
         jobId: job.id,
+        rowIndex,
         sourceFile: job.sourceFile,
         fileUrl: publicJob.fileUrl,
         documentDate: job.data?.date ?? null,
@@ -1928,9 +1999,11 @@ app.get('/api/ocr/jobs/:id', async (request, response, next) => {
 
 app.delete('/api/ocr/jobs/:id', async (request, response, next) => {
   try {
+    const current = await getJob(request.params.id)
     const deleted = await deleteJob(request.params.id)
     if (!deleted) return response.status(404).json({ error: 'OCR job not found.' })
-    response.json({ deleted: true })
+    const linkWarning = current?.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([current?.data?.date])
+    response.json({ deleted: true, ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
   }
@@ -2061,7 +2134,8 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
       ? request.body.erpExport
       : current.erpExport
     const job = await updateJob(current.id, { data, centerMatches, driverMatch, vehicleMatch, routeMatch, erpExport })
-    response.json({ job: toPublicJob(job, true) })
+    const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([current.data?.date, job.data?.date])
+    response.json({ job: toPublicJob(job, true), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
   }
@@ -2150,8 +2224,9 @@ app.patch('/api/ocr/jobs/:id/review', async (request, response, next) => {
         ? { status: 'not_ready', reviewedWithoutExportAt: new Date().toISOString(), error: null }
         : { status: 'queued', queuedAt: new Date().toISOString(), error: null },
     })
+    const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([job.data?.date])
     if (!skipExcel) enqueueExcelExport(current.id)
-    response.json({ job: toPublicJob(job, true) })
+    response.json({ job: toPublicJob(job, true), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
   }
@@ -2240,7 +2315,8 @@ app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next)
       rowValueSources,
       rowValueSourceError,
     })
-    response.json({ job: toPublicJob(job, true) })
+    const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([current.data?.date, job.data?.date])
+    response.json({ job: toPublicJob(job, true), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
   }
@@ -2279,8 +2355,9 @@ app.post('/api/ocr/jobs/:id/reprocess', async (request, response, next) => {
       rowValueSourceError: null,
       error: null,
     })
+    const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([current.data?.date])
     enqueueOcrJob(current.id)
-    response.status(202).json({ job: toPublicJob(job, false) })
+    response.status(202).json({ job: toPublicJob(job, false), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
   }
@@ -2315,6 +2392,9 @@ await initializeAuthStore()
 await initializeJobStore()
 await initializeOcrSettingsStore()
 await initializeMilkDeliveryStore()
+await initializeDailyReconciliationLinks()
+const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()
+console.log(`[Daily reconciliation] ${restoredDailyLinks} reviewed aviz lines linked to COLLECTION receptions`)
 await resumePendingJobs()
 await resumeExcelExports()
 startOcrArchiveCleanup()

@@ -406,18 +406,20 @@ ORDER BY occurredAt DESC;
   }
 }
 
-export async function listAuditActivity({ area = '', username = '', beforeId = null } = {}) {
+export async function listAuditActivity({ area = '', username = '', entityId = '', beforeId = null } = {}) {
   await initializeAuthStore()
   const entityType = area === 'reception' ? 'MilkReception' : area === 'deliveries' ? 'MilkDelivery' : ''
   const result = await (await getPool()).request()
     .input('entityType', sql.NVarChar(120), entityType)
     .input('username', sql.NVarChar(160), username)
+    .input('entityId', sql.NVarChar(240), entityId)
     .input('beforeId', sql.BigInt, beforeId)
     .query(`
 SELECT TOP (51) auditId, occurredAt, username, action, entityType, entityId, ipAddress, beforeJson, afterJson, metadataJson
 FROM dbo.AppAuditLog
 WHERE (@entityType = N'' OR entityType = @entityType)
   AND (@username = N'' OR username = @username)
+  AND (@entityId = N'' OR CHARINDEX(@entityId, entityId) > 0)
   AND (@beforeId IS NULL OR auditId < @beforeId)
 ORDER BY auditId DESC;
 `)

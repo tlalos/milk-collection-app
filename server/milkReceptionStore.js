@@ -1,4 +1,6 @@
 import sql from 'mssql'
+import { receptionWeightEvents } from './receptionWeightHistory.js'
+import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 
 let poolPromise = null
 let initialized = false
@@ -50,6 +52,11 @@ async function getPool() {
   return poolPromise
 }
 
+export async function getMilkReceptionPool() {
+  await initializeMilkReceptionStore()
+  return getPool()
+}
+
 function duplicateReceptionError(existingId = '') {
   const suffix = existingId ? ` Existing reception: ${existingId}.` : ''
   const error = new Error(`A milk reception already exists for this date, truck, category, and route.${suffix}`)
@@ -88,8 +95,10 @@ BEGIN
     densityFactor DECIMAL(18,6) NOT NULL,
     fullTruckWeightKg DECIMAL(18,3) NULL,
     fullTruckWeighedAt DATETIME2 NULL,
+    fullTruckWeightSource NVARCHAR(10) NULL,
     emptyTruckWeightKg DECIMAL(18,3) NULL,
     emptyTruckWeighedAt DATETIME2 NULL,
+    emptyTruckWeightSource NVARCHAR(10) NULL,
     netQuantityKg DECIMAL(18,3) NULL,
     calculatedLiters DECIMAL(18,3) NULL,
     deliveryCategory NVARCHAR(40) NOT NULL,
@@ -164,6 +173,32 @@ BEGIN
   );
 END;
 
+IF OBJECT_ID(N'dbo.MilkReceptionWeightEvents', N'U') IS NULL
+BEGIN
+  -- Keep weight events even if the reception row is later deleted.
+  CREATE TABLE dbo.MilkReceptionWeightEvents (
+    eventId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_MilkReceptionWeightEvents PRIMARY KEY,
+    receptionId NVARCHAR(120) NOT NULL,
+    weightKind NVARCHAR(10) NOT NULL,
+    source NVARCHAR(10) NOT NULL,
+    weightKg DECIMAL(18,3) NULL,
+    previousWeightKg DECIMAL(18,3) NULL,
+    previousSource NVARCHAR(10) NULL,
+    scaleCapturedAt DATETIME2 NULL,
+    recordedAt DATETIMEOFFSET NOT NULL,
+    username NVARCHAR(160) NULL,
+    captureId NVARCHAR(100) NULL,
+    CONSTRAINT CK_MilkReceptionWeightEvents_Kind CHECK (weightKind IN (N'FULL', N'EMPTY')),
+    CONSTRAINT CK_MilkReceptionWeightEvents_Source CHECK (source IN (N'SCALE', N'MANUAL'))
+  );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkReceptionWeightEvents_Reception' AND object_id = OBJECT_ID(N'dbo.MilkReceptionWeightEvents'))
+  CREATE INDEX IX_MilkReceptionWeightEvents_Reception ON dbo.MilkReceptionWeightEvents(receptionId, eventId DESC);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkReceptionWeightEvents_Capture' AND object_id = OBJECT_ID(N'dbo.MilkReceptionWeightEvents'))
+  CREATE UNIQUE INDEX UX_MilkReceptionWeightEvents_Capture ON dbo.MilkReceptionWeightEvents(captureId) WHERE captureId IS NOT NULL;
+
 IF COL_LENGTH(N'dbo.MilkReceptions', N'vehicleCategory') IS NULL
   ALTER TABLE dbo.MilkReceptions ADD vehicleCategory NVARCHAR(40) NOT NULL CONSTRAINT DF_MilkReceptions_VehicleCategory DEFAULT N'COLLECTION';
 
@@ -206,8 +241,14 @@ IF COL_LENGTH(N'dbo.MilkReceptions', N'driverName') IS NULL
 IF COL_LENGTH(N'dbo.MilkReceptions', N'fullTruckWeighedAt') IS NULL
   ALTER TABLE dbo.MilkReceptions ADD fullTruckWeighedAt DATETIME2 NULL;
 
+IF COL_LENGTH(N'dbo.MilkReceptions', N'fullTruckWeightSource') IS NULL
+  ALTER TABLE dbo.MilkReceptions ADD fullTruckWeightSource NVARCHAR(10) NULL;
+
 IF COL_LENGTH(N'dbo.MilkReceptions', N'emptyTruckWeighedAt') IS NULL
   ALTER TABLE dbo.MilkReceptions ADD emptyTruckWeighedAt DATETIME2 NULL;
+
+IF COL_LENGTH(N'dbo.MilkReceptions', N'emptyTruckWeightSource') IS NULL
+  ALTER TABLE dbo.MilkReceptions ADD emptyTruckWeightSource NVARCHAR(10) NULL;
 
 IF COL_LENGTH(N'dbo.MilkReceptionRouteSettings', N'vehicleCategory') IS NULL
   ALTER TABLE dbo.MilkReceptionRouteSettings ADD vehicleCategory NVARCHAR(40) NOT NULL CONSTRAINT DF_MilkReceptionRouteSettings_VehicleCategory DEFAULT N'COLLECTION';
@@ -409,7 +450,7 @@ VALUES (
     }
     await transaction.commit()
   } catch (error) {
-    await transaction.rollback()
+    await transaction.rollback().catch(() => undefined)
     throw error
   }
 
@@ -490,7 +531,9 @@ export async function createMilkReception(input, username = '') {
   await assertUniqueReceptionCombination(pool, record)
   record.receptionId = await nextReceptionId(pool, record)
   const now = new Date()
-  const request = pool.request()
+  const transaction = new sql.Transaction(pool)
+  await transaction.begin()
+  const request = new sql.Request(transaction)
   bindReception(request, record)
   request
     .input('createdAt', sql.DateTimeOffset, now)
@@ -499,7 +542,10 @@ export async function createMilkReception(input, username = '') {
     .input('updatedBy', sql.NVarChar(160), username || null)
   try {
     await request.query(insertSql())
+    await saveWeightEvents(transaction, record.receptionId, null, record, input, username, now)
+    await transaction.commit()
   } catch (error) {
+    await transaction.rollback().catch(() => undefined)
     if (isDuplicateKeyError(error)) throw duplicateReceptionError()
     throw error
   }
@@ -511,25 +557,111 @@ export async function updateMilkReception(id, input, username = '') {
   await initializeMilkReceptionStore()
   const existing = await getMilkReception(id)
   if (!existing) return null
-  const record = normalizeReception({ ...existing, ...input, receptionId: id })
+  const record = normalizeReception({ ...existing, ...input, receptionId: id }, existing)
   if (record.vehicleCategory === 'OTHER') {
     record.routeId = existing.vehicleCategory === 'OTHER' ? existing.routeId : ''
   }
   const pool = await getPool()
   await assertUniqueReceptionCombination(pool, record, id)
-  const request = pool.request()
+  const transaction = new sql.Transaction(pool)
+  await transaction.begin()
+  const request = new sql.Request(transaction)
+  const now = new Date()
   bindReception(request, record)
   request
-    .input('updatedAt', sql.DateTimeOffset, new Date())
+    .input('updatedAt', sql.DateTimeOffset, now)
     .input('updatedBy', sql.NVarChar(160), username || null)
   try {
     await request.query(updateSql())
+    await saveWeightEvents(transaction, id, existing, record, input, username, now)
+    await transaction.commit()
   } catch (error) {
+    await transaction.rollback()
     if (isDuplicateKeyError(error)) throw duplicateReceptionError()
     throw error
   }
   await saveQualityDetails(pool, id, record.qualityDetails, username)
   return getMilkReception(id)
+}
+
+async function saveWeightEvents(transaction, receptionId, before, after, input, username, recordedAt) {
+  for (const event of receptionWeightEvents(before, after, input)) {
+    await new sql.Request(transaction)
+      .input('receptionId', sql.NVarChar(120), receptionId)
+      .input('weightKind', sql.NVarChar(10), event.weightKind)
+      .input('source', sql.NVarChar(10), event.source)
+      .input('weightKg', sql.Decimal(18, 3), event.weightKg)
+      .input('previousWeightKg', sql.Decimal(18, 3), event.previousWeightKg)
+      .input('previousSource', sql.NVarChar(10), event.previousSource)
+      .input('scaleCapturedAt', sql.NVarChar(40), event.scaleCapturedAt)
+      .input('recordedAt', sql.DateTimeOffset, recordedAt)
+      .input('username', sql.NVarChar(160), username || null)
+      .input('captureId', sql.NVarChar(100), event.captureId)
+      .query(`
+IF @captureId IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.MilkReceptionWeightEvents WHERE captureId = @captureId)
+  INSERT INTO dbo.MilkReceptionWeightEvents (
+    receptionId, weightKind, source, weightKg, previousWeightKg, previousSource,
+    scaleCapturedAt, recordedAt, username, captureId
+  ) VALUES (
+    @receptionId, @weightKind, @source, @weightKg, @previousWeightKg, @previousSource,
+    CONVERT(datetime2, @scaleCapturedAt, 126), @recordedAt, @username, @captureId
+  );
+`)
+  }
+}
+
+export async function listMilkReceptionWeightEvents(receptionId, beforeId = null) {
+  await initializeMilkReceptionStore()
+  const result = await (await getPool()).request()
+    .input('receptionId', sql.NVarChar(120), receptionId)
+    .input('beforeId', sql.BigInt, beforeId)
+    .query(`
+SELECT TOP (51) eventId, receptionId, weightKind, source, weightKg, previousWeightKg, previousSource, scaleCapturedAt, recordedAt, username
+FROM dbo.MilkReceptionWeightEvents
+WHERE receptionId = @receptionId AND (@beforeId IS NULL OR eventId < @beforeId)
+ORDER BY eventId DESC;
+`)
+  const hasMore = result.recordset.length > 50
+  const entries = result.recordset.slice(0, 50).map(weightEventToClient)
+  return { entries, nextBeforeId: hasMore ? entries.at(-1).eventId : null }
+}
+
+export async function listMilkReceptionWeightHistoryForAdmin({ username = '', receptionId = '', source = '', weightKind = '', beforeId = null } = {}) {
+  await initializeMilkReceptionStore()
+  const result = await (await getPool()).request()
+    .input('username', sql.NVarChar(160), username)
+    .input('receptionId', sql.NVarChar(120), receptionId)
+    .input('source', sql.NVarChar(10), source)
+    .input('weightKind', sql.NVarChar(10), weightKind)
+    .input('beforeId', sql.BigInt, beforeId)
+    .query(`
+SELECT TOP (51) eventId, receptionId, weightKind, source, weightKg, previousWeightKg, previousSource, scaleCapturedAt, recordedAt, username
+FROM dbo.MilkReceptionWeightEvents
+WHERE (@username = N'' OR username = @username)
+  AND (@receptionId = N'' OR CHARINDEX(@receptionId, receptionId) > 0)
+  AND (@source = N'' OR source = @source)
+  AND (@weightKind = N'' OR weightKind = @weightKind)
+  AND (@beforeId IS NULL OR eventId < @beforeId)
+ORDER BY eventId DESC;
+`)
+  const hasMore = result.recordset.length > 50
+  const entries = result.recordset.slice(0, 50).map(weightEventToClient)
+  return { entries, nextBeforeId: hasMore ? entries.at(-1).eventId : null }
+}
+
+function weightEventToClient(row) {
+  return {
+    eventId: String(row.eventId),
+    receptionId: row.receptionId,
+    weightKind: row.weightKind,
+    source: row.source,
+    weightKg: numberOrNull(row.weightKg),
+    previousWeightKg: numberOrNull(row.previousWeightKg),
+    previousSource: row.previousSource || null,
+    scaleCapturedAt: dateTimeSqlLocalString(row.scaleCapturedAt),
+    recordedAt: dateTimeString(row.recordedAt),
+    username: row.username || '',
+  }
 }
 
 export async function deleteMilkReception(id) {
@@ -650,14 +782,20 @@ function bindQualityDetail(request, receptionId, detailType, detail, now, userna
 }
 
 async function nextReceptionId(pool, record) {
+  const idPrefix = `PCC1-${compactDate(record.receptionDate)}-${idPart(record.vehicleRegistration)}-${idPart(record.routeId)}`
   const result = await pool.request()
     .input('date', sql.Date, isoDateValue(record.receptionDate))
     .input('vehicleRegistration', sql.NVarChar(80), record.vehicleRegistration)
     .input('routeId', sql.NVarChar(40), record.routeId)
+    .input('idPrefix', sql.NVarChar(115), idPrefix)
     .query(`
 SELECT receptionId
 FROM dbo.MilkReceptions
-WHERE receptionDate = @date AND vehicleRegistration = @vehicleRegistration AND routeId = @routeId;
+WHERE receptionDate = @date AND vehicleRegistration = @vehicleRegistration AND routeId = @routeId
+UNION
+SELECT receptionId
+FROM dbo.MilkReceptionWeightEvents
+WHERE receptionId LIKE @idPrefix + N'-%';
 `)
   const maxSequence = result.recordset.reduce((max, row) => {
     const match = String(row.receptionId || '').match(/-(\d{3})$/u)
@@ -687,7 +825,7 @@ WHERE receptionDate = @date
   if (existingId) throw duplicateReceptionError(existingId)
 }
 
-function normalizeReception(input) {
+function normalizeReception(input, existing = null) {
   const milkType = String(input.milkType || 'MILK-COW').trim()
   const milkOption = milkReceptionOptions.milkTypes.find((item) => item.code === milkType) || milkReceptionOptions.milkTypes[0]
   const densityFactor = positiveNumber(input.densityFactor) || milkOption.densityFactor
@@ -695,6 +833,18 @@ function normalizeReception(input) {
   const customDetails = qualityDetails.CUSTOM
   const fullTruckWeightKg = decimalValue(input.fullTruckWeightKg)
   const emptyTruckWeightKg = decimalValue(input.emptyTruckWeightKg)
+  const fullWeight = resolveReceptionWeightSource(
+    fullTruckWeightKg,
+    dateTimeLocalText(input.fullTruckWeighedAt),
+    input.fullTruckWeightSource,
+    existing && { weight: existing.fullTruckWeightKg, weighedAt: existing.fullTruckWeighedAt },
+  )
+  const emptyWeight = resolveReceptionWeightSource(
+    emptyTruckWeightKg,
+    dateTimeLocalText(input.emptyTruckWeighedAt),
+    input.emptyTruckWeightSource,
+    existing && { weight: existing.emptyTruckWeightKg, weighedAt: existing.emptyTruckWeighedAt },
+  )
   const netQuantityKg = fullTruckWeightKg != null && emptyTruckWeightKg != null && emptyTruckWeightKg <= fullTruckWeightKg
     ? round(fullTruckWeightKg - emptyTruckWeightKg, 3)
     : null
@@ -713,9 +863,11 @@ function normalizeReception(input) {
     driverName: normalizeDriverName(input.driverName),
     densityFactor,
     fullTruckWeightKg,
-    fullTruckWeighedAt: dateTimeLocalText(input.fullTruckWeighedAt),
+    fullTruckWeighedAt: fullWeight.weighedAt,
+    fullTruckWeightSource: fullWeight.source,
     emptyTruckWeightKg,
-    emptyTruckWeighedAt: dateTimeLocalText(input.emptyTruckWeighedAt),
+    emptyTruckWeighedAt: emptyWeight.weighedAt,
+    emptyTruckWeightSource: emptyWeight.source,
     netQuantityKg,
     calculatedLiters,
     deliveryCategory: String(input.deliveryCategory || 'COLLECTION').trim().toUpperCase(),
@@ -855,8 +1007,10 @@ function bindReception(request, record) {
     .input('densityFactor', sql.Decimal(18, 6), record.densityFactor)
     .input('fullTruckWeightKg', sql.Decimal(18, 3), record.fullTruckWeightKg)
     .input('fullTruckWeighedAt', sql.NVarChar(40), record.fullTruckWeighedAt)
+    .input('fullTruckWeightSource', sql.NVarChar(10), record.fullTruckWeightSource)
     .input('emptyTruckWeightKg', sql.Decimal(18, 3), record.emptyTruckWeightKg)
     .input('emptyTruckWeighedAt', sql.NVarChar(40), record.emptyTruckWeighedAt)
+    .input('emptyTruckWeightSource', sql.NVarChar(10), record.emptyTruckWeightSource)
     .input('netQuantityKg', sql.Decimal(18, 3), record.netQuantityKg)
     .input('calculatedLiters', sql.Decimal(18, 3), record.calculatedLiters)
     .input('deliveryCategory', sql.NVarChar(40), record.deliveryCategory)
@@ -887,14 +1041,14 @@ function insertSql() {
   return `
 INSERT INTO dbo.MilkReceptions (
   receptionId, receptionDate, vehicleRegistration, vehicleCategory, routeId, milkType, milkTypeLabel, driverName, densityFactor,
-  fullTruckWeightKg, fullTruckWeighedAt, emptyTruckWeightKg, emptyTruckWeighedAt, netQuantityKg, calculatedLiters, deliveryCategory, comments,
+  fullTruckWeightKg, fullTruckWeighedAt, fullTruckWeightSource, emptyTruckWeightKg, emptyTruckWeighedAt, emptyTruckWeightSource, netQuantityKg, calculatedLiters, deliveryCategory, comments,
   dailyRoutesLiters, differenceLiters, vehicleCountSource, routeCountSource, combinationDiagnosis,
   exteriorTemperatureC, accessTime, receptionTime, antibioticPccResult, ph, productTemperatureC,
   fatResult, waterPercentage, proteinResult, tankNumber, conformityResult, productionEntryAt,
   productionExitAt, responsiblePerson, pcc1Observations, createdAt, updatedAt, createdBy, updatedBy
 ) VALUES (
   @receptionId, @receptionDate, @vehicleRegistration, @vehicleCategory, @routeId, @milkType, @milkTypeLabel, @driverName, @densityFactor,
-  @fullTruckWeightKg, CONVERT(datetime2, @fullTruckWeighedAt, 126), @emptyTruckWeightKg, CONVERT(datetime2, @emptyTruckWeighedAt, 126), @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
+  @fullTruckWeightKg, CONVERT(datetime2, @fullTruckWeighedAt, 126), @fullTruckWeightSource, @emptyTruckWeightKg, CONVERT(datetime2, @emptyTruckWeighedAt, 126), @emptyTruckWeightSource, @netQuantityKg, @calculatedLiters, @deliveryCategory, @comments,
   @dailyRoutesLiters, @differenceLiters, @vehicleCountSource, @routeCountSource, @combinationDiagnosis,
   @exteriorTemperatureC, @accessTime, @receptionTime, @antibioticPccResult, @ph, @productTemperatureC,
   @fatResult, @waterPercentage, @proteinResult, @tankNumber, @conformityResult, @productionEntryAt,
@@ -915,8 +1069,10 @@ UPDATE dbo.MilkReceptions SET
   densityFactor = @densityFactor,
   fullTruckWeightKg = @fullTruckWeightKg,
   fullTruckWeighedAt = CONVERT(datetime2, @fullTruckWeighedAt, 126),
+  fullTruckWeightSource = @fullTruckWeightSource,
   emptyTruckWeightKg = @emptyTruckWeightKg,
   emptyTruckWeighedAt = CONVERT(datetime2, @emptyTruckWeighedAt, 126),
+  emptyTruckWeightSource = @emptyTruckWeightSource,
   netQuantityKg = @netQuantityKg,
   calculatedLiters = @calculatedLiters,
   deliveryCategory = @deliveryCategory,
@@ -959,8 +1115,10 @@ function rowToRecord(row, qualityDetailsRows = []) {
     densityFactor: numberOrNull(row.densityFactor),
     fullTruckWeightKg: numberOrNull(row.fullTruckWeightKg),
     fullTruckWeighedAt: dateTimeSqlLocalString(row.fullTruckWeighedAt),
+    fullTruckWeightSource: row.fullTruckWeightSource || null,
     emptyTruckWeightKg: numberOrNull(row.emptyTruckWeightKg),
     emptyTruckWeighedAt: dateTimeSqlLocalString(row.emptyTruckWeighedAt),
+    emptyTruckWeightSource: row.emptyTruckWeightSource || null,
     netQuantityKg: numberOrNull(row.netQuantityKg),
     calculatedLiters: numberOrNull(row.calculatedLiters),
     deliveryCategory: row.deliveryCategory,

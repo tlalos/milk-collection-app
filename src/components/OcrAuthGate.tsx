@@ -13,15 +13,18 @@ interface User {
 
 interface OcrAuthGateProps {
   children: ReactNode
-  requiredPermission?: string
+  requiredPermission?: string | string[]
   title?: string
   description?: string
 }
 
-function canAccess(user: User | null, permission = '') {
-  if (!permission) return true
+function canAccess(user: User | null, permission: string | string[] = '') {
+  if (!permission || (Array.isArray(permission) && permission.length === 0)) return true
   if (!user) return false
-  return Boolean(user.isAdmin || user.permissions?.includes(permission))
+  if (user.isAdmin) return true
+  return Array.isArray(permission)
+    ? permission.every((item) => user.permissions?.includes(item))
+    : Boolean(user.permissions?.includes(permission))
 }
 
 function loginErrorMessage(error: unknown, isRo: boolean) {

@@ -8,6 +8,7 @@ import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScree
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
 import { MilkDeliveriesScreen } from './components/MilkDeliveriesScreen'
 import { DailyAvizScreen } from './components/DailyAvizScreen'
+import { DailyReconciliationScreen } from './components/DailyReconciliationScreen'
 import { MonthClosureScreen } from './components/MonthClosureScreen'
 import { MonthlyReconciliationScreen } from './components/MonthlyReconciliationScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
@@ -22,6 +23,7 @@ import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
 import { TransportScreen } from './components/TransportScreen'
 import { WebUsersScreen } from './components/WebUsersScreen'
+import { WebUserHistoryScreen } from './components/WebUserHistoryScreen'
 import { authStore } from './store/authStore'
 import { ocrConnectionSettingsStore } from './store/ocrConnectionSettingsStore'
 import { ErpPayloadDebugModal } from './components/ErpPayloadDebugModal'
@@ -55,6 +57,7 @@ type Screen =
   | 'milkReception'
   | 'milkDeliveries'
   | 'dailyAviz'
+  | 'dailyReconciliation'
   | 'monthClosure'
   | 'monthlyReconciliation'
   | 'suppliers'
@@ -64,6 +67,7 @@ type Screen =
   | 'ocrReview'
   | 'ocrSettings'
   | 'webUsers'
+  | 'webUserHistory'
   | 'monthlySettlementReview'
   | 'ocrComparison'
 
@@ -103,9 +107,11 @@ function initialScreen(): Screen {
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
   if (routePathname() === '/web-users') return 'webUsers'
+  if (routePathname() === '/web-users/history') return 'webUserHistory'
   if (routePathname() === '/ocr/monthly-review') return 'monthlySettlementReview'
   if (routePathname() === '/ocr/compare') return 'ocrComparison'
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
+  if (routePathname() === '/daily-reconciliation') return 'dailyReconciliation'
   if (routePathname() === '/month-closure') return 'monthClosure'
   if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
@@ -666,6 +672,10 @@ export function App() {
         <OcrAuthGate requiredPermission="daily_aviz"><DailyAvizScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
+      {screen === 'dailyReconciliation' && (
+        <OcrAuthGate requiredPermission={['milk_reception', 'ocr_documents']}><DailyReconciliationScreen onBack={openOcrMenu} /></OcrAuthGate>
+      )}
+
       {screen === 'monthlyReconciliation' && (
         <OcrAuthGate requiredPermission="monthly_reconciliation"><MonthlyReconciliationScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
@@ -693,6 +703,12 @@ export function App() {
       {screen === 'webUsers' && (
         <OcrAuthGate requiredPermission="app_admin" title="Web admin sign in" description="Sign in as an admin Web user to manage Web users and tile access.">
           <WebUsersScreen onBack={() => { window.location.href = appPath('/home') }} />
+        </OcrAuthGate>
+      )}
+
+      {screen === 'webUserHistory' && (
+        <OcrAuthGate requiredPermission="app_admin" title="Web admin sign in" description="Sign in as an admin Web user to view history.">
+          <WebUserHistoryScreen />
         </OcrAuthGate>
       )}
 
@@ -1032,6 +1048,21 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Daily Aviz</span>
+              </button>
+
+              <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/daily-reconciliation') }}
+              >
+                <div className="home-tile-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18M3 12h18M3 18h12" />
+                    <path d="M6 6v12M17 17l2 2 3-4" />
+                  </svg>
+                </div>
+                <span className="home-tile-label">Daily Reconciliation</span>
               </button>
 
               <button

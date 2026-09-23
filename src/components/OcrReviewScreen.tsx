@@ -1148,15 +1148,16 @@ export function OcrReviewScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: draft, centerMatches }),
       })
-      const savePayload = await saveResponse.json() as { job?: OcrJob; error?: string }
+      const savePayload = await saveResponse.json() as { job?: OcrJob; error?: string; linkWarning?: string }
       if (!saveResponse.ok || !savePayload.job) throw new Error(savePayload.error || 'Could not save corrected data.')
 
       let savedJob = savePayload.job
       if (markReviewed) {
         const reviewResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}/review`), { method: 'PATCH' })
-        const reviewPayload = await reviewResponse.json() as { job?: OcrJob; error?: string }
+        const reviewPayload = await reviewResponse.json() as { job?: OcrJob; error?: string; linkWarning?: string }
         if (!reviewResponse.ok || !reviewPayload.job) throw new Error(reviewPayload.error || 'Data was saved, but the review could not be completed.')
         savedJob = reviewPayload.job
+        if (reviewPayload.linkWarning) setError(`Document reviewed, but Milk Reception links could not be updated: ${reviewPayload.linkWarning}`)
         setExcelNotice({
           type: 'working',
           message: isRo ? `Se exportă „${savedJob.sourceFile}” în Excel Online…` : `Exporting “${savedJob.sourceFile}” to Excel Online…`,
@@ -1181,6 +1182,8 @@ export function OcrReviewScreen() {
         setSuccess(isRo ? 'Corecțiile au fost salvate pe server.' : 'Corrections saved on the server.')
         await loadJobs()
       }
+
+      if (savePayload.linkWarning && !markReviewed) setError(`Document saved, but Milk Reception links could not be updated: ${savePayload.linkWarning}`)
     } catch (saveError) {
       setError((saveError as Error).message || 'Could not save corrected data.')
     } finally {
