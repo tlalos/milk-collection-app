@@ -54,9 +54,9 @@ interface WeighbridgeClientConfig {
 }
 
 const milkTypes: MilkTypeOption[] = [
-  { code: 'MILK-COW', label: 'Cow', densityFactor: 1.03 },
+  { code: 'MILK-COW', label: 'Cow', densityFactor: 1.029 },
   { code: 'MILK-SHEEP', label: 'Sheep', densityFactor: 1.036 },
-  { code: 'MILK-COW-GREECE', label: 'Standardized', densityFactor: 1.03 },
+  { code: 'MILK-COW-GREECE', label: 'Standardized', densityFactor: 1.037 },
 ]
 
 const defaultWeighbridgeConfig: WeighbridgeClientConfig = {
@@ -111,7 +111,7 @@ function withCalculations(delivery: MilkDelivery) {
   const greece = numericValue(delivery.greeceWeight)
   const netQuantityKg = loaded !== null && empty !== null && loaded >= empty ? loaded - empty : null
   const calculatedLiters = netQuantityKg !== null && delivery.densityFactor > 0 ? netQuantityKg / delivery.densityFactor : null
-  const differenceAmount = calculatedLiters !== null && greece !== null ? calculatedLiters - greece : null
+  const differenceAmount = netQuantityKg !== null && greece !== null ? greece - netQuantityKg : null
   return { ...delivery, netQuantityKg, calculatedLiters, differenceAmount }
 }
 
@@ -416,6 +416,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   function validateDeliveryForSave(record: MilkDelivery, status: DeliveryStatus) {
     if (!record.deliveryDate) return 'Delivery date is required.'
     if (status === 'DRAFT') return ''
+    if (record.deliveryCategory === 'UNSPECIFIED') return 'Delivery category is required before marking the delivery as sent.'
     if (!record.truckNumber.trim()) return 'Truck number is required before marking the delivery as sent.'
     if (!record.aviz.trim()) return 'AVIZ is required before marking the delivery as sent.'
     const loaded = numericValue(record.loadedWeightKg)
@@ -604,10 +605,10 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                         <td>{renderWeightInput(record, 'emptyWeightKg')}</td>
                         <td><output className="delivery-readonly-value" aria-label="Net kg">{formatNumber(record.netQuantityKg)}</output></td>
                         <td><output className="delivery-readonly-value" aria-label="Liters">{formatNumber(record.calculatedLiters)}</output></td>
-                        <td><select value={record.deliveryCategory} onChange={(event) => updateRecord(record.id, { deliveryCategory: event.target.value })}><option value="SALES">Sales</option><option value="OTHERS">Others</option></select></td>
+                        <td><select value={record.deliveryCategory} onChange={(event) => updateRecord(record.id, { deliveryCategory: event.target.value })}><option value="UNSPECIFIED">Unspecified</option><option value="SALES">Sales</option><option value="OTHERS">Others</option></select></td>
                         <td><input value={record.departureComments} onChange={(event) => updateRecord(record.id, { departureComments: event.target.value })} placeholder="Comments..." /></td>
                         <td><span className={`delivery-status ${record.status.toLocaleLowerCase()}`}>{statusLabel(record.status)}</span></td>
-                        <td><div className="delivery-row-actions"><button type="button" title="Save now" aria-label="Save delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
+                        <td><div className="delivery-row-actions">{record.status === 'DRAFT' && <button className="send" type="button" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual', 'AWAITING_GREECE')}>Mark sent</button>}<button type="button" title="Save now" aria-label="Save delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
                       </tr>
 
                       {expanded && <tr className="milk-delivery-detail-row"><td colSpan={14}><div className="milk-delivery-inline-form">
@@ -620,7 +621,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                             <label className="comments-field"><span>Comments / destination</span><textarea rows={2} value={record.arrivalComments} onChange={(event) => updateRecord(record.id, { arrivalComments: event.target.value })} placeholder="Destination and arrival notes..." /></label>
                           </div></fieldset>
                         </section>
-                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status === 'DRAFT' && <button type="button" onClick={() => void saveRecord(record.id, 'manual', 'AWAITING_GREECE')}>Mark sent</button>}{record.status !== 'DRAFT' && <button type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
+                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status !== 'DRAFT' && <button type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
                       </div></td></tr>}
                     </Fragment>
                   )

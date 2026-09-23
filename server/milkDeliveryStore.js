@@ -56,6 +56,8 @@ BEGIN
     calculatedLiters DECIMAL(18,3) NULL,
     deliveryCategory NVARCHAR(40) NOT NULL,
     departureComments NVARCHAR(1200) NULL,
+    greeceFullWeightKg DECIMAL(18,3) NULL,
+    greeceEmptyWeightKg DECIMAL(18,3) NULL,
     greeceWeight DECIMAL(18,3) NULL,
     invoiceNumber NVARCHAR(160) NULL,
     differenceAmount DECIMAL(18,3) NULL,
@@ -68,6 +70,12 @@ BEGIN
     CONSTRAINT CK_MilkDeliveries_Status CHECK (status IN (N'DRAFT', N'AWAITING_GREECE', N'COMPLETE'))
   );
 END;
+
+IF COL_LENGTH(N'dbo.MilkDeliveries', N'greeceFullWeightKg') IS NULL
+  ALTER TABLE dbo.MilkDeliveries ADD greeceFullWeightKg DECIMAL(18,3) NULL;
+
+IF COL_LENGTH(N'dbo.MilkDeliveries', N'greeceEmptyWeightKg') IS NULL
+  ALTER TABLE dbo.MilkDeliveries ADD greeceEmptyWeightKg DECIMAL(18,3) NULL;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkDeliveries_DateStatus' AND object_id = OBJECT_ID(N'dbo.MilkDeliveries'))
   CREATE INDEX IX_MilkDeliveries_DateStatus ON dbo.MilkDeliveries(deliveryDate, status);
@@ -189,7 +197,7 @@ export async function deleteMilkDelivery(id) {
 }
 
 function normalizeDelivery(input) {
-  const densityFactor = positiveNumber(input.densityFactor) || 1.03
+  const densityFactor = positiveNumber(input.densityFactor) || 1.029
   const loadedWeightKg = decimalValue(input.loadedWeightKg)
   const emptyWeightKg = decimalValue(input.emptyWeightKg)
   const netQuantityKg = loadedWeightKg !== null && emptyWeightKg !== null && emptyWeightKg <= loadedWeightKg
@@ -197,7 +205,7 @@ function normalizeDelivery(input) {
     : null
   const calculatedLiters = netQuantityKg !== null ? round(netQuantityKg / densityFactor, 3) : null
   const greeceWeight = decimalValue(input.greeceWeight)
-  const differenceAmount = calculatedLiters !== null && greeceWeight !== null ? round(calculatedLiters - greeceWeight, 3) : null
+  const differenceAmount = netQuantityKg !== null && greeceWeight !== null ? round(greeceWeight - netQuantityKg, 3) : null
   const milkType = text(input.milkType) || 'MILK-COW'
   return {
     deliveryId: text(input.deliveryId || input.id),
@@ -227,6 +235,7 @@ function normalizeDelivery(input) {
 
 function validateDelivery(record) {
   if (record.status === 'DRAFT') return
+  if (record.deliveryCategory === 'UNSPECIFIED') throw validationError('Delivery category is required before marking the delivery as sent.')
   if (!record.truckNumber) throw validationError('Truck number is required before marking the delivery as sent.')
   if (!record.aviz) throw validationError('AVIZ is required before marking the delivery as sent.')
   if (record.loadedWeightKg === null || record.loadedWeightKg <= 0) throw validationError('Loaded vehicle weight must be a positive number.')

@@ -245,24 +245,27 @@
 }
 
 .milk-deliveries-list .milk-deliveries-entry-table {
-  min-width: 1920px;
+  min-width: 1770px;
   table-layout: fixed;
 }
 
 .milk-deliveries-entry-table th:nth-child(1) { width: 44px; }
 .milk-deliveries-entry-table th:nth-child(2) { width: 132px; }
 .milk-deliveries-entry-table th:nth-child(3),
-.milk-deliveries-entry-table th:nth-child(4) { width: 142px; }
-.milk-deliveries-entry-table th:nth-child(5) { width: 145px; }
-.milk-deliveries-entry-table th:nth-child(6) { width: 130px; }
+.milk-deliveries-entry-table th:nth-child(4) { width: 124px; }
+.milk-deliveries-entry-table th:nth-child(5) { width: 125px; }
+.milk-deliveries-entry-table th:nth-child(6) { width: 128px; }
 .milk-deliveries-entry-table th:nth-child(7),
-.milk-deliveries-entry-table th:nth-child(8) { width: 140px; }
+.milk-deliveries-entry-table th:nth-child(8) { width: 128px; }
 .milk-deliveries-entry-table th:nth-child(9),
 .milk-deliveries-entry-table th:nth-child(10) { width: 90px; }
 .milk-deliveries-entry-table th:nth-child(11) { width: 115px; }
 .milk-deliveries-entry-table th:nth-child(12) { width: 180px; }
 .milk-deliveries-entry-table th:nth-child(13) { width: 135px; }
-.milk-deliveries-entry-table th:nth-child(14) { width: 112px; }
+.milk-deliveries-entry-table th:nth-child(14) { width: 172px; }
+
+.milk-deliveries-entry-table th:nth-child(14),
+.milk-deliveries-entry-table td:nth-child(14) { padding-inline: 6px; }
 
 .milk-deliveries-entry-table input,
 .milk-deliveries-entry-table select {
@@ -284,6 +287,8 @@
   border-color: var(--color-green-mid);
   outline: 3px solid rgba(35, 122, 80, 0.14);
 }
+
+.milk-deliveries-entry-table td:nth-child(6) select { padding-inline: 4px; }
 
 .delivery-readonly-value {
   width: 100%;
@@ -357,14 +362,16 @@
 }
 
 .delivery-row-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 32px);
-  justify-content: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 5px;
 }
 
 .delivery-row-actions button {
   width: 32px;
+  flex: 0 0 32px;
   min-height: 32px;
   display: inline-grid;
   place-items: center;
@@ -374,6 +381,13 @@
   background: #1a6b3c;
   color: #fff;
   cursor: pointer;
+}
+
+.delivery-row-actions button.send {
+  width: auto;
+  flex-basis: auto;
+  padding: 0 8px;
+  white-space: nowrap;
 }
 
 .delivery-row-actions button.danger {
@@ -388,7 +402,7 @@
 }
 
 .delivery-save-state {
-  grid-column: 1 / -1;
+  flex: 0 0 100%;
   min-height: 16px;
   text-align: center;
   font-size: .68rem;
