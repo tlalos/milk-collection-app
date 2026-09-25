@@ -496,16 +496,22 @@ export async function importMilkReceptionRouteSettings(vehicleRoutes, username =
   return { imported, skipped, total: pairs.length }
 }
 
-export async function listMilkReceptions({ date = '', search = '' } = {}) {
+export async function listMilkReceptions({ date = '', search = '', month = '', includeQualityDetails = true } = {}) {
   await initializeMilkReceptionStore()
   const pool = await getPool()
+  const monthStart = /^\d{4}-(0[1-9]|1[0-2])$/u.test(month) ? `${month}-01` : null
+  const [year, monthNumber] = monthStart ? month.split('-').map(Number) : [0, 0]
+  const monthEnd = monthStart ? `${monthNumber === 12 ? year + 1 : year}-${String(monthNumber === 12 ? 1 : monthNumber + 1).padStart(2, '0')}-01` : null
   const result = await pool.request()
     .input('date', sql.Date, isoDateValue(date))
+    .input('monthStart', sql.Date, isoDateValue(monthStart))
+    .input('monthEnd', sql.Date, isoDateValue(monthEnd))
     .input('search', sql.NVarChar(200), `%${String(search || '').trim()}%`)
     .query(`
-SELECT TOP (500) *
+SELECT ${monthStart ? '' : 'TOP (500)'} *
 FROM dbo.MilkReceptions
 WHERE (@date IS NULL OR receptionDate = @date)
+  AND (@monthStart IS NULL OR (receptionDate >= @monthStart AND receptionDate < @monthEnd))
   AND (
     @search = N'%%'
     OR receptionId LIKE @search
@@ -519,7 +525,9 @@ WHERE (@date IS NULL OR receptionDate = @date)
   )
 ORDER BY receptionDate DESC, updatedAt DESC;
 `)
-  const detailsByReceptionId = await fetchQualityDetailsForIds(pool, result.recordset.map((row) => row.receptionId))
+  const detailsByReceptionId = includeQualityDetails
+    ? await fetchQualityDetailsForIds(pool, result.recordset.map((row) => row.receptionId))
+    : new Map()
   return result.recordset.map((row) => rowToRecord(row, detailsByReceptionId.get(row.receptionId)))
 }
 

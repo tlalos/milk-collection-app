@@ -1428,6 +1428,42 @@ app.get('/api/daily-reconciliation/links', requirePermission('milk_reception'), 
   }
 })
 
+app.get('/api/daily-reconciliation/month', requirePermission('milk_reception'), requirePermission('ocr_documents'), async (request, response, next) => {
+  try {
+    const month = String(request.query.month || '')
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
+    const [receptions, jobs, links] = await Promise.all([
+      listMilkReceptions({ month, includeQualityDetails: false }),
+      listJobs(),
+      listDailyReconciliationLinks(month),
+    ])
+    const documents = jobs
+      .filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
+      .filter((job) => (normalizeReconciliationDate(job.data?.date) || normalizeReconciliationDate(job.createdAt)).startsWith(month))
+      .map((job) => ({
+        id: job.id,
+        sourceFile: job.sourceFile,
+        fileUrl: toPublicJob(job, false).fileUrl,
+        documentDate: job.data?.date ?? null,
+        createdAt: job.createdAt,
+        vehicleRegistration: job.data?.vehicleRegistration ?? null,
+        route: job.data?.route ?? null,
+        jobStatus: job.status,
+        reviewStatus: job.reviewStatus,
+        rows: (Array.isArray(job.data?.rows) ? job.data.rows : []).map((row, rowIndex) => ({
+          rowIndex,
+          rowNumber: row.rowNumber ?? null,
+          noticeNumber: row.noticeNumber ?? null,
+          collectionCenter: row.collectionCenter ?? null,
+          liters: row.liters ?? null,
+        })),
+      }))
+    response.json({ receptions, documents, links })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/milk-receptions', async (request, response, next) => {
   try {
     const user = request.authUser
