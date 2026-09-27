@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
 import {
-  getCachedOcrReferenceSuppliers,
+  loadOcrReferenceSuppliers,
   type OcrReferenceCenter,
   type OcrReferenceProducer,
 } from "../store/ocrReferenceSuppliersStore";
@@ -524,27 +524,25 @@ export function MonthlySettlementReviewScreen() {
     async function loadReferenceSuppliers() {
       setReferenceSuppliersLoaded(false);
       setReferenceSuppliersError("");
-      const cachedReferences = getCachedOcrReferenceSuppliers();
-      if (cachedReferences) {
-        setReferenceCenters(cachedReferences.centers);
-        setReferenceProducers(cachedReferences.producers);
+      try {
+        const references = await loadOcrReferenceSuppliers();
+        if (cancelled) return;
+        setReferenceCenters(references.centers);
+        setReferenceProducers(references.producers);
         const fetchedAtLabel = new Intl.DateTimeFormat(language === "ro" ? "ro-RO" : "en-GB", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-        }).format(new Date(cachedReferences.fetchedAt));
+        }).format(new Date(references.fetchedAt));
         setNotice(
           isRo
-            ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${cachedReferences.centers.length} centre, ${cachedReferences.producers.length} producători.`
-            : `Using ERP list refreshed at ${fetchedAtLabel}: ${cachedReferences.centers.length} centers, ${cachedReferences.producers.length} producers.`,
+            ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${references.centers.length} centre, ${references.producers.length} producători.`
+            : `Using ERP list refreshed at ${fetchedAtLabel}: ${references.centers.length} centers, ${references.producers.length} producers.`,
         );
         setReferenceSuppliersLoaded(true);
-        return;
-      }
-      if (!cancelled) {
-        const message = isRo
-          ? "Lista ERP nu a fost încărcată. Deschideți pagina de încărcare OCR pentru actualizare."
-          : "ERP list is not loaded. Open the OCR upload page to refresh it.";
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Could not load ERP suppliers.";
         setReferenceSuppliersError(message);
         setNotice(message);
         setReferenceSuppliersLoaded(true);
@@ -1221,14 +1219,7 @@ export function MonthlySettlementReviewScreen() {
         );
       const response = await fetch(
         appPath(`/api/ocr/jobs/${selected.id}/producers/rematch`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            referenceCenters,
-            referenceProducers,
-          }),
-        },
+        { method: "POST" },
       );
       const payload = (await response.json()) as {
         job?: MonthlyJob;

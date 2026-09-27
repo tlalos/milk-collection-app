@@ -300,7 +300,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
         if (!cancelled) {
           setReferenceCenters([])
           setReferenceCentersLoaded(true)
-          setReferenceCentersError((loadError as Error).message || 'Could not load tblCenters.')
+          setReferenceCentersError((loadError as Error).message || 'Could not load ERP centers.')
         }
       }
     }
@@ -399,7 +399,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
         center: center.name,
         label: journal
           ? `Has monthly journal rows · ${journal.milkTypeLabel || 'Milk type unknown'} · ${formatNumber(journal.liters)} L`
-          : 'Official center from tblCenters',
+          : 'Official ERP center',
         priority: journal ? 0 : 1,
         hasJournalRows: Boolean(journal),
       })
@@ -836,8 +836,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                 {referenceCentersError
                   ? referenceCentersError
                   : referenceCentersLoaded
-                    ? `${referenceCenters.length} official centers from tblCenters`
-                    : 'Loading tblCenters...'}
+                    ? `${referenceCenters.length} official ERP centers`
+                    : 'Loading ERP centers...'}
               </small>
               <datalist id="monthly-recon-correction-options">
                 {centerCorrectionOptions(correctionDraft.row).map((item) => (

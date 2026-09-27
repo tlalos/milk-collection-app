@@ -385,24 +385,17 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     if (view !== 'erpInvoices' && view !== 'bankNote') return
 
     let cancelled = false
-    const cachedReferences = getCachedOcrReferenceSuppliers()
-    const cachedProducers = cachedReferences?.producers || []
-    const cacheIncludesIbanField = cachedProducers.some((producer) => Object.prototype.hasOwnProperty.call(producer, 'iban'))
-
-    if (cachedProducers.length && cacheIncludesIbanField) {
-      setErpReferenceProducers(cachedProducers)
-      setErpReferenceError('')
-      return
-    }
-
     setErpReferenceLoading(true)
     setErpReferenceError('')
-    void loadOcrReferenceSuppliers({ force: cachedProducers.length > 0 })
+    void loadOcrReferenceSuppliers()
       .then((references) => {
         if (!cancelled) setErpReferenceProducers(references.producers || [])
       })
       .catch((referenceError) => {
-        if (!cancelled) setErpReferenceError((referenceError as Error).message || 'Could not load ERP producer details.')
+        if (!cancelled) {
+          setErpReferenceProducers([])
+          setErpReferenceError((referenceError as Error).message || 'Could not load ERP producer details.')
+        }
       })
       .finally(() => {
         if (!cancelled) setErpReferenceLoading(false)

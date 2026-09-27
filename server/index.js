@@ -54,7 +54,8 @@ import {
   matchDailyOcrVehicle,
   resolveDailyOcrRoute,
 } from './dailyOcrReferenceService.js'
-import { fetchErpReferenceCenters, fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
+import { fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
+import { getErpReferenceSnapshot, saveErpReferenceSnapshot } from './erpReferenceStore.js'
 import {
   createMilkReception,
   deleteMilkReception,
@@ -140,12 +141,6 @@ function addOcrOriginalCenterSuggestion(current, match, rowNumber, search) {
       ? [...referenceSuggestions.slice(0, 4), suggestion]
       : [...referenceSuggestions, suggestion],
   }
-}
-
-async function referenceCentersForOcrRequest(request) {
-  if (Array.isArray(request.body?.referenceCenters)) return request.body.referenceCenters
-  if (!request.body?.ocrConnectionSettings) return null
-  return await fetchErpReferenceCenters(request.body.ocrConnectionSettings)
 }
 
 async function referenceSuppliersForOcrRequest(request) {
@@ -293,13 +288,14 @@ function monthlyOcrIssuesFromJobs(jobs, referenceProducers) {
             ...rowBase(),
             id: `monthly-producer-not-found-${job.id}-${row.rowNumber}`,
             type: 'monthly_producer_not_found',
-            problem: 'Producer name does not exactly exist in Ref_Producers.',
+            problem: 'Producer name does not exactly exist in the ERP P* list.',
           })
         } else {
           const headerCenterName = job.headerCenterMatch?.selectedName || job.data?.headerCenterName || ''
           const headerCenterCode = job.headerCenterMatch?.selectedCode || ''
-          if (headerCenterName) {
-            const belongsToHeader = exactMatches.some((producer) =>
+          const producersWithCenter = exactMatches.filter((producer) => producer.centerCode || producer.centerName)
+          if (headerCenterName && producersWithCenter.length) {
+            const belongsToHeader = producersWithCenter.some((producer) =>
               centersMatchExactly(producer.centerName, producer.centerCode, headerCenterName, headerCenterCode))
             if (!belongsToHeader) {
               issues.push({
@@ -307,7 +303,7 @@ function monthlyOcrIssuesFromJobs(jobs, referenceProducers) {
                 id: `monthly-producer-wrong-center-${job.id}-${row.rowNumber}`,
                 type: 'monthly_producer_wrong_center',
                 problem: 'Producer exists but belongs to another center than the document header.',
-                referenceCenter: exactMatches.map((producer) => producer.centerName).filter(Boolean).join(', ') || null,
+                referenceCenter: producersWithCenter.map((producer) => producer.centerName).filter(Boolean).join(', ') || null,
               })
             }
           }
@@ -348,7 +344,7 @@ function dailyAvizIssuesFromJobs(jobs, referenceCenters) {
           ...rowBase(),
           id: `daily-center-not-found-${job.id}-${row.rowNumber}`,
           type: 'daily_center_not_found',
-          problem: 'Center name does not exactly exist in tblCenters.',
+          problem: 'Center name does not exactly exist in the ERP C* list.',
         })
       }
 
@@ -1238,12 +1234,27 @@ app.post('/api/ocr/reference-centers', async (request, response, next) => {
   }
 })
 
+app.get('/api/ocr/reference-suppliers', async (_request, response, next) => {
+  try {
+    const references = await getErpReferenceSnapshot()
+    if (!references) return response.status(404).json({ error: 'ERP supplier list is not saved on this server. Use Fetch ERP list on the OCR page first.' })
+    response.json({ ...references, source: 'erp' })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/ocr/reference-suppliers', async (request, response, next) => {
   try {
     console.log('[ERP reference] /api/ocr/reference-suppliers request received', new Date().toISOString())
     const references = await referenceSuppliersForOcrRequest(request)
     if (!references) throw new Error('ERP supplier references were not provided.')
-    response.json({ ...references, fetchedAt: new Date().toISOString(), source: 'erp' })
+    const saved = await saveErpReferenceSnapshot(references)
+    await auditAction({
+      request, user: request.authUser, action: 'ocr.erp_references.refresh', entityType: 'OcrErpReferenceSnapshot',
+      metadata: { centers: saved.centers.length, producers: saved.producers.length, fetchedAt: saved.fetchedAt },
+    })
+    response.json(saved)
   } catch (error) {
     next(error)
   }
@@ -1802,7 +1813,7 @@ app.get('/api/ocr/issues', async (_request, response, next) => {
     } catch (error) {
       referenceErrors.push({
         source: 'daily',
-        message: error instanceof Error ? error.message : 'Could not load tblCenters.',
+        message: error instanceof Error ? error.message : 'Could not load ERP centers.',
       })
     }
 
@@ -1811,7 +1822,7 @@ app.get('/api/ocr/issues', async (_request, response, next) => {
     } catch (error) {
       referenceErrors.push({
         source: 'monthly',
-        message: error instanceof Error ? error.message : 'Could not load Ref_Producers.',
+        message: error instanceof Error ? error.message : 'Could not load ERP producers.',
       })
     }
 
@@ -2024,8 +2035,7 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
     }
     clearReferenceCaches()
     const normalizedData = normalizeMonthlyData(current.data)
-    const references = await referenceSuppliersForOcrRequest(request)
-    const matches = await matchMonthlyProducers(normalizedData, references || {})
+    const matches = await matchMonthlyProducers(normalizedData)
     const data = {
       ...normalizedData,
       layoutType: matches.layoutType,
@@ -2041,7 +2051,7 @@ app.post('/api/ocr/jobs/:id/producers/rematch', async (request, response, next) 
   } catch (error) {
     const current = await getJob(request.params.id)
     if (current) await updateJob(current.id, {
-      producerMatchError: error instanceof Error ? error.message : 'Ref_Producers lookup failed.',
+      producerMatchError: error instanceof Error ? error.message : 'ERP producer lookup failed.',
       producerMatchErrorAt: new Date().toISOString(),
     })
     next(error)
@@ -2207,8 +2217,7 @@ app.post('/api/ocr/jobs/:id/centers/match', async (request, response, next) => {
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (!current.data?.rows) return response.status(409).json({ error: 'OCR data is not ready.' })
-    const referenceCenters = await referenceCentersForOcrRequest(request)
-    const centerMatches = await matchCentersForRows(current.data.rows, referenceCenters ? { centers: referenceCenters } : {})
+    const centerMatches = await matchCentersForRows(current.data.rows)
     const data = {
       ...current.data,
       rows: current.data.rows.map((row) => {
@@ -2234,11 +2243,7 @@ app.post('/api/ocr/jobs/:id/centers/suggest', async (request, response, next) =>
     if (!Number.isFinite(rowNumber) || name.length < 3) return response.json({ match: null })
     const ocrFallbackMatch = addOcrOriginalCenterSuggestion(current, null, rowNumber, name)
     try {
-      const referenceCenters = await referenceCentersForOcrRequest(request)
-      const [match] = await matchCentersForRows(
-        [{ rowNumber, collectionCenter: name }],
-        referenceCenters ? { centers: referenceCenters } : {},
-      )
+      const [match] = await matchCentersForRows([{ rowNumber, collectionCenter: name }])
       const mergedMatch = addOcrOriginalCenterSuggestion(
         current,
         match ? { ...match, status: match.suggestions.length ? 'suggested' : 'unmatched', selectedCode: null, selectedName: null } : null,

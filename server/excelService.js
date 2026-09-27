@@ -1,18 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parse as parseEnv } from 'dotenv'
+import { requireErpReferenceSnapshot } from './erpReferenceStore.js'
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0'
 const defaultExcelProject = process.cwd()
-const referenceCacheDir = path.join(defaultExcelProject, 'data', 'ocr', 'references')
-const centerSnapshotPath = path.join(referenceCacheDir, 'centers.json')
-const producerSnapshotPath = path.join(referenceCacheDir, 'producers.json')
-let centerCache = { expiresAt: 0, centers: [] }
 let driverCache = { expiresAt: 0, drivers: [] }
 let vehicleCache = { expiresAt: 0, vehicles: [] }
 let vehicleRouteCache = { expiresAt: 0, routes: [] }
-let producerCache = { expiresAt: 0, producers: [] }
 const DRIVER_CACHE_MS = 30 * 60 * 1000
 let tokenRefreshPromise = null
 const DAILY_ROUTES_USED_ROW_COLUMNS = [
@@ -43,11 +39,9 @@ const MONTHLY_SETTLEMENT_USED_ROW_COLUMNS = [
 ]
 
 export function clearReferenceCaches() {
-  centerCache = { expiresAt: 0, centers: [] }
   driverCache = { expiresAt: 0, drivers: [] }
   vehicleCache = { expiresAt: 0, vehicles: [] }
   vehicleRouteCache = { expiresAt: 0, routes: [] }
-  producerCache = { expiresAt: 0, producers: [] }
 }
 
 export async function loadConfig() {
@@ -88,7 +82,7 @@ function assertExcelOnlineConfigured(config, feature = 'Excel Online') {
   if (!config.clientId) missing.push('AZURE_CLIENT_ID')
   if (!config.workbookUrl && !(config.driveId && config.itemId)) missing.push('GRAPH_WORKBOOK_URL or GRAPH_DRIVE_ID/GRAPH_ITEM_ID')
   if (missing.length) {
-    throw new Error(`${feature} is not configured on this PC. Add ${missing.join(', ')} to .env before using Excel reference matching or export.`)
+    throw new Error(`${feature} is not configured on this PC. Add ${missing.join(', ')} to .env before using Excel-backed lookups or imports.`)
   }
 }
 
@@ -462,7 +456,7 @@ export async function listReferenceProducers(query = '', kind = 'producer', head
   const candidates = kind === 'center'
     ? (options.centers
       ? normalizeReferenceCenters(options.centers)
-      : [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()])
+      : await loadReferenceCenters())
     : producers.map((item) => ({ code: item.producerCode, name: item.producerName, centerCode: item.centerCode, centerName: item.centerName, trn: item.trn }))
   if (!search) return candidates.slice(0, 50)
   return candidates
@@ -505,11 +499,10 @@ export async function readPricingEntryManualStore() {
 }
 
 export async function matchMonthlyProducers(data, options = {}) {
-  const producers = options.producers ? normalizeReferenceProducers(options.producers) : await loadReferenceProducers()
+  const references = options.producers && options.centers ? null : await requireErpReferenceSnapshot()
+  const producers = normalizeReferenceProducers(options.producers || references.producers)
   const layoutType = data.layoutType
-  const centers = options.centers
-    ? normalizeReferenceCenters(options.centers)
-    : [...new Map(producers.filter((item) => item.centerName).map((item) => [normalizeValue(item.centerName), { code: item.centerCode, name: item.centerName }])).values()]
+  const centers = normalizeReferenceCenters(options.centers || references.centers)
   const headerSuggestions = centers.map((item) => ({ ...item, score: similarity(data.headerCenterName, item.name) }))
     .filter((item) => item.score >= 0.32).sort((left, right) => right.score - left.score).slice(0, 5)
     .map((item) => ({ ...item, score: Number(item.score.toFixed(3)) }))
@@ -739,113 +732,11 @@ async function loadPreviousDayRowValues(date, requestedFields) {
 }
 
 async function loadReferenceCenters() {
-  if (centerCache.expiresAt > Date.now()) return centerCache.centers
-  const config = await loadConfig()
-  try {
-    assertExcelOnlineConfigured(config, 'Center reference lookup')
-    const token = await refreshAccessToken(config)
-    const workbook = await resolveWorkbook(config, token)
-    const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
-    const tablePath = `${workbookPath}/tables/${encodeURIComponent('tblCenters')}`
-    const [columns, range] = await Promise.all([
-      graphFetch(`${tablePath}/columns`, token),
-      graphFetch(`${tablePath}/dataBodyRange`, token),
-    ])
-    const names = (columns.value || []).map((column) => column.name)
-    const codeIndex = names.findIndex((name) => name.toLowerCase() === 'center_code')
-    const nameIndex = names.findIndex((name) => name.toLowerCase() === 'center_name')
-    if (codeIndex < 0 || nameIndex < 0) throw new Error('tblCenters must contain Center_Code and Center_Name columns.')
-    const centers = (range.values || [])
-      .map((values) => ({ code: String(values[codeIndex] ?? '').trim(), name: String(values[nameIndex] ?? '').trim() }))
-      .filter((center) => center.code && center.name)
-    centerCache = { expiresAt: Date.now() + 30 * 60 * 1000, centers }
-    await saveReferenceCenterSnapshot(centers).catch(() => undefined)
-    return centers
-  } catch (error) {
-    const cachedCenters = await loadReferenceCenterSnapshot()
-    if (cachedCenters.length) {
-      centerCache = { expiresAt: Date.now() + 5 * 60 * 1000, centers: cachedCenters }
-      return cachedCenters
-    }
-    throw error
-  }
-}
-
-async function loadReferenceCenterSnapshot() {
-  try {
-    const parsed = JSON.parse(await readFile(centerSnapshotPath, 'utf8'))
-    return Array.isArray(parsed.centers)
-      ? parsed.centers.map((center) => ({ code: String(center.code || '').trim(), name: String(center.name || '').trim() })).filter((center) => center.code && center.name)
-      : []
-  } catch (error) {
-    if (error?.code === 'ENOENT') return []
-    throw error
-  }
-}
-
-async function saveReferenceCenterSnapshot(centers) {
-  await mkdir(referenceCacheDir, { recursive: true })
-  await writeFile(centerSnapshotPath, JSON.stringify({ updatedAt: new Date().toISOString(), centers }, null, 2), 'utf8')
+  return (await requireErpReferenceSnapshot()).centers
 }
 
 async function loadReferenceProducers() {
-  if (producerCache.expiresAt > Date.now()) return producerCache.producers
-  const config = await loadConfig()
-  try {
-    assertExcelOnlineConfigured(config, 'Ref_Producers lookup')
-    const token = await refreshAccessToken(config)
-    const workbook = await resolveWorkbook(config, token)
-    const workbookPath = `/drives/${encodeURIComponent(workbook.driveId)}/items/${encodeURIComponent(workbook.itemId)}/workbook`
-    const worksheets = await graphFetch(`${workbookPath}/worksheets`, token)
-    const worksheet = (worksheets.value || []).find((item) => item.name.toLowerCase() === 'ref_producers')
-    if (!worksheet) throw new Error('Excel worksheet Ref_Producers was not found.')
-    const range = await graphFetch(`${workbookPath}/worksheets/${encodeURIComponent(worksheet.id)}/usedRange(valuesOnly=true)`, token)
-    const values = range.values || []
-    const headerRow = values.findIndex((row) => row.some((value) => normalizeValue(value) === 'PRODUCER NAME'))
-    if (headerRow < 0) throw new Error('Ref_Producers must contain a Producer_Name column.')
-    const headers = values[headerRow].map(normalizeValue)
-    const indexes = {
-      producerCode: headers.indexOf('PRODUCER CODE'), producerName: headers.indexOf('PRODUCER NAME'), trn: headers.indexOf('TRN'),
-      centerCode: headers.indexOf('CENTER CODE'), centerName: headers.indexOf('CENTER NAME'),
-    }
-    const producers = values.slice(headerRow + 1).map((row) => ({
-      producerCode: String(row[indexes.producerCode] ?? '').trim(), producerName: String(row[indexes.producerName] ?? '').trim(),
-      centerCode: String(row[indexes.centerCode] ?? '').trim(), centerName: String(row[indexes.centerName] ?? '').trim(), trn: String(row[indexes.trn] ?? '').trim(),
-    })).filter((item) => item.producerName)
-    producerCache = { expiresAt: Date.now() + DRIVER_CACHE_MS, producers }
-    await saveReferenceProducerSnapshot(producers).catch(() => undefined)
-    return producers
-  } catch (error) {
-    const cachedProducers = await loadReferenceProducerSnapshot()
-    if (cachedProducers.length) {
-      producerCache = { expiresAt: Date.now() + 5 * 60 * 1000, producers: cachedProducers }
-      return cachedProducers
-    }
-    throw error
-  }
-}
-
-async function loadReferenceProducerSnapshot() {
-  try {
-    const parsed = JSON.parse(await readFile(producerSnapshotPath, 'utf8'))
-    return Array.isArray(parsed.producers)
-      ? parsed.producers.map((producer) => ({
-        producerCode: String(producer.producerCode || '').trim(),
-        producerName: String(producer.producerName || '').trim(),
-        centerCode: String(producer.centerCode || '').trim(),
-        centerName: String(producer.centerName || '').trim(),
-        trn: String(producer.trn || '').trim(),
-      })).filter((producer) => producer.producerName)
-      : []
-  } catch (error) {
-    if (error?.code === 'ENOENT') return []
-    throw error
-  }
-}
-
-async function saveReferenceProducerSnapshot(producers) {
-  await mkdir(referenceCacheDir, { recursive: true })
-  await writeFile(producerSnapshotPath, JSON.stringify({ updatedAt: new Date().toISOString(), producers }, null, 2), 'utf8')
+  return (await requireErpReferenceSnapshot()).producers
 }
 
 async function loadReferenceDrivers() {

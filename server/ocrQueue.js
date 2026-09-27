@@ -61,7 +61,7 @@ async function processNext() {
           }),
         }
       } catch (error) {
-        producerMatchError = error instanceof Error ? error.message : 'Ref_Producers lookup failed.'
+        producerMatchError = error instanceof Error ? error.message : 'ERP producer lookup failed.'
         producerMatchErrorAt = new Date().toISOString()
       }
       await updateJob(id, {
@@ -70,7 +70,6 @@ async function processNext() {
       })
       return
     }
-    // Every invoice must use the latest workbook reference values.
     clearReferenceCaches()
     let centerMatches = []
     let centerMatchError = null

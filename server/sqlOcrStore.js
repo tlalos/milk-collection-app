@@ -129,6 +129,16 @@ BEGIN
   );
 END;
 
+IF OBJECT_ID(N'dbo.OcrErpReferenceSnapshot', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.OcrErpReferenceSnapshot (
+    snapshotKey NVARCHAR(40) NOT NULL CONSTRAINT PK_OcrErpReferenceSnapshot PRIMARY KEY,
+    fetchedAt DATETIMEOFFSET NOT NULL,
+    centersJson NVARCHAR(MAX) NOT NULL,
+    producersJson NVARCHAR(MAX) NOT NULL
+  );
+END;
+
 IF OBJECT_ID(N'dbo.OcrJobRows', N'U') IS NOT NULL
   AND OBJECT_ID(N'dbo.OcrJobs', N'U') IS NOT NULL
   AND NOT EXISTS (
@@ -153,6 +163,48 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MonthlyProducerPricin
   CREATE INDEX IX_MonthlyProducerPricing_Producer ON dbo.MonthlyProducerPricing(producerCode, milkType, monthKey);
 `)
   initialized = true
+}
+
+export async function getSqlErpReferenceSnapshot() {
+  await initializeSqlOcrStore()
+  const pool = await getPool()
+  const result = await pool.request()
+    .input('snapshotKey', sql.NVarChar(40), 'suppliers')
+    .query('SELECT fetchedAt, centersJson, producersJson FROM dbo.OcrErpReferenceSnapshot WHERE snapshotKey = @snapshotKey')
+  const row = result.recordset[0]
+  if (!row) return null
+  return {
+    fetchedAt: row.fetchedAt.toISOString(),
+    centers: JSON.parse(row.centersJson),
+    producers: JSON.parse(row.producersJson),
+  }
+}
+
+export async function saveSqlErpReferenceSnapshot(snapshot) {
+  await initializeSqlOcrStore()
+  const pool = await getPool()
+  const tx = new sql.Transaction(pool)
+  await tx.begin()
+  try {
+    await new sql.Request(tx)
+      .input('snapshotKey', sql.NVarChar(40), 'suppliers')
+      .input('fetchedAt', sql.DateTimeOffset, new Date(snapshot.fetchedAt))
+      .input('centersJson', sql.NVarChar(sql.MAX), JSON.stringify(snapshot.centers))
+      .input('producersJson', sql.NVarChar(sql.MAX), JSON.stringify(snapshot.producers))
+      .query(`
+IF EXISTS (SELECT 1 FROM dbo.OcrErpReferenceSnapshot WITH (UPDLOCK, HOLDLOCK) WHERE snapshotKey = @snapshotKey)
+  UPDATE dbo.OcrErpReferenceSnapshot
+  SET fetchedAt = @fetchedAt, centersJson = @centersJson, producersJson = @producersJson
+  WHERE snapshotKey = @snapshotKey;
+ELSE
+  INSERT INTO dbo.OcrErpReferenceSnapshot (snapshotKey, fetchedAt, centersJson, producersJson)
+  VALUES (@snapshotKey, @fetchedAt, @centersJson, @producersJson);
+`)
+    await tx.commit()
+  } catch (error) {
+    await tx.rollback().catch(() => undefined)
+    throw error
+  }
 }
 
 export async function saveSqlJob(job) {

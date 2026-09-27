@@ -4,7 +4,7 @@ import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLangua
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
 import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
-import { getCachedOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
+import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
@@ -726,24 +726,22 @@ export function OcrReviewScreen() {
     async function loadReferenceCenters() {
       setReferenceCentersLoaded(false)
       setReferenceCentersError('')
-      const cachedReferences = getCachedOcrReferenceSuppliers()
-      if (cachedReferences) {
-        setReferenceCenters(cachedReferences.centers)
+      try {
+        const references = await loadOcrReferenceSuppliers()
+        if (cancelled) return
+        setReferenceCenters(references.centers)
         const fetchedAtLabel = new Intl.DateTimeFormat(isRo ? 'ro-RO' : 'en-GB', {
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',
-        }).format(new Date(cachedReferences.fetchedAt))
+        }).format(new Date(references.fetchedAt))
         setSuccess(isRo
-          ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${cachedReferences.centers.length} centre.`
-          : `Using ERP list refreshed at ${fetchedAtLabel}: ${cachedReferences.centers.length} centers.`)
+          ? `Se folosește lista ERP actualizată la ${fetchedAtLabel}: ${references.centers.length} centre.`
+          : `Using ERP list refreshed at ${fetchedAtLabel}: ${references.centers.length} centers.`)
         setReferenceCentersLoaded(true)
-        return
-      }
-      if (!cancelled) {
-        const message = isRo
-          ? 'Lista ERP nu a fost încărcată. Deschideți pagina de încărcare OCR pentru actualizare.'
-          : 'ERP list is not loaded. Open the OCR upload page to refresh it.'
+      } catch (error) {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Could not load ERP centers.'
         setReferenceCentersError(message)
         setError(message)
         setReferenceCentersLoaded(true)

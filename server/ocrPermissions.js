@@ -4,6 +4,7 @@ export function ocrFileJobId(route) {
 
 export function ocrPermissionsForRoute(route, documentCategory = '') {
   if (route === '/settings') return ['ocr_settings']
+  if (route === '/reference-suppliers') return ['ocr_documents', 'month_closure']
   if (route === '/daily-aviz/rows') return ['daily_aviz']
   if (route === '/monthly-reconciliation/rows' || route === '/monthly-reconciliation/aviz-center' || route === '/issues') {
     return ['monthly_reconciliation']

@@ -141,10 +141,29 @@ export function getCachedOcrReferenceSuppliers() {
 }
 
 export async function loadOcrReferenceSuppliers(options: { force?: boolean } = {}) {
-  if (cachedReferences && !options.force) return cachedReferences
   if (pendingLoad && !options.force) return pendingLoad
 
   pendingLoad = (async () => {
+    if (!options.force) {
+      const savedResponse = await fetch(appPath('/api/ocr/reference-suppliers'))
+      if (savedResponse.ok) {
+        const saved = await savedResponse.json() as ReferenceSuppliersPayload
+        const references: OcrReferenceSuppliers = {
+          centers: (saved.centers || []).filter((center) => center?.code && center?.name),
+          producers: (saved.producers || []).filter((producer) => producer?.producerCode && producer?.producerName),
+          fetchedAt: saved.fetchedAt || new Date().toISOString(),
+          source: saved.source,
+        }
+        cachedReferences = references
+        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(references)) } catch { /* In-memory cache is enough. */ }
+        return references
+      }
+      if (savedResponse.status !== 404) {
+        const payload = await savedResponse.json() as ReferenceSuppliersPayload
+        throw new Error(payload.error || 'Could not load the saved ERP supplier list.')
+      }
+    }
+
     const settings = ocrConnectionSettingsStore.get()
     const login = await loginToErp(settings)
     const suppliers = await fetchErpSupplierList(settings, login.access_token)

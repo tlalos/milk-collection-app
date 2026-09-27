@@ -9,6 +9,7 @@ test('OCR tile endpoints use their own permissions', () => {
   assert.deepEqual(ocrPermissionsForRoute('/monthly-reconciliation/rows'), ['monthly_reconciliation'])
   assert.deepEqual(ocrPermissionsForRoute('/monthly-reconciliation/aviz-center'), ['monthly_reconciliation'])
   assert.deepEqual(ocrPermissionsForRoute('/issues'), ['monthly_reconciliation'])
+  assert.deepEqual(ocrPermissionsForRoute('/reference-suppliers'), ['ocr_documents', 'month_closure'])
   assert.deepEqual(ocrPermissionsForRoute('/jobs'), ['ocr_documents'])
 })
 
