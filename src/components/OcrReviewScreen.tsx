@@ -263,7 +263,7 @@ function statusLabel(job: OcrJob, language: OcrLanguage) {
 }
 
 function isFailedQueueJob(job: OcrJob) {
-  return job.status === 'failed' || job.excelExport?.status === 'failed'
+  return job.status === 'failed'
 }
 
 function recognizedDateSortValue(value: string | null | undefined) {
@@ -616,10 +616,7 @@ export function OcrReviewScreen() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [reprocessingId, setReprocessingId] = useState('')
   const [rematchingReferences, setRematchingReferences] = useState(false)
-  const [exporting, setExporting] = useState(false)
   const [erpSending, setErpSending] = useState(false)
-  const [excelNotice, setExcelNotice] = useState<{ type: 'working' | 'success' | 'error'; message: string; progress?: OcrJob['excelExport'] extends infer T ? T : never } | null>(null)
-  const [excelNoticeMinimized, setExcelNoticeMinimized] = useState(false)
   const [matchingCenters, setMatchingCenters] = useState(false)
   const [rowNumberDrafts, setRowNumberDrafts] = useState<Record<string, string>>({})
   const [openCenterSuggestions, setOpenCenterSuggestions] = useState<number | null>(null)
@@ -1133,8 +1130,8 @@ export function OcrReviewScreen() {
       if (invalidRows.length) {
         setError(
           isRo
-            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de trimitere. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
-            : `Fill center, liters, fat, temperature, and aviz number before sending to Excel. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de verificare. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, fat, temperature, and aviz number before marking reviewed. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
         )
         return
       }
@@ -1153,16 +1150,15 @@ export function OcrReviewScreen() {
 
       let savedJob = savePayload.job
       if (markReviewed) {
-        const reviewResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}/review`), { method: 'PATCH' })
+        const reviewResponse = await fetch(appPath(`/api/ocr/jobs/${selected.id}/review`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skipExcel: true }),
+        })
         const reviewPayload = await reviewResponse.json() as { job?: OcrJob; error?: string; linkWarning?: string }
         if (!reviewResponse.ok || !reviewPayload.job) throw new Error(reviewPayload.error || 'Data was saved, but the review could not be completed.')
         savedJob = reviewPayload.job
         if (reviewPayload.linkWarning) setError(`Document reviewed, but Milk Reception links could not be updated: ${reviewPayload.linkWarning}`)
-        setExcelNotice({
-          type: 'working',
-          message: isRo ? `Se exportă „${savedJob.sourceFile}” în Excel Online…` : `Exporting “${savedJob.sourceFile}” to Excel Online…`,
-        })
-        void monitorExcelExport(savedJob.id, savedJob.sourceFile)
       }
 
       jobCacheRef.current.set(savedJob.id, savedJob)
@@ -1261,6 +1257,14 @@ export function OcrReviewScreen() {
 
   async function sendDocumentToErp() {
     if (!selected || !draft || erpSending) return
+    if (selected.reviewStatus !== 'reviewed') {
+      setError(isRo ? 'Verificați documentul înainte de trimiterea în ERP.' : 'Mark the document reviewed before sending to ERP.')
+      return
+    }
+    if (selected.erpExport?.status === 'sent' || selected.erpExport?.status === 'partial' || selected.erpExport?.status === 'sending' || selected.erpExport?.rowLog?.some((row) => row.status === 'sent')) {
+      setError(isRo ? 'Verificați starea ERP înainte de o nouă trimitere.' : 'Check the existing ERP send status before sending again.')
+      return
+    }
     const invalidRows = draft.rows
       .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
       .filter((row) => row.fields.length > 0)
@@ -1272,8 +1276,13 @@ export function OcrReviewScreen() {
         )
       return
     }
+    const confirmation = selected.erpExport?.status === 'failed' && selected.erpExport.rowLog?.length
+      ? (isRo ? 'Trimiterea anterioară a eșuat. Verificați mai întâi ERP pentru a evita duplicatele. Încercați din nou?' : 'The previous send failed. Check ERP first to avoid duplicates. Try again?')
+      : (isRo ? `Trimiteți ${draft.rows.length} rânduri aviz în ERP?` : `Send ${draft.rows.length} aviz rows to ERP?`)
+    if (!window.confirm(confirmation)) return
 
     const startedAt = new Date().toISOString()
+    const progressState: { current: DailyRouteErpExport | null } = { current: null }
     setErpSending(true)
     setError('')
     setSuccess('')
@@ -1297,6 +1306,7 @@ export function OcrReviewScreen() {
         selected.sourceFile,
         undefined,
         (progress) => {
+          progressState.current = progress
           setSelected((current) => current ? { ...current, erpExport: progress } : current)
           setSelectedSummary((current) => current ? { ...current, erpExport: progress } : current)
         },
@@ -1315,14 +1325,16 @@ export function OcrReviewScreen() {
         )
       }
     } catch (sendError) {
+      const sentRows = progressState.current?.rowLog?.filter((row) => row.status === 'sent').length ?? 0
       const failedState: DailyRouteErpExport = {
-        status: 'failed',
+        status: sentRows > 0 ? 'partial' : 'failed',
         startedAt,
         completedAt: new Date().toISOString(),
         error: sendError instanceof Error ? sendError.message : 'Could not send daily route rows to ERP.',
         rowCount: draft.rows.length,
-        successCount: 0,
-        failedCount: draft.rows.length,
+        successCount: sentRows,
+        failedCount: draft.rows.length - sentRows,
+        rowLog: progressState.current?.rowLog,
       }
       try {
         await saveErpExportState(failedState)
@@ -1334,50 +1346,6 @@ export function OcrReviewScreen() {
     } finally {
       setErpSending(false)
     }
-  }
-
-  async function monitorExcelExport(jobId: string, sourceFile: string) {
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2000))
-      try {
-        const job = await fetchJobDetail(jobId, true)
-        if (job.excelExport?.status === 'exported') {
-          setExcelNotice({
-            type: 'success',
-            message: isRo
-              ? `Export Excel finalizat: ${job.excelExport.rowCount ?? 0} rânduri din „${sourceFile}” au fost adăugate în Daily_Routes.`
-              : `Excel export completed: ${job.excelExport.rowCount ?? 0} rows from “${sourceFile}” were added to Daily_Routes.`,
-          })
-          void loadJobs()
-          return
-        }
-        if (job.excelExport?.status === 'failed') {
-          setExcelNotice({
-            type: 'error',
-            message: isRo
-              ? `Exportul Excel pentru „${sourceFile}” a eșuat: ${job.excelExport.error || 'eroare necunoscută'}. Deschideți documentul în fila Verificate pentru a reîncerca.`
-              : `Excel export failed for “${sourceFile}”: ${job.excelExport.error || 'unknown error'}. Open it under Reviewed to retry.`,
-          })
-          void loadJobs()
-          return
-        }
-        if (job.excelExport?.status === 'queued' || job.excelExport?.status === 'exporting') {
-          const progress = job.excelExport.progress
-          const message = progress?.stage === 'preparing'
-            ? (isRo ? `Se pregătește rândul ${progress.current} din ${progress.total} pentru Excel.` : `Preparing row ${progress.current} of ${progress.total} for Excel.`)
-            : progress?.stage === 'sending'
-              ? (isRo ? `Se trimit ${progress.total} rânduri către Excel Online…` : `Sending ${progress.total} rows to Excel Online…`)
-              : (isRo ? 'Conectare la Excel Online…' : 'Connecting to Excel Online…')
-          setExcelNotice({ type: 'working', message, progress: job.excelExport })
-        }
-      } catch {
-        // A temporary polling failure should not interrupt the server-side export.
-      }
-    }
-    setExcelNotice({
-      type: 'error',
-      message: isRo ? `Exportul Excel pentru „${sourceFile}” durează neobișnuit de mult. Verificați starea în fila Verificate.` : `Excel export for “${sourceFile}” is taking unusually long. Check its status under Reviewed.`,
-    })
   }
 
   async function reprocessDocument(job: OcrJob = selected!) {
@@ -1441,28 +1409,6 @@ export function OcrReviewScreen() {
     }
   }
 
-  async function retryExcelExport() {
-    if (!selected || exporting) return
-    setExporting(true)
-    setError('')
-    try {
-      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/excel/retry`), { method: 'POST' })
-      const payload = await response.json() as { job?: OcrJob; error?: string }
-      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not queue the Excel export.')
-      jobCacheRef.current.set(payload.job.id, payload.job)
-      setSelected(payload.job)
-      setSelectedSummary(payload.job)
-      setSuccess(isRo ? 'Exportul Excel a fost pus în coadă și continuă în fundal pe server.' : 'Excel export queued. It will continue in the server background.')
-      setExcelNotice({ type: 'working', message: isRo ? `Se exportă „${payload.job.sourceFile}” în Excel Online…` : `Exporting “${payload.job.sourceFile}” to Excel Online…` })
-      void monitorExcelExport(payload.job.id, payload.job.sourceFile)
-      await loadJobs()
-    } catch (exportError) {
-      setError((exportError as Error).message || 'Could not queue the Excel export.')
-    } finally {
-      setExporting(false)
-    }
-  }
-
   const queuedCount = jobs.filter((job) => job.status === 'queued').length
   const processingCount = jobs.filter((job) => job.status === 'processing').length
   const completedCount = jobs.filter((job) => job.status === 'completed').length
@@ -1505,10 +1451,8 @@ export function OcrReviewScreen() {
   const rowsMissingRequiredExportFields = draft?.rows
     .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
     .filter((row) => row.fields.length > 0) ?? []
-  const sendToExcelBlocked = rowsMissingRequiredExportFields.length > 0
-  const excelExportStatus = selected?.excelExport?.status || 'not_ready'
-  const excelExportInProgress = excelExportStatus === 'queued' || excelExportStatus === 'exporting'
-  const excelAlreadyExported = excelExportStatus === 'exported'
+  const missingRequiredFields = rowsMissingRequiredExportFields.length > 0
+  const erpHasSentRows = selected?.erpExport?.rowLog?.some((row) => row.status === 'sent') ?? false
   const sortedReceptionRoutes = [...receptionRoutes].sort((left, right) =>
     Number(receptionRouteMatches(right)) - Number(receptionRouteMatches(left)) ||
     String(left.truck || '').localeCompare(String(right.truck || ''), undefined, { numeric: true }) ||
@@ -1604,21 +1548,6 @@ export function OcrReviewScreen() {
 
       {error && <div className="review-global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label={isRo ? 'Închideți eroarea' : 'Dismiss error'}>×</button></div>}
       {success && <div className="review-global-success" role="status"><span>{success}</span><button type="button" onClick={() => setSuccess('')} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button></div>}
-      {excelNotice && (
-        <div className={`review-excel-notice ${excelNotice.type} ${excelNoticeMinimized ? 'minimized' : ''}`} role={excelNotice.type === 'error' ? 'alert' : 'status'} aria-live="polite">
-          <span aria-hidden="true">{excelNotice.type === 'working' ? '↻' : excelNotice.type === 'success' ? '✓' : '!'}</span>
-          <strong>{excelNotice.message}</strong>
-          <div className="review-excel-actions">
-            <button type="button" onClick={() => setExcelNoticeMinimized((current) => !current)} aria-label={excelNoticeMinimized ? (isRo ? 'Extindeți notificarea Excel' : 'Expand Excel notification') : (isRo ? 'Minimizați notificarea Excel' : 'Minimize Excel notification')}>{excelNoticeMinimized ? '□' : '−'}</button>
-            <button type="button" onClick={() => { setExcelNotice(null); setExcelNoticeMinimized(false) }} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button>
-          </div>
-          {excelNotice.progress && !excelNoticeMinimized && <div className="review-excel-progress">
-            <div className="review-excel-progress-bar"><span style={{ width: `${excelNotice.progress.progress?.total ? Math.round((excelNotice.progress.progress.current / excelNotice.progress.progress.total) * 100) : 5}%` }} /></div>
-            <div className="review-excel-row-log">{excelNotice.progress.rowLog?.map((row) => <span key={row.rowNumber}><b>{row.status === 'sent' ? '✓' : '•'} {isRo ? 'Rând' : 'Row'} {row.rowNumber}</b><small>{row.center}</small><em>{row.status === 'sent' ? (isRo ? 'Trimis' : 'Sent') : (isRo ? 'Pregătit' : 'Ready')}</em></span>)}</div>
-          </div>}
-        </div>
-      )}
-
       <main className={`review-layout ${queueCollapsed ? 'queue-collapsed' : ''}`}>
         <aside className="review-queue">
           <button className="review-queue-toggle" type="button" onClick={() => setQueueCollapsed((current) => !current)} title={queueCollapsed ? (isRo ? 'Extindeți lista documentelor' : 'Expand document list') : (isRo ? 'Restrângeți lista documentelor' : 'Collapse document list')} aria-label={queueCollapsed ? (isRo ? 'Extindeți lista documentelor' : 'Expand document list') : (isRo ? 'Restrângeți lista documentelor' : 'Collapse document list')} aria-expanded={!queueCollapsed}>
@@ -1645,7 +1574,7 @@ export function OcrReviewScreen() {
               <div className="complete"><strong>{completedCount}</strong><span>{isRo ? 'OCR finalizat' : 'OCR complete'}</span></div>
             </div>
           ) : queueView === 'failed' ? (
-            <div className="review-failed-count"><strong>{failedCount}</strong> {isRo ? 'documente eșuate OCR sau Excel' : 'failed OCR or Excel documents'}</div>
+            <div className="review-failed-count"><strong>{failedCount}</strong> {isRo ? 'documente OCR eșuate' : 'failed OCR documents'}</div>
           ) : (
             <div className="review-reviewed-count"><strong>{jobFiltersActive ? filteredJobs.length : completedCount}</strong> {jobFiltersActive ? (isRo ? 'documente verificate găsite' : 'matching reviewed documents') : (isRo ? 'documente verificate' : 'reviewed documents')}</div>
           )}
@@ -1671,7 +1600,6 @@ export function OcrReviewScreen() {
                   {job.attention?.needsAttention && <span className="review-attention-text">{isRo ? 'Necesită verificare' : 'Needs verification'}</span>}
                   {job.openai?.model && <span className="review-job-model">OCR: {job.openai.provider || 'openai'} · {job.openai.model}{formatOcrDuration(job) ? ` · ${formatOcrDuration(job)}` : ''}</span>}
                   {formatCost(job) && <span className="review-job-cost">OpenAI est. {formatCost(job)}</span>}
-                  {job.excelExport?.status && job.excelExport.status !== 'not_ready' && <span className={`review-excel-status excel-${job.excelExport.status}`}>Excel: {job.excelExport.status}</span>}
                   {job.erpExport?.status && job.erpExport.status !== 'not_ready' && <span className={`review-erp-status erp-${job.erpExport.status}`}>ERP: {job.erpExport.status}</span>}
                   {job.archiveStatus?.status === 'archived' && <span className="review-archive-status archived">{isRo ? 'Arhivat' : 'Archived'}</span>}
                   {job.archiveStatus?.status === 'failed' && <span className="review-archive-status failed">{isRo ? 'Backup eșuat' : 'Backup failed'}</span>}
@@ -1743,19 +1671,6 @@ export function OcrReviewScreen() {
                     {selected.reviewStatus === 'reviewed' ? <b className="reviewed-badge">{isRo ? 'Verificat' : 'Reviewed'}</b> : selected.attention?.needsAttention ? <b className="attention-badge">! {isRo ? 'Necesită verificare' : 'Needs verification'}</b> : <b className="clear-badge">{isRo ? 'Fără avertizări OCR' : 'No OCR warnings'}</b>}
                   </div>
                 </div>
-
-                {selected.reviewStatus === 'reviewed' && (
-                  <div className={`review-excel-export review-excel-export-top excel-${selected.excelExport?.status || 'not_ready'}`}>
-                    <div>
-                      <strong>Excel Online</strong>
-                      <span>{selected.excelExport?.status === 'exported'
-                        ? `${selected.excelExport.rowCount} ${isRo ? 'rânduri adăugate în' : 'rows added to'} Daily_Routes.`
-                        : selected.excelExport?.status === 'queued' || selected.excelExport?.status === 'exporting'
-                          ? (isRo ? 'Exportul rulează în fundal pe server.' : 'Export is running in the server background.')
-                          : selected.excelExport?.error || (isRo ? 'Documentul verificat nu a fost încă exportat.' : 'This reviewed document has not been exported yet.')}</span>
-                    </div>
-                  </div>
-                )}
 
                 {selected.erpExport?.status && selected.erpExport.status !== 'not_ready' && (
                   <div className={`review-erp-export erp-${selected.erpExport.status}`}>
@@ -1963,19 +1878,11 @@ export function OcrReviewScreen() {
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
                   <button className="review-rematch" type="button" onClick={() => void rematchOperationalReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți șofer/vehicul/rută' : 'Refresh driver/truck/routes')}</button>
-                  {sendToExcelBlocked && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
-                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp} disabled title={isRo ? 'Trimiterea în ERP este dezactivată temporar.' : 'ERP sending is temporarily disabled.'}>{isRo ? 'ERP dezactivat' : 'ERP disabled'}</button>
-                  <button className="review-complete" type="button" onClick={() => selected.reviewStatus === 'pending' ? void saveDocument(true) : void retryExcelExport()} disabled={saving || autoSaveStatus === 'saving' || exporting || sendToExcelBlocked || excelAlreadyExported || excelExportInProgress} title={excelAlreadyExported ? (isRo ? 'Acest document a fost deja trimis în Excel' : 'This document has already been sent to Excel') : sendToExcelBlocked ? (isRo ? 'Completați câmpurile obligatorii înainte de trimitere' : 'Fill the required fields before sending') : undefined}>
-                    {excelAlreadyExported
-                      ? (isRo ? 'Trimis deja în Excel' : 'Already sent to Excel')
-                      : excelExportInProgress || exporting
-                        ? (isRo ? 'Se exportă în Excel…' : 'Exporting to Excel…')
-                        : saving
-                          ? (isRo ? 'Se salvează…' : 'Saving…')
-                          : selected.reviewStatus === 'pending'
-                            ? (isRo ? 'Marcați ca verificat și trimiteți în Excel' : 'Mark as reviewed and send to Excel')
-                            : (isRo ? 'Trimiteți din nou în Excel' : 'Send to Excel again')}
-                  </button>
+                  {missingRequiredFields && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={saving || autoSaveStatus === 'saving' || erpSending || !draft.rows.length || missingRequiredFields || selected.reviewStatus !== 'reviewed' || ['sent', 'partial', 'sending'].includes(selected.erpExport?.status || '') || erpHasSentRows} title={selected.reviewStatus !== 'reviewed' ? (isRo ? 'Verificați documentul înainte de trimitere' : 'Mark reviewed before sending') : erpHasSentRows || selected.erpExport?.status === 'partial' ? (isRo ? 'Verificați rândurile deja trimise înainte de retrimitere' : 'Check already sent rows before retrying') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimis în ERP' : 'Sent to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
+                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || missingRequiredFields}>
+                    {saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat' : 'Mark as reviewed')}
+                  </button>}
                 </div>
               </div>
             </>

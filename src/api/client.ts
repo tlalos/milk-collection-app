@@ -16,8 +16,8 @@ function getToken(): string | null {
   return localStorage.getItem('auth_token')
 }
 
-function getBaseUrl(): string {
-  return settingsStore.getServerUrl().replace(/\/+$/, '')
+function getBaseUrl(serverUrl?: string): string {
+  return (serverUrl ?? settingsStore.getServerUrl()).replace(/\/+$/, '')
 }
 
 function buildApiUrl(serverUrl: string, path: string): string {
@@ -44,6 +44,7 @@ interface RequestOptions {
   signal?: AbortSignal
   /** Explicit Bearer token — takes precedence over the token stored in localStorage. */
   token?: string
+  serverUrl?: string
 }
 
 export async function apiPost<TBody, TResponse>(
@@ -60,7 +61,7 @@ export async function apiPost<TBody, TResponse>(
     headers['Authorization'] = `Bearer ${resolvedToken}`
   }
 
-  const res = await fetch(`${getBaseUrl()}/${path}`, {
+  const res = await fetch(`${getBaseUrl(options.serverUrl)}/${path}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -88,7 +89,7 @@ export async function apiGet<TResponse>(
   if (resolvedToken) headers['Authorization'] = `Bearer ${resolvedToken}`
 
   const qs = new URLSearchParams(params).toString()
-  const url = `${getBaseUrl()}/${path}${qs ? `?${qs}` : ''}`
+  const url = `${getBaseUrl(options.serverUrl)}/${path}${qs ? `?${qs}` : ''}`
 
   const res = await fetch(url, {
     method: 'GET',

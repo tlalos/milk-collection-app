@@ -6,10 +6,11 @@ export function getRomOfflineItems(
   username: string,
   signal?: AbortSignal,
   token?: string,
+  serverUrl?: string,
 ): Promise<ERP_Item[]> {
   return apiGet<ERP_Item[]>(
     'WMS/ERP_RomOfflineItemsList',
     { mode, username },
-    { signal, token },
+    { signal, token, serverUrl },
   )
 }

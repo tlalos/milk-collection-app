@@ -5,10 +5,11 @@ export function saveZGParalavesSuppliesOrder(
   order: ERP_SuppliesPickingOrder[],
   signal?: AbortSignal,
   token?: string,
+  serverUrl?: string,
 ): Promise<ERP_RetFunc> {
   return apiPost<ERP_SuppliesPickingOrder[], ERP_RetFunc>(
     'WMS/ERP_SaveRomZGParalavesSuppliesOrder',
     order,
-    { signal, token },
+    { signal, token, serverUrl },
   )
 }

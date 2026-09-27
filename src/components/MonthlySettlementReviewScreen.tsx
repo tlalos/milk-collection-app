@@ -305,7 +305,7 @@ function formatOcrDuration(job: MonthlyJob) {
 }
 
 function isFailedMonthlyJob(job: MonthlyJob) {
-  return job.status === "failed" || job.excelExport?.status === "failed";
+  return job.status === "failed";
 }
 
 function recognizedDateSortValue(value: string | null | undefined) {
@@ -1258,65 +1258,7 @@ export function MonthlySettlementReviewScreen() {
     }
   }
 
-  async function retryExcelExport() {
-    if (!selected || busy) return;
-    setBusy(true);
-    setNotice(
-      isRo
-        ? "Retrimitere în Monthly_Settlement…"
-        : "Retrying Monthly_Settlement export…",
-    );
-    try {
-      const response = await fetch(
-        appPath(`/api/ocr/jobs/${selected.id}/excel/retry`),
-        { method: "POST" },
-      );
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok)
-        throw new Error(payload.error || "Could not retry Excel export.");
-      for (let attempt = 0; attempt < 90; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1000));
-        const statusResponse = await fetch(
-          appPath(`/api/ocr/jobs/${selected.id}`),
-        );
-        const statusPayload = (await statusResponse.json()) as {
-          job?: MonthlyJob;
-        };
-        const job = statusPayload.job;
-        if (job?.excelExport?.status === "exporting")
-          setNotice(
-            isRo
-              ? `Se retrimit rândurile în Excel (${job.excelExport.progress?.current || 0}/${job.excelExport.progress?.total || draft?.rows.length || 0})…`
-              : `Resending rows to Excel (${job.excelExport.progress?.current || 0}/${job.excelExport.progress?.total || draft?.rows.length || 0})…`,
-          );
-        if (job?.excelExport?.status === "exported") {
-          setSelected(job);
-          await loadJobs();
-          setNotice(
-            isRo
-              ? "Exportul în Monthly_Settlement a reușit."
-              : "Monthly_Settlement export succeeded.",
-          );
-          return;
-        }
-        if (job?.excelExport?.status === "failed")
-          throw new Error(
-            job.excelExport.error || "Monthly_Settlement export failed.",
-          );
-      }
-      throw new Error(
-        isRo
-          ? "Exportul durează prea mult; verificați din nou starea."
-          : "Export is taking too long; check its status again.",
-      );
-    } catch (error) {
-      setNotice((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function save(markReviewed = false, sendToExcel = markReviewed) {
+  async function save(markReviewed = false) {
     if (!selected || !draft || busy) return;
     setBusy(true);
     setNotice(isRo ? "Se salvează…" : "Saving…");
@@ -1359,7 +1301,7 @@ export function MonthlySettlementReviewScreen() {
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ skipExcel: !sendToExcel }),
+            body: JSON.stringify({ skipExcel: true }),
           },
         );
         const reviewPayload = (await reviewResponse.json()) as {
@@ -1368,55 +1310,10 @@ export function MonthlySettlementReviewScreen() {
         };
         if (!reviewResponse.ok)
           throw new Error(reviewPayload.error || "Could not mark as reviewed.");
-        if (!sendToExcel) {
-          setSelected(null);
-          setDraft(null);
-          await loadJobs();
-          setNotice(
-            isRo
-              ? "Documentul a fost marcat ca verificat fără trimitere în Excel."
-              : "Document marked as reviewed without sending to Excel.",
-          );
-          return;
-        }
-        setNotice(
-          isRo
-            ? "Trimitere în Monthly_Settlement…"
-            : "Sending rows to Monthly_Settlement…",
-        );
-        for (let attempt = 0; attempt < 90; attempt += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1000));
-          const statusResponse = await fetch(
-            appPath(`/api/ocr/jobs/${selected.id}`),
-          );
-          const statusPayload = (await statusResponse.json()) as {
-            job?: MonthlyJob;
-          };
-          const exportStatus = statusPayload.job?.excelExport?.status;
-          const progress = statusPayload.job?.excelExport?.progress;
-          if (exportStatus === "exporting")
-            setNotice(
-              isRo
-                ? `Se trimit rândurile în Excel (${progress?.current || 0}/${progress?.total || draft.rows.length})…`
-                : `Sending rows to Excel (${progress?.current || 0}/${progress?.total || draft.rows.length})…`,
-            );
-          if (exportStatus === "exported") {
-            setSelected(null);
-            setDraft(null);
-            await loadJobs();
-            setNotice(
-              isRo
-                ? `${draft.rows.length} rânduri au fost trimise cu succes în Monthly_Settlement.`
-                : `${draft.rows.length} rows were successfully sent to Monthly_Settlement.`,
-            );
-            break;
-          }
-          if (exportStatus === "failed")
-            throw new Error(
-              statusPayload.job?.excelExport?.error ||
-                "Monthly_Settlement export failed.",
-            );
-        }
+        setSelected(null);
+        setDraft(null);
+        await loadJobs();
+        setNotice(isRo ? "Documentul a fost marcat ca verificat." : "Document marked as reviewed.");
       } else {
         setNotice(
           isRo
@@ -1665,29 +1562,6 @@ export function MonthlySettlementReviewScreen() {
                       : ""}
                   </span>
                 )}
-                {job.reviewStatus === "reviewed" && (
-                  <span
-                    className={`monthly-excel-status status-${job.excelExport?.status || "not_ready"}`}
-                  >
-                    {job.excelExport?.status === "exported"
-                      ? isRo
-                        ? "Excel: Exportat"
-                        : "Excel: Exported"
-                      : job.excelExport?.status === "failed"
-                        ? isRo
-                          ? "Excel: Eroare"
-                          : "Excel: Failed"
-                        : ["queued", "exporting"].includes(
-                              job.excelExport?.status || "",
-                            )
-                          ? isRo
-                            ? "Excel: Se trimite"
-                            : "Excel: Sending"
-                          : isRo
-                            ? "Excel: Netrimis"
-                            : "Excel: Not sent"}
-                  </span>
-                )}
                 {job.archiveStatus?.status === "archived" && (
                   <span className="monthly-archive-status archived">
                     {isRo ? "Arhivat" : "Archived"}
@@ -1861,56 +1735,19 @@ export function MonthlySettlementReviewScreen() {
                                 ? "Salvare automată"
                                 : "Autosave on"}
                       </b>
-                      {selected.excelExport?.status === "failed" && (
-                        <button
-                          className="retry"
-                          onClick={() => void retryExcelExport()}
-                          disabled={busy || autoSaveStatus === "saving"}
-                        >
-                          {isRo
-                            ? "Retrimiteți în Excel"
-                            : "Send to Excel again"}
-                        </button>
-                      )}
                       <button
                         onClick={() => void save(false)}
                         disabled={busy || autoSaveStatus === "saving"}
                       >
                         {isRo ? "Salvați" : "Save changes"}
                       </button>
-                      <button
-                        className="secondary"
-                        onClick={() => void save(true, false)}
+                      {selected.reviewStatus === "pending" && <button
+                        className="primary"
+                        onClick={() => void save(true)}
                         disabled={busy || autoSaveStatus === "saving"}
                       >
-                        {isRo
-                          ? "Marcați verificat fără Excel"
-                          : "Mark reviewed only"}
-                      </button>
-                      <button
-                        className="primary"
-                        onClick={() => void save(true, true)}
-                        disabled={
-                          busy ||
-                          autoSaveStatus === "saving" ||
-                          selected.excelExport?.status === "exported"
-                        }
-                        title={
-                          selected.excelExport?.status === "exported"
-                            ? isRo
-                              ? "Acest document a fost deja trimis în Excel"
-                              : "This document has already been sent to Excel"
-                            : undefined
-                        }
-                      >
-                        {selected.excelExport?.status === "exported"
-                          ? isRo
-                            ? "Trimis deja în Excel"
-                            : "Already sent to Excel"
-                          : isRo
-                            ? "Salvați, verificați și trimiteți în Excel"
-                            : "Save, mark reviewed and send to Excel"}
-                      </button>
+                        {isRo ? "Salvați și marcați verificat" : "Save and mark reviewed"}
+                      </button>}
                     </div>
                   )}
                 </div>

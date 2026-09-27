@@ -6,10 +6,11 @@ export function getRomOfflineSuppliers(
   username: string,
   signal?: AbortSignal,
   token?: string,
+  serverUrl?: string,
 ): Promise<ERP_Supplier[]> {
   return apiGet<ERP_Supplier[]>(
     'WMS/ERP_RomOfflineSuppliersList',
     { mode, username },
-    { signal, token },
+    { signal, token, serverUrl },
   )
 }

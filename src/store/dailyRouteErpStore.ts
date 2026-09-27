@@ -1,13 +1,15 @@
-import { login } from '../api/authApi'
+import { loginToErp } from '../api/client'
 import { ApiError } from '../api/client'
+import { getRomOfflineItems } from '../api/itemsApi'
+import { getRomOfflineSuppliers } from '../api/suppliersApi'
 import { saveZGParalavesSuppliesOrder } from '../api/suppliesOrderApi'
-import { db } from '../db/database'
-import { settingsStore } from './settingsStore'
+import { getRomZgParam } from '../api/zgParamApi'
+import { ocrConnectionSettingsStore } from './ocrConnectionSettingsStore'
 import type { UserSettings } from '../types/auth'
-import type { LocalItem } from '../types/items'
-import type { LocalSupplier } from '../types/suppliers'
+import type { ERP_Item } from '../types/items'
+import type { ERP_Supplier } from '../types/suppliers'
 import type { ERP_SuppliesPickingOrder } from '../types/suppliesOrder'
-import type { LocalZgParam } from '../types/zgParam'
+import type { ERP_ZgParam } from '../types/zgParam'
 
 export type DailyMilkTypeCode = 'MILK-COW' | 'MILK-SHEEP' | 'MILK-GOAT' | 'MILK-BUFF'
 
@@ -114,7 +116,7 @@ function milkAliases(milkType: DailyMilkTypeCode): string[] {
   return ['milkbuff', 'buff', 'buffalo', 'buffalomilk', 'bivol', 'laptedebivol']
 }
 
-function findDailyRouteMilkItem(items: LocalItem[], milkType: DailyMilkTypeCode): LocalItem | undefined {
+function findDailyRouteMilkItem(items: ERP_Item[], milkType: DailyMilkTypeCode): ERP_Item | undefined {
   const milkItems = items.filter((item) => normalize(item.item_offline_type) === 'milkcollection')
   const candidates = milkItems.length ? milkItems : items
   const wanted = milkAliases(milkType)
@@ -137,7 +139,7 @@ function resolveCenter(row: DailyRouteExtractedRow, centerMatches: DailyRouteCen
   }
 }
 
-function matchSupplier(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[], suppliers: LocalSupplier[]): LocalSupplier | undefined {
+function matchSupplier(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[], suppliers: ERP_Supplier[]): ERP_Supplier | undefined {
   const center = resolveCenter(row, centerMatches)
   if (center.code) {
     const byCode = suppliers.find((supplier) => normalize(supplier.sup_code) === normalize(center.code))
@@ -174,11 +176,11 @@ function buildPayloadLine(
   data: DailyRouteExtractedData,
   row: DailyRouteExtractedRow,
   sourceFile: string,
-  item: LocalItem,
-  supplier: LocalSupplier,
+  item: ERP_Item,
+  supplier: ERP_Supplier,
   username: string,
   userSettings: UserSettings | null,
-  zgParam: LocalZgParam | undefined,
+  zgParam: ERP_ZgParam | undefined,
 ): ERP_SuppliesPickingOrder {
   const salespickingseries = toNumber(
     zgParam?.par_supplies_series1,
@@ -253,8 +255,10 @@ export async function sendDailyRouteDetailsToErp(
   onProgress?: (exportState: DailyRouteErpExport) => void,
 ): Promise<DailyRouteErpExport> {
   const startedAt = new Date().toISOString()
-  const { apiUsername, apiPassword, defaultFiscalYear } = settingsStore.get()
-  if (!apiUsername || !apiPassword) throw new Error('API credentials not configured. Open Settings first.')
+  const settings = ocrConnectionSettingsStore.get()
+  if (!settings.serverUrl || !settings.apiUsername || !settings.apiPassword) {
+    throw new Error('OCR ERP connection is not configured. Open OCR connection settings and save the API URL, username, and password.')
+  }
 
   const rows = data.rows.filter((row) => hasValue(row.collectionCenter) || hasValue(row.liters) || hasValue(row.fatPercent) || hasValue(row.temperature) || hasValue(row.noticeNumber))
   if (!rows.length) throw new Error('There are no daily route rows with center and liters to send.')
@@ -267,22 +271,20 @@ export async function sendDailyRouteDetailsToErp(
     throw new Error(`Cannot send daily route rows to ERP. Missing required fields: ${details}.`)
   }
 
-  const [items, suppliers, zgParam] = await Promise.all([
-    db.items.toArray(),
-    db.suppliers.toArray(),
-    db.zgParams.get('current'),
-  ])
-  if (!suppliers.length) throw new Error('No synced ERP suppliers were found. Sync local suppliers before sending to ERP.')
-
-  const loginResponse = await login(
-    { Username: apiUsername, Password: apiPassword, fiscalyear: defaultFiscalYear },
-    signal,
-  ).catch((error) => {
-    throw new Error(`ERP login failed: ${readableApiError(error)}. Check the Settings API base URL and ERP credentials.`)
+  const loginResponse = await loginToErp(settings).catch((error) => {
+    throw new Error(`ERP login failed: ${readableApiError(error)}. Check the OCR connection settings.`)
   })
 
-  const username = loginResponse.user_name || apiUsername
+  const username = loginResponse.user_name || settings.apiUsername
   const userSettings = loginResponse.user_settings
+  const [items, suppliers, zgParams] = await Promise.all([
+    getRomOfflineItems('ALL', username, signal, loginResponse.access_token, settings.serverUrl),
+    getRomOfflineSuppliers('ALL', username, signal, loginResponse.access_token, settings.serverUrl),
+    getRomZgParam(username, signal, loginResponse.access_token, settings.serverUrl),
+  ])
+  if (!items.length) throw new Error('ERP returned no milk items for daily routes.')
+  if (!suppliers.length) throw new Error('ERP returned no suppliers for daily routes.')
+  const zgParam = zgParams[0]
   const rowLog: DailyRouteErpRowLog[] = rows.map((row) => ({
     rowNumber: row.rowNumber,
     aviz: row.noticeNumber,
@@ -300,7 +302,7 @@ export async function sendDailyRouteDetailsToErp(
       const item = findDailyRouteMilkItem(items, normalizedMilkType(row.milkType))
       if (!item) throw new Error(`No synced ERP item matched milk type "${normalizedMilkType(row.milkType)}".`)
       const payload = buildPayloadLine(data, row, sourceFile, item, supplier, username, userSettings, zgParam)
-      const response = await saveZGParalavesSuppliesOrder([payload], signal, loginResponse.access_token)
+      const response = await saveZGParalavesSuppliesOrder([payload], signal, loginResponse.access_token, settings.serverUrl)
         .catch((error) => {
           throw new Error(`ERP save failed for row ${row.rowNumber}, aviz ${row.noticeNumber || '-'}: ${readableApiError(error)}`)
         })

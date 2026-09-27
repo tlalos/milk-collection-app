@@ -27,6 +27,29 @@ npm run package:iis
 
 This builds the frontend with `VITE_BASE_PATH=/milk/` before zipping the release. That is important because the IIS deployment runs under `/milk`; a build made for `/` will load `/assets/...` instead of `/milk/assets/...` and can show a blank page.
 
+## Move Milk Deliveries data to production
+
+The application ZIP contains the table schema and `scripts/transferMilkDeliveries.mjs`, but not local SQL data. Export the local `dbo.MilkDeliveries` table separately:
+
+```powershell
+node .\scripts\transferMilkDeliveries.mjs export
+```
+
+Keep the generated data package private. Copy it to the production server and extract it **outside** `C:\inetpub\wwwroot\milk`. Deploy the application ZIP and restart the IIS app first, so `dbo.MilkDeliveries` and its current columns exist. Then, from the production application directory, run a dry-run using the actual snapshot path:
+
+```powershell
+cd C:\inetpub\wwwroot\milk
+node .\scripts\transferMilkDeliveries.mjs import "C:\temp\milk-deliveries-data\milk-deliveries.json"
+```
+
+Check that the printed target server and database are the intended production database and that `conflicts` is empty. Only then apply the import:
+
+```powershell
+node .\scripts\transferMilkDeliveries.mjs import "C:\temp\milk-deliveries-data\milk-deliveries.json" --apply
+```
+
+The importer inserts missing deliveries in one transaction. It skips identical IDs, refuses conflicting IDs or duplicate deliveries, and never updates or deletes existing production rows. Run the dry-run again afterward; `wouldInsert` should be `0`. This transfers the delivery records, not the local activity log.
+
 ## Persistent data
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.

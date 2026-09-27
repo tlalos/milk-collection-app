@@ -28,6 +28,8 @@ export default defineConfig(({ mode }) => {
   return {
     base: basePath,
     server: {
+      port: 5173,
+      strictPort: true,
       proxy: apiProxy,
     },
     preview: {

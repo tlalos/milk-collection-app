@@ -47,7 +47,7 @@
 .daily-recon-section-heading span { color: var(--color-text-muted); font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
 .daily-recon-empty { padding: 18px 12px; text-align: center; }
 
-.daily-recon-day { min-width: 0; border: 1px solid #d4e2da; border-radius: 8px; overflow: hidden; background: #fff; }
+.daily-recon-day { min-width: 0; border: 2px solid #248a60; border-radius: 8px; overflow: hidden; background: #fff; }
 .daily-recon-day-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; min-height: 48px; border-bottom: 1px solid #dbe9e1; padding: 9px 16px; background: #f4faf7; }
 .daily-recon-day-header h3 { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 0.93rem; line-height: 1.3; }
 .daily-recon-day-header time { color: #405d4c; font-weight: 650; }

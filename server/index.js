@@ -26,7 +26,6 @@ import {
   userHasPermission,
 } from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
-import { enqueueExcelExport, resumeExcelExports } from './excelQueue.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
@@ -2251,17 +2250,14 @@ app.patch('/api/ocr/jobs/:id/review', async (request, response, next) => {
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be reviewed.' })
-    const skipExcel = Boolean(request.body?.skipExcel)
-
     const job = await updateJob(current.id, {
       reviewStatus: 'reviewed',
       reviewedAt: new Date().toISOString(),
-      excelExport: skipExcel
-        ? { status: 'not_ready', reviewedWithoutExportAt: new Date().toISOString(), error: null }
-        : { status: 'queued', queuedAt: new Date().toISOString(), error: null },
+      excelExport: current.excelExport?.status === 'exported'
+        ? current.excelExport
+        : { status: 'not_ready', reviewedWithoutExportAt: new Date().toISOString(), error: null },
     })
     const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([job.data?.date])
-    if (!skipExcel) enqueueExcelExport(current.id)
     response.json({ job: toPublicJob(job, true), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
@@ -2270,15 +2266,7 @@ app.patch('/api/ocr/jobs/:id/review', async (request, response, next) => {
 
 app.post('/api/ocr/jobs/:id/excel/retry', async (request, response, next) => {
   try {
-    const current = await getJob(request.params.id)
-    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
-    if (current.reviewStatus !== 'reviewed') return response.status(409).json({ error: 'Review this document before exporting it to Excel.' })
-    if (current.excelExport?.status === 'queued' || current.excelExport?.status === 'exporting') {
-      return response.status(409).json({ error: 'Excel export is already in progress.' })
-    }
-    const job = await updateJob(current.id, { excelExport: { ...current.excelExport, status: 'queued', queuedAt: new Date().toISOString(), error: null } })
-    enqueueExcelExport(current.id)
-    response.status(202).json({ job: toPublicJob(job, true) })
+    response.status(410).json({ error: 'Excel export for OCR documents has been retired.' })
   } catch (error) {
     next(error)
   }
@@ -2432,7 +2420,6 @@ await initializeDailyReconciliationLinks()
 const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()
 console.log(`[Daily reconciliation] ${restoredDailyLinks} reviewed aviz lines linked to COLLECTION receptions`)
 await resumePendingJobs()
-await resumeExcelExports()
 startOcrArchiveCleanup()
 
 app.listen(port, '0.0.0.0', () => {
