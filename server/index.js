@@ -26,6 +26,7 @@ import {
   userHasPermission,
 } from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
+import { ocrFileJobId, ocrPermissionsForRoute } from './ocrPermissions.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
@@ -1043,6 +1044,31 @@ function requirePermission(permission) {
   }
 }
 
+async function requireOcrPermission(request, response, next) {
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    if (!user) return response.status(401).json({ error: 'Authentication required.' })
+
+    const route = request.path
+    const fileJobId = ocrFileJobId(route)
+    let documentCategory = ''
+    if (fileJobId) {
+      const job = await getJob(fileJobId)
+      if (!job) return response.status(404).json({ error: 'OCR job not found.' })
+      documentCategory = job.documentCategory || 'daily_routes'
+    }
+    const permissions = ocrPermissionsForRoute(route, documentCategory)
+
+    if (!permissions.some((permission) => userHasPermission(user, permission))) {
+      return response.status(403).json({ error: 'You do not have access to this page or action.' })
+    }
+    request.authUser = user
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
 function auditFailureReason(error) {
   const status = Number(error?.status || error?.statusCode || 500)
   return status >= 400 && status < 500 ? String(error?.message || 'Request rejected') : 'Server error'
@@ -1417,7 +1443,7 @@ app.get('/api/milk-receptions/:id/weight-events', async (request, response, next
   }
 })
 
-app.get('/api/daily-reconciliation/links', requirePermission('milk_reception'), requirePermission('ocr_documents'), async (request, response, next) => {
+app.get('/api/daily-reconciliation/links', requirePermission('daily_reconciliation'), async (request, response, next) => {
   try {
     const month = String(request.query.month || '')
     if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
@@ -1427,7 +1453,7 @@ app.get('/api/daily-reconciliation/links', requirePermission('milk_reception'), 
   }
 })
 
-app.get('/api/daily-reconciliation/month', requirePermission('milk_reception'), requirePermission('ocr_documents'), async (request, response, next) => {
+app.get('/api/daily-reconciliation/month', requirePermission('daily_reconciliation'), async (request, response, next) => {
   try {
     const month = String(request.query.month || '')
     if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
@@ -1561,7 +1587,7 @@ app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
   }
 })
 
-app.use('/api/ocr', requirePermission('ocr_documents'))
+app.use('/api/ocr', requireOcrPermission)
 
 app.get('/api/ocr/settings', async (_request, response, next) => {
   try { response.json({ settings: publicOcrSettings(await getOcrSettings()) }) } catch (error) { next(error) }
@@ -1853,7 +1879,7 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
   }
 })
 
-app.get('/api/month-closure/pricing-rows', async (request, response, next) => {
+app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), async (request, response, next) => {
   try {
     const jobs = await listJobs()
     const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month })
@@ -1866,7 +1892,7 @@ app.get('/api/month-closure/pricing-rows', async (request, response, next) => {
   }
 })
 
-app.post('/api/month-closure/pricing-rows', requirePermission('ocr_documents'), async (request, response, next) => {
+app.post('/api/month-closure/pricing-rows', requirePermission('month_closure'), async (request, response, next) => {
   try {
     if (!isSqlOcrStoreEnabled()) {
       return response.status(503).json({ error: 'SQL pricing storage is not enabled.' })

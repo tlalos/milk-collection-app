@@ -80,6 +80,8 @@ interface HomeWebUser {
   id: string
   username: string
   fullName?: string
+  isAdmin?: boolean
+  permissions?: string[]
 }
 
 function webLoginErrorMessage(error: unknown) {
@@ -470,6 +472,10 @@ export function App() {
     }
   }, [])
 
+  function canShowOcrTile(permission: string) {
+    return !homeOcrChecking && (!homeOcrUser || homeOcrUser.isAdmin || homeOcrUser.permissions?.includes(permission))
+  }
+
   function handleStartupComplete() {
     if (authStore.isLoggedIn()) {
       setUser(authStore.getUser())
@@ -673,7 +679,7 @@ export function App() {
       )}
 
       {screen === 'dailyReconciliation' && (
-        <OcrAuthGate requiredPermission={['milk_reception', 'ocr_documents']}><DailyReconciliationScreen onBack={openOcrMenu} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="daily_reconciliation"><DailyReconciliationScreen onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'monthlyReconciliation' && (
@@ -957,7 +963,7 @@ export function App() {
                 </button>
               </section>
 
-              <button
+              {canShowOcrTile('ocr_documents') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/ocr/upload') }}
@@ -973,9 +979,9 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">OCR documents</span>
-              </button>
+              </button>}
 
-              <button
+              {canShowOcrTile('ocr_documents') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/ocr/archive-history') }}
@@ -991,47 +997,51 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Backup history</span>
-              </button>
+              </button>}
 
-              <button
-                className="home-tile"
-                type="button"
-                onClick={() => { window.location.href = appPath('/milk-reception') }}
-              >
-                <div className="home-tile-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-                    strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 5h16" />
-                    <path d="M4 10h16" />
-                    <path d="M4 15h16" />
-                    <path d="M8 5v14" />
-                    <path d="M16 5v14" />
-                    <path d="M4 19h16" />
-                  </svg>
-                </div>
-                <span className="home-tile-label">Milk Reception</span>
-              </button>
+              {canShowOcrTile('milk_reception') && (
+                <>
+                  <button
+                    className="home-tile"
+                    type="button"
+                    onClick={() => { window.location.href = appPath('/milk-reception') }}
+                  >
+                    <div className="home-tile-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 5h16" />
+                        <path d="M4 10h16" />
+                        <path d="M4 15h16" />
+                        <path d="M8 5v14" />
+                        <path d="M16 5v14" />
+                        <path d="M4 19h16" />
+                      </svg>
+                    </div>
+                    <span className="home-tile-label">Milk Reception</span>
+                  </button>
 
-              <button
-                className="home-tile"
-                type="button"
-                onClick={() => { window.location.href = appPath('/milk-deliveries') }}
-              >
-                <div className="home-tile-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-                    strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 7h11v10H3z" />
-                    <path d="M14 10h4l3 3v4h-7z" />
-                    <path d="M6 7V4h5v3" />
-                    <circle cx="7" cy="18" r="2" />
-                    <circle cx="18" cy="18" r="2" />
-                    <path d="M5 11h6" />
-                  </svg>
-                </div>
-                <span className="home-tile-label">Milk Deliveries</span>
-              </button>
+                  <button
+                    className="home-tile"
+                    type="button"
+                    onClick={() => { window.location.href = appPath('/milk-deliveries') }}
+                  >
+                    <div className="home-tile-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 7h11v10H3z" />
+                        <path d="M14 10h4l3 3v4h-7z" />
+                        <path d="M6 7V4h5v3" />
+                        <circle cx="7" cy="18" r="2" />
+                        <circle cx="18" cy="18" r="2" />
+                        <path d="M5 11h6" />
+                      </svg>
+                    </div>
+                    <span className="home-tile-label">Milk Deliveries</span>
+                  </button>
+                </>
+              )}
 
-              <button
+              {canShowOcrTile('daily_aviz') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/daily-aviz') }}
@@ -1048,9 +1058,9 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Daily Aviz</span>
-              </button>
+              </button>}
 
-              <button
+              {canShowOcrTile('daily_reconciliation') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/daily-reconciliation') }}
@@ -1063,9 +1073,9 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Daily Reconciliation</span>
-              </button>
+              </button>}
 
-              <button
+              {canShowOcrTile('monthly_reconciliation') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/monthly-reconciliation') }}
@@ -1081,9 +1091,9 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Monthly Reconciliation</span>
-              </button>
+              </button>}
 
-              <button
+              {canShowOcrTile('month_closure') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/month-closure') }}
@@ -1099,7 +1109,7 @@ export function App() {
                   </svg>
                 </div>
                 <span className="home-tile-label">Month Closure & Payments</span>
-              </button>
+              </button>}
                 </>
               )}
 
