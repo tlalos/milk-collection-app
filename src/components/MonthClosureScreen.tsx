@@ -15,6 +15,8 @@ type ClosureView = 'pricing' | 'erpInvoices' | 'bankNote'
 type BankTransferStatus = 'pending' | 'sent'
 
 interface MonthClosurePricingRow {
+  source?: 'journal' | 'aviz'
+  approvalReviewRequired?: boolean
   id: string
   month: string
   center: string
@@ -523,7 +525,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     const vatStatusAmount = result === null || extraApplied || !hasRegularVat(vatStatus) ? 0 : result * 0.11
     const extraAmount = result === null || !extraApplied ? 0 : result * 0.08
     const hasFinalValue = result !== null || commissionValue !== null || electricityValue !== null
-    const finalResult = hasFinalValue ? (result ?? 0) + commission + electricity + vatStatusAmount + extraAmount : null
+    const finalResult = row.approvalReviewRequired ? null : hasFinalValue ? (result ?? 0) + commission + electricity + vatStatusAmount + extraAmount : null
     return { row, erpProducer, price, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult }
   })
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
@@ -970,7 +972,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                         {row.center}
                       </button>
                     </td>
-                    <td title={row.producer}>{row.producer}</td>
+                    <td title={row.producer}>{row.producer}<small className="month-closure-source">Source: {row.source === 'aviz' ? 'Aviz' : 'Journal'}{row.approvalReviewRequired ? ' · Needs approval review' : ''}</small></td>
                     <td title={row.milkType}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
                     <td className="month-closure-entry-cell">
@@ -1046,7 +1048,6 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 <tr>
                   <th>Month</th>
                   <th>Producer name</th>
-                  <th>Producer code</th>
                   <th>Producer center</th>
                   <th>Milk type</th>
                   <th>Price</th>
@@ -1062,17 +1063,12 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={15} className="month-closure-empty">Loading invoice rows...</td></tr>}
-                {!loading && invoiceRows.length === 0 && <tr><td colSpan={15} className="month-closure-empty">No invoice rows found for this view.</td></tr>}
+                {loading && <tr><td colSpan={14} className="month-closure-empty">Loading invoice rows...</td></tr>}
+                {!loading && invoiceRows.length === 0 && <tr><td colSpan={14} className="month-closure-empty">No invoice rows found for this view.</td></tr>}
                 {!loading && invoiceRows.map((invoiceRow) => (
                   <tr key={invoiceRow.row.id} className={invoiceRow.row.readyForPricing ? 'ready' : 'blocked'}>
                     <td>{displayMonth(invoiceRow.row.month)}</td>
-                    <td title={invoiceRow.erpProducer?.producerName || invoiceRow.row.producer}>{displayText(invoiceRow.erpProducer?.producerName || invoiceRow.row.producer)}</td>
-                    <td>
-                      <span className={`month-closure-erp-match ${invoiceRow.erpProducer ? 'matched' : 'missing'}`}>
-                        {displayText(invoiceRow.row.producerCode)}
-                      </span>
-                    </td>
+                    <td title={invoiceRow.erpProducer?.producerName || invoiceRow.row.producer}>{displayText(invoiceRow.erpProducer?.producerName || invoiceRow.row.producer)}<small className="month-closure-source">Source: {invoiceRow.row.source === 'aviz' ? 'Aviz' : 'Journal'}{invoiceRow.row.approvalReviewRequired ? ' · Needs approval review' : ''}</small></td>
                     <td title={invoiceRow.erpProducer?.centerName || invoiceRow.row.center}>{displayText(invoiceRow.erpProducer?.centerName || invoiceRow.row.center)}</td>
                     <td>{displayMilkType(invoiceRow.row.milkType)}</td>
                     <td>
@@ -1110,7 +1106,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 ))}
                 {!loading && invoiceRows.length > 0 && (
                   <tr className="month-closure-invoice-total-row">
-                    <td colSpan={6}>Totals</td>
+                    <td colSpan={5}>Totals</td>
                     <td>{formatNumber(invoiceTotals.qty)}</td>
                     <td>{formatMoney(invoiceTotals.result)}</td>
                     <td>{formatMoney(invoiceTotals.commission, 4)}</td>

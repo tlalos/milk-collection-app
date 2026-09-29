@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { appPath } from '../ocrPaths'
 import './MonthlyReconciliationScreen.css'
 
@@ -33,6 +34,7 @@ interface MonthlyReconciliationJournalRow {
 }
 
 interface MonthlyReconciliationRow {
+  avizPricing?: { reason?: string; producerName?: string; producerCode?: string; centerCode?: string; approvedLiters?: number; sourceFingerprint?: string }
   id: string
   month: string
   center: string
@@ -59,8 +61,22 @@ interface MonthlyReconciliationSummary {
 }
 
 interface MonthlyReconciliationPayload {
+  canApproveAviz?: boolean
+  avizApprovals?: AvizPricingApproval[]
   rows: MonthlyReconciliationRow[]
   summary: MonthlyReconciliationSummary
+}
+
+interface AvizPricingApproval {
+  approvalId: string
+  monthKey: string
+  centerCode: string
+  centerName: string
+  producerName: string
+  milkType: string
+  approvedLiters: number
+  status: string
+  reviewReason?: string
 }
 
 type StatusFilter = 'all' | ReconciliationStatus
@@ -226,6 +242,14 @@ function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] 
 
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<MonthlyReconciliationRow[]>([])
+  const [canApproveAviz, setCanApproveAviz] = useState(false)
+  const [avizApprovals, setAvizApprovals] = useState<AvizPricingApproval[]>([])
+  const [approvalDraft, setApprovalDraft] = useState<MonthlyReconciliationRow | null>(null)
+  const [cancelDraft, setCancelDraft] = useState<AvizPricingApproval | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [approvalBusy, setApprovalBusy] = useState(false)
+  const [approvalError, setApprovalError] = useState('')
+  const tableWrapRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [monthFilter, setMonthFilter] = useState(initialMonthFilter)
@@ -255,11 +279,33 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
       const payload = text ? JSON.parse(text) as MonthlyReconciliationPayload & { error?: string } : { rows: [], summary: emptySummary }
       if (!response.ok) throw new Error(payload.error || 'Could not load monthly reconciliation.')
       setRows(payload.rows || [])
+      setCanApproveAviz(Boolean(payload.canApproveAviz))
+      setAvizApprovals(payload.avizApprovals || [])
     } catch (loadError) {
       setError((loadError as Error).message)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function saveAvizApproval() {
+    if (approvalBusy) return
+    setApprovalBusy(true)
+    setApprovalError('')
+    try {
+      const response = await fetch(appPath('/api/monthly-reconciliation/aviz-pricing'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cancelDraft
+          ? { type: 'cancel', approvalId: cancelDraft.approvalId, reason: cancelReason }
+          : { type: 'approve', groupId: approvalDraft?.id, fingerprint: approvalDraft?.avizPricing?.sourceFingerprint }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not save approval.')
+      setApprovalDraft(null)
+      setCancelDraft(null)
+      await loadRows()
+    } catch (error) { setApprovalError((error as Error).message) }
+    finally { setApprovalBusy(false) }
   }
 
   async function loadOcrIssues() {
@@ -665,7 +711,21 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               )}
             </div>
           )}
-          <div className="monthly-recon-table-wrap">
+          {avizApprovals.some(a => !monthFilter || a.monthKey === monthFilter) && (
+            <section className="monthly-aviz-approvals" aria-label="Aviz pricing approvals">
+              <h3>Aviz pricing approvals</h3>
+              {avizApprovals.filter(a => !monthFilter || a.monthKey === monthFilter).map(approval => (
+                <div key={approval.approvalId} className="monthly-aviz-approval">
+                  <div><strong>{approval.centerName} · {displayMonth(approval.monthKey)}</strong>
+                    <p>{approval.producerName} · {approval.milkType} · {formatNumber(approval.approvedLiters, 3)} L</p>
+                    <p>{approval.status === 'APPROVED' ? 'Approved for pricing' : `Needs review: ${approval.reviewReason}`}</p>
+                  </div>
+                  {canApproveAviz && <button type="button" onClick={() => { setCancelDraft(approval); setCancelReason(''); setApprovalError('') }}>Cancel approval</button>}
+                </div>
+              ))}
+            </section>
+          )}
+          <div className="monthly-recon-table-wrap" ref={tableWrapRef}>
             <table className="monthly-recon-table">
               <thead>
                 <tr>
@@ -704,6 +764,14 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       <td className={`monthly-recon-center-cell ${row.status}`} title={row.center}>
                         {row.monthlyRowCount === 0 && <span className="monthly-recon-center-alert">!</span>}
                         <span>{row.center}</span>
+                        {row.monthlyRowCount === 0 && row.avizPricing && (
+                          <div className="monthly-aviz-pricing-action">
+                            {row.avizPricing.reason ? <small>{row.avizPricing.reason}</small>
+                              : avizApprovals.some(a => a.monthKey === row.month && a.centerCode.toLowerCase() === row.avizPricing?.centerCode && a.milkType === row.milkType)
+                                ? <small>See aviz pricing approval above</small>
+                                : canApproveAviz && <button type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}
+                          </div>
+                        )}
                       </td>
                       <td>{row.milkType}</td>
                       <td>{formatNumber(row.avizLiters)}</td>
@@ -806,8 +874,26 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               </tbody>
             </table>
           </div>
+          <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll monthly reconciliation table horizontally" />
         </section>
 
+        {(approvalDraft || cancelDraft) && (
+          <div className="monthly-recon-modal-backdrop">
+            <section className="monthly-recon-modal" role="dialog" aria-modal="true" aria-labelledby="aviz-pricing-title">
+              <h2 id="aviz-pricing-title">{cancelDraft ? 'Cancel aviz pricing approval' : 'Use aviz for pricing'}</h2>
+              <p>{cancelDraft?.centerName || approvalDraft?.center} · {displayMonth(cancelDraft?.monthKey || approvalDraft?.month || '')}</p>
+              <p><strong>{cancelDraft?.producerName || approvalDraft?.avizPricing?.producerName}</strong></p>
+              <p>{cancelDraft?.milkType || approvalDraft?.milkType} · {formatNumber(cancelDraft?.approvedLiters ?? approvalDraft?.avizPricing?.approvedLiters, 3)} L</p>
+              {!cancelDraft && <p>No journal received. Confirm this aviz quantity for Month Closure.</p>}
+              {cancelDraft && <label>Cancellation reason<input value={cancelReason} maxLength={1000} onChange={e => setCancelReason(e.target.value)} /></label>}
+              {approvalError && <p role="alert">{approvalError}</p>}
+              <div className="monthly-aviz-dialog-actions">
+                <button type="button" disabled={approvalBusy} onClick={() => { setApprovalDraft(null); setCancelDraft(null) }}>Close</button>
+                <button type="button" disabled={approvalBusy || Boolean(cancelDraft && !cancelReason.trim())} onClick={() => void saveAvizApproval()}>{approvalBusy ? 'Saving...' : cancelDraft ? 'Confirm cancellation' : 'Confirm approval'}</button>
+              </div>
+            </section>
+          </div>
+        )}
         {correctionDraft && (
           <div className="monthly-recon-modal-backdrop" role="presentation">
             <section className="monthly-recon-modal" role="dialog" aria-modal="true" aria-labelledby="monthly-recon-correction-title">

@@ -159,6 +159,10 @@ function matchSupplier(row: DailyRouteExtractedRow, centerMatches: DailyRouteCen
   if (!center.code) throw new Error(`Row ${row.rowNumber}: select an ERP center code before sending.`)
   const supplier = suppliers.find((item) => String(item.sup_code ?? '').trim().toLowerCase() === center.code!.toLowerCase())
   if (!supplier) throw new Error(`Row ${row.rowNumber}: center code "${center.code}" was not found in ERP.`)
+  const centerName = (value: string | null | undefined) => (value || '').trim().replace(/\s+/gu, ' ').toUpperCase()
+  if (centerName(row.collectionCenter) !== centerName(supplier.sup_name) || centerName(center.name) !== centerName(supplier.sup_name)) {
+    throw new Error(`Row ${row.rowNumber}: the center name and ERP selection do not agree. Select the correct ERP center again.`)
+  }
   return supplier
 }
 

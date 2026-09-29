@@ -620,24 +620,23 @@
 .month-closure-table th:nth-child(14) { width: 112px; }
 
 .month-closure-invoice-table {
-  min-width: 1720px;
+  min-width: 1608px;
 }
 
 .month-closure-invoice-table th:nth-child(1) { width: 86px; }
 .month-closure-invoice-table th:nth-child(2) { width: 240px; }
-.month-closure-invoice-table th:nth-child(3) { width: 112px; }
-.month-closure-invoice-table th:nth-child(4) { width: 220px; }
+.month-closure-invoice-table th:nth-child(3) { width: 220px; }
+.month-closure-invoice-table th:nth-child(4),
 .month-closure-invoice-table th:nth-child(5),
 .month-closure-invoice-table th:nth-child(6),
 .month-closure-invoice-table th:nth-child(7),
 .month-closure-invoice-table th:nth-child(8),
 .month-closure-invoice-table th:nth-child(9),
-.month-closure-invoice-table th:nth-child(10),
-.month-closure-invoice-table th:nth-child(12),
-.month-closure-invoice-table th:nth-child(14),
-.month-closure-invoice-table th:nth-child(15) { width: 104px; }
-.month-closure-invoice-table th:nth-child(11) { width: 112px; }
-.month-closure-invoice-table th:nth-child(13) { width: 72px; }
+.month-closure-invoice-table th:nth-child(11),
+.month-closure-invoice-table th:nth-child(13),
+.month-closure-invoice-table th:nth-child(14) { width: 104px; }
+.month-closure-invoice-table th:nth-child(10) { width: 112px; }
+.month-closure-invoice-table th:nth-child(12) { width: 72px; }
 
 .month-closure-bank-table {
   min-width: 1140px;
@@ -769,7 +768,7 @@
   outline-offset: 2px;
 }
 
-.month-closure-invoice-table tr.ready td:nth-child(4) {
+.month-closure-invoice-table tr.ready td:nth-child(3) {
   background: #dff4e8;
 }
 
@@ -954,3 +953,4 @@
     width: auto;
   }
 }
+.month-closure-source { display: block; margin-top: 4px; color: #53685e; font-size: 11px; white-space: normal; }

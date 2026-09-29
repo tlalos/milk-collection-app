@@ -555,36 +555,6 @@ function applyCenterMatchesToData(data: ExtractedData, matches: CenterMatch[]) {
   }
 }
 
-function applyAutomaticCenterReplacements(job: OcrJob) {
-  if (!job.data || !job.centerMatches?.length) return job
-  const centerMatches = job.centerMatches.map((match) => {
-    if (match.selectedName || match.status !== 'suggested') return match
-    const best = match.suggestions[0]
-    if (!best || best.score < 0.6) return match
-    const row = job.data?.rows.find((item) => item.rowNumber === match.rowNumber)
-    if ((row?.collectionCenter ?? '') !== (match.originalName ?? '')) return match
-    return { ...match, status: 'auto_replaced' as const, selectedCode: best.code, selectedName: best.name }
-  })
-  const data = {
-    ...job.data,
-    rows: job.data.rows.map((row) => {
-      const match = centerMatches.find((item) =>
-        item.rowNumber === row.rowNumber &&
-        acceptedCenterMatch(item) &&
-        item.selectedName
-      )
-      return match?.selectedName
-        ? {
-            ...row,
-            collectionCenter: match.selectedName,
-            uncertainFields: row.uncertainFields.filter((field) => field !== 'collectionCenter'),
-          }
-        : row
-    }),
-  }
-  return { ...job, data, centerMatches }
-}
-
 export function OcrReviewScreen() {
   const { language, setLanguage, isRo } = useOcrLanguage()
   const [queueView, setQueueView] = useState<QueueView>('pending')
@@ -629,6 +599,7 @@ export function OcrReviewScreen() {
   const jobCacheRef = useRef(new Map<string, OcrJob>())
   const prefetchingRef = useRef(new Set<string>())
   const lastSavedRef = useRef('')
+  const openRequestRef = useRef(0)
   const centerSearchTimersRef = useRef(new Map<number, number>())
   const previousLayoutRef = useRef({ queueCollapsed: false, panelSplit: 50 })
   const sourcePreviewRef = useRef<HTMLDivElement | null>(null)
@@ -799,6 +770,7 @@ export function OcrReviewScreen() {
     if (!selected || !draft || selected.status !== 'completed' || saving || rematchingReferences) return
     const signature = JSON.stringify({ data: draft, centerMatches })
     if (signature === lastSavedRef.current) return
+    let cancelled = false
     setAutoSaveStatus('saving')
     const timer = window.setTimeout(async () => {
       try {
@@ -808,19 +780,21 @@ export function OcrReviewScreen() {
           body: JSON.stringify({ data: draft, centerMatches }),
         })
         const payload = await response.json() as { job?: OcrJob; error?: string }
+        if (cancelled) return
         if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not automatically save changes.')
         lastSavedRef.current = signature
         jobCacheRef.current.set(payload.job.id, payload.job)
-        setSelected((current) => current?.id === payload.job!.id ? { ...payload.job!, data: draft } : current)
+        setSelected((current) => current?.id === payload.job!.id ? payload.job! : current)
         setSelectedSummary((current) => current?.id === payload.job!.id ? { ...current, ...payload.job, data: undefined } : current)
         setJobs((current) => current.map((job) => job.id === payload.job!.id ? { ...job, ...payload.job, data: undefined } : job))
         setAutoSaveStatus('saved')
       } catch (saveError) {
+        if (cancelled) return
         setAutoSaveStatus('error')
         setError((saveError as Error).message || 'Could not automatically save changes.')
       }
     }, 800)
-    return () => window.clearTimeout(timer)
+    return () => { cancelled = true; window.clearTimeout(timer) }
   }, [centerMatches, draft, rematchingReferences, saving, selected?.id, selected?.status])
 
   useEffect(() => () => {
@@ -850,6 +824,7 @@ export function OcrReviewScreen() {
   }, [imageRotation, zoom, selected?.id])
 
   async function openJob(job: OcrJob) {
+    const requestId = ++openRequestRef.current
     setSelectedId(job.id)
     setSelectedSummary(job)
     setSuccess('')
@@ -864,25 +839,13 @@ export function OcrReviewScreen() {
       return
     }
 
-    const cached = jobCacheRef.current.get(job.id)
-    if (cached?.data) {
-      const normalized = applyAutomaticCenterReplacements(cached)
-      lastSavedRef.current = JSON.stringify({ data: normalized.data, centerMatches: normalized.centerMatches ?? [] })
-      jobCacheRef.current.set(normalized.id, normalized)
-      setSelected(normalized)
-      setDraft(cloneData(normalized.data!))
-      setCenterMatches(structuredClone(normalized.centerMatches ?? []))
-      setCenterSearchMatches({})
-      setOpenCenterSuggestions(null)
-      setLoadingId('')
-      return
-    }
-
+    setAutoSaveStatus('idle')
     setLoadingId(job.id)
     setSelected(null)
     setDraft(null)
     try {
-      const detail = applyAutomaticCenterReplacements(await fetchJobDetail(job.id))
+      const detail = await fetchJobDetail(job.id, true)
+      if (requestId !== openRequestRef.current) return
       lastSavedRef.current = JSON.stringify({ data: detail.data, centerMatches: detail.centerMatches ?? [] })
       jobCacheRef.current.set(detail.id, detail)
       setSelected(detail)
@@ -892,9 +855,10 @@ export function OcrReviewScreen() {
       setOpenCenterSuggestions(null)
       setError('')
     } catch (loadError) {
+      if (requestId !== openRequestRef.current) return
       setError((loadError as Error).message || 'Could not load this document.')
     } finally {
-      setLoadingId('')
+      if (requestId === openRequestRef.current) setLoadingId('')
     }
   }
 
@@ -956,7 +920,12 @@ export function OcrReviewScreen() {
     })
     if (field === 'collectionCenter') {
       const rowNumber = draft?.rows[index]?.rowNumber
-      if (rowNumber != null) scheduleCenterSearch(rowNumber, input)
+      if (rowNumber != null) {
+        setCenterMatches((current) => current.map((match) => match.rowNumber === rowNumber
+          ? { ...match, selectedCode: null, selectedName: null, status: 'unmatched' as const }
+          : match))
+        scheduleCenterSearch(rowNumber, input)
+      }
     }
   }
 
@@ -1162,6 +1131,7 @@ export function OcrReviewScreen() {
       }
 
       jobCacheRef.current.set(savedJob.id, savedJob)
+      setAutoSaveStatus('saved')
       lastSavedRef.current = JSON.stringify({ data: savedJob.data, centerMatches: savedJob.centerMatches ?? [] })
       if (markReviewed && queueView === 'pending') {
         setSelected(null)
@@ -1181,6 +1151,7 @@ export function OcrReviewScreen() {
 
       if (savePayload.linkWarning && !markReviewed) setError(`Document saved, but Milk Reception links could not be updated: ${savePayload.linkWarning}`)
     } catch (saveError) {
+      setAutoSaveStatus('error')
       setError((saveError as Error).message || 'Could not save corrected data.')
     } finally {
       setSaving(false)
@@ -1856,13 +1827,17 @@ export function OcrReviewScreen() {
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
                           const searchMatch = centerSearchMatches[row.rowNumber]
+                          const savedMatch = selected.centerMatches?.find((item) => item.rowNumber === row.rowNumber)
+                          const savedRow = selected.data?.rows.find((item) => item.rowNumber === row.rowNumber)
+                          const centerPending = row.collectionCenter !== savedRow?.collectionCenter || match?.selectedCode !== savedMatch?.selectedCode || match?.selectedName !== savedMatch?.selectedName
                           const needsReview = centerNameNeedsReview(row, match)
                           const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter', match)
                           return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : needsSoftReview ? 'review-cell-warning' : ''}`}>
                             <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
                             {match ? <>
                               <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
-                                <option value="">{match.suggestions.length ? (isRo ? `Alegeți o sugestie (${match.suggestions.length})…` : `Choose a suggestion (${match.suggestions.length})…`) : (isRo ? 'Nicio potrivire găsită (0)' : 'No match found (0)')}</option>
+                                <option value="">{isRo ? 'Selectați centrul ERP' : 'Select ERP center'}</option>
+                                {match.selectedCode && !match.suggestions.some((item) => item.code === match.selectedCode) && <option value={match.selectedCode}>{match.selectedName} · {match.selectedCode}</option>}
                                 {match.suggestions.map((suggestion) => <option className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-option' : ''} key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{suggestion.source === 'ocr_original' ? `${suggestion.name} · ${isRo ? 'OCR original' : 'OCR original'}` : `${Math.round(suggestion.score * 100)}% · ${suggestion.name} · ${suggestion.code}`}</option>)}
                               </select>
                               {openCenterSuggestions === row.rowNumber && searchMatch?.suggestions.length ? (
@@ -1873,11 +1848,13 @@ export function OcrReviewScreen() {
                                 </div>
                               ) : null}
                               <small className={match.status === 'auto_replaced' ? 'system-replaced' : match.selectedCode ? 'confirmed' : 'neutral'}>
-                                {match.status === 'auto_replaced'
+                                {centerPending
+                                  ? (autoSaveStatus === 'error' ? (isRo ? 'Nesalvat: salvarea a eșuat' : 'Not saved: save failed') : (isRo ? 'Se salvează selecția…' : 'Saving selection…'))
+                                  : match.status === 'auto_replaced'
                                   ? (isRo ? `Înlocuit de sistem: „${match.originalName || '—'}” → „${match.selectedName}”` : `Replaced by system: “${match.originalName || '—'}” → “${match.selectedName}”`)
                                   : match.selectedCode
                                     ? (isRo ? `Selectat de utilizator: ${match.selectedName}` : `Selected by reviewer: ${match.selectedName}`)
-                                    : (isRo ? 'Descrierea OCR a fost păstrată' : 'OCR description retained')}
+                                    : (isRo ? 'Niciun centru ERP selectat' : 'No ERP center selected')}
                               </small>
                             </> : null}
                             {needsReview && <small className="review-center-warning">{isRo ? 'Nicio potrivire în listă' : 'No match in reference list'}</small>}

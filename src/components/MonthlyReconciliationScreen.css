@@ -896,3 +896,8 @@
     grid-template-columns: 1fr;
   }
 }
+.monthly-aviz-approvals { padding: 16px; border-bottom: 1px solid #bdd4c6; }
+.monthly-aviz-approval { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #dce7e0; }
+.monthly-aviz-approval p { margin: 4px 0; }
+.monthly-aviz-pricing-action { white-space: normal; margin-top: 6px; font-size: 12px; }
+.monthly-aviz-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; }

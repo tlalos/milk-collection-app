@@ -56,6 +56,7 @@ import {
 } from './dailyOcrReferenceService.js'
 import { fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
 import { getErpReferenceSnapshot, saveErpReferenceSnapshot } from './erpReferenceStore.js'
+import { correctedCenterMatch, validateDailyCenterMatches } from './dailyCenterValidation.js'
 import {
   createMilkReception,
   deleteMilkReception,
@@ -92,6 +93,8 @@ import {
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getMilkDensitySettings, initializeMilkDensitySettingsStore } from './milkDensitySettingsStore.js'
+import { initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
+import { monthlyAvizApprovalContext } from './monthlyAvizPricingService.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
@@ -477,20 +480,6 @@ function originalDailyAvizCenter(job, row) {
   return originalRow?.collectionCenter || row.collectionCenter || null
 }
 
-function confirmedCenterMatchForRow(existingMatch, rowNumber, originalName, selectedName) {
-  const suggestions = Array.isArray(existingMatch?.suggestions) ? existingMatch.suggestions : []
-  const selectedSuggestion = suggestions.find((suggestion) => normalizeSuggestionText(suggestion.name) === normalizeSuggestionText(selectedName))
-  return {
-    ...(existingMatch || {}),
-    rowNumber,
-    originalName: existingMatch?.originalName || originalName || null,
-    status: 'confirmed',
-    selectedCode: selectedSuggestion?.code ? String(selectedSuggestion.code) : existingMatch?.selectedCode || null,
-    selectedName,
-    suggestions,
-  }
-}
-
 function sanitizeProducerMatches(matches) {
   if (!Array.isArray(matches)) return []
   return matches.map((match) => ({
@@ -545,7 +534,7 @@ function preserveConfirmedProducerMatches(rows, recalculatedMatches, submittedMa
   })
 }
 
-function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber }) {
+function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber, centers }) {
   if ((job.documentCategory || 'daily_routes') !== 'daily_routes') return { updates: null, updatedRows: 0 }
   if (jobId && String(job.id) !== String(jobId)) return { updates: null, updatedRows: 0 }
   if (monthKeyFromDate(job.data?.date) !== month) return { updates: null, updatedRows: 0 }
@@ -581,7 +570,7 @@ function correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, job
     const rowNumber = Number(row.rowNumber)
     matchesByRowNumber.set(
       rowNumber,
-      confirmedCenterMatchForRow(matchesByRowNumber.get(rowNumber), rowNumber, originalDailyAvizCenter(job, row), toCenter),
+      correctedCenterMatch(matchesByRowNumber.get(rowNumber), rowNumber, originalDailyAvizCenter(job, row), toCenter, centers),
     )
   }
 
@@ -644,6 +633,8 @@ function monthlyReconciliationFromJobs(jobs) {
       group.avizLiters += liters ?? 0
       group.avizLineCount += 1
       group.avizRows.push({
+        centerName: row.collectionCenter,
+        centerCode: job.centerMatches?.find(match => Number(match.rowNumber) === Number(row.rowNumber))?.selectedCode?.match(/^c/i)?.input || null,
         id: `${job.id}-${row.rowNumber ?? group.avizRows.length + 1}`,
         jobId: job.id,
         sourceFile: job.sourceFile,
@@ -789,7 +780,7 @@ function monthClosureSummary(rows) {
   }
 }
 
-function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = []) {
+function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizApprovals = []) {
   const reconciliation = monthlyReconciliationFromJobs(jobs)
   const reconciliationByGroup = new Map(reconciliation.rows.map((row) => [monthlyReconciliationKey(row.month, row.center, row.milkType), row]))
   const rowsByProducer = new Map()
@@ -829,6 +820,22 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = []) {
     }
   }
 
+  for (const approval of avizApprovals) {
+    const key = producerPricingKey(approval.monthKey, approval.producerCode, approval.producerName, approval.milkType)
+    if (rowsByProducer.has(key)) {
+      rowsByProducer.get(key).approvalReviewRequired = true
+      continue
+    }
+    rowsByProducer.set(key, {
+      id: key, month: approval.monthKey, center: approval.centerName, centerKey: normalizeSuggestionText(approval.centerName),
+      milkType: approval.milkType, producer: approval.producerName, producerCode: approval.producerCode,
+      producerKey: normalizeSuggestionText(approval.producerName), liters: Number(approval.approvedLiters),
+      sourceRowCount: 0, journalRows: [], source: 'aviz', approvalId: approval.approvalId,
+      approvalReviewRequired: approval.status !== 'APPROVED',
+      reconciliationStatus: 'missing_monthly', reconciliationDifferenceLiters: null,
+      centerAvizLiters: Number(approval.approvedLiters), centerMonthlyLiters: 0, centerJournalRows: 0, centerAvizLines: 0,
+    })
+  }
   const rows = [...rowsByProducer.values()].map((row) => {
     const previousMonth = previousMonthKey(row.month)
     const previousKey = producerPricingKey(previousMonth, row.producerCode, row.producer, row.milkType)
@@ -836,9 +843,10 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = []) {
     const pricing = savedPricing.get(savedPricingKey(row.month, row.producerCode, row.milkType))
     const previousPricing = savedPricing.get(savedPricingKey(previousMonth, row.producerCode, row.milkType))
     const group = reconciliationByGroup.get(monthlyReconciliationKey(row.month, row.center, row.milkType))
-    const blocked = !group || group.status !== 'ok'
+    const blocked = row.approvalReviewRequired || (row.source !== 'aviz' && (!group || group.status !== 'ok'))
     return {
       ...row,
+      source: row.source || 'journal',
       liters: Number(row.liters.toFixed(3)),
       previousMonthLiters: previous ? Number(previous.liters.toFixed(3)) : null,
       previousMonthRowCount: previous?.sourceRowCount || 0,
@@ -1826,8 +1834,27 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
 
 app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
   try {
-    response.json(monthlyReconciliationFromJobs(await listJobs()))
+    if (!isSqlOcrStoreEnabled()) return response.json(monthlyReconciliationFromJobs(await listJobs()))
+    const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
+    response.json({ ...context.reconciliation,
+      canApproveAviz: userHasPermission(_request.authUser, 'month_closure'),
+      avizApprovals: context.approvals,
+      rows: context.reconciliation.rows.map(row => ({ ...row, avizPricing: context.candidates.find(c => c.groupId === row.id) })),
+    })
   } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/monthly-reconciliation/aviz-pricing', requirePermission('monthly_reconciliation'), requirePermission('month_closure'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL storage is required.' })
+    const type = request.body?.type
+    if (!['approve', 'cancel'].includes(type)) return response.status(400).json({ error: 'Invalid approval action.' })
+    const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs, { ...request.body, type }, request.authUser)
+    response.json({ saved: context.saved, approvals: context.approvals })
+  } catch (error) {
+    if (error.status === 409) return response.status(409).json({ error: error.message })
     next(error)
   }
 })
@@ -1898,9 +1925,10 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
 
     let updatedJobs = 0
     let updatedRows = 0
+    const centers = (await getErpReferenceSnapshot())?.centers || []
     const jobs = await listJobs()
     for (const job of jobs) {
-      const correction = correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber })
+      const correction = correctedDailyAvizJob(job, { month, fromCenter, milkType, toCenter, jobId, rowNumber, centers })
       if (!correction.updates || correction.updatedRows <= 0) continue
       await updateJob(job.id, correction.updates)
       updatedJobs += 1
@@ -1923,12 +1951,14 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
 
 app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), async (request, response, next) => {
   try {
-    const jobs = await listJobs()
-    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month })
+    const context = isSqlOcrStoreEnabled() ? await monthlyAvizApprovalContext(monthlyReconciliationFromJobs) : null
+    const jobs = context?.jobs || await listJobs()
+    const approvals = context?.approvals || []
+    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month }, [], approvals)
     const pricingRows = isSqlOcrStoreEnabled() && basePricing.selectedMonth
       ? await listMonthlyProducerPricingRows([basePricing.selectedMonth, previousMonthKey(basePricing.selectedMonth)])
       : []
-    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows))
+    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals))
   } catch (error) {
     next(error)
   }
@@ -2214,6 +2244,11 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         suggestions: Array.isArray(match.suggestions) ? match.suggestions.slice(0, 5) : [],
       }))
       : current.centerMatches
+    const centerValidationError = validateDailyCenterMatches(parsed.data.rows, centerMatches, (await getErpReferenceSnapshot())?.centers)
+    if (centerValidationError) return response.status(409).json({ error: centerValidationError })
+    if (request.body.erpExport?.status === 'sending' && parsed.data.rows.some(row => !centerMatches?.some(match => Number(match.rowNumber) === Number(row.rowNumber) && match.selectedCode))) {
+      return response.status(409).json({ error: 'Select an ERP center for every row before sending.' })
+    }
     const driverMatch = current.driverMatch?.status === 'auto_replaced' && parsed.data.driverName === current.driverMatch.selectedName
       ? current.driverMatch
       : current.driverMatch ? { ...current.driverMatch, status: 'manual' } : null
@@ -2480,6 +2515,7 @@ await initializeOcrSettingsStore()
 await initializeMilkDensitySettingsStore()
 await initializeMilkDeliveryStore()
 await initializeDailyReconciliationLinks()
+await initializeMonthlyAvizPricingApprovals()
 const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()
 console.log(`[Daily reconciliation] ${restoredDailyLinks} reviewed aviz lines linked to COLLECTION receptions`)
 await resumePendingJobs()
