@@ -183,8 +183,10 @@ function statusLabel(status: ReconciliationStatus) {
 }
 
 function initialMonthFilter() {
-  if (typeof window === 'undefined') return ''
-  return new URLSearchParams(window.location.search).get('month') || ''
+  const requestedMonth = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('month')
+  if (requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth)) return requestedMonth
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 }
 
 function issueValue(issue: OcrIssue) {
