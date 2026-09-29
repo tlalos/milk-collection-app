@@ -7,6 +7,7 @@ import { MainScreen } from './components/MainScreen'
 import { MilkCollectionEntryScreen } from './components/MilkCollectionEntryScreen'
 import { MilkReceptionScreen } from './components/MilkReceptionScreen'
 import { MilkDeliveriesScreen } from './components/MilkDeliveriesScreen'
+import { MilkFactorsScreen } from './components/MilkFactorsScreen'
 import { DailyAvizScreen } from './components/DailyAvizScreen'
 import { DailyReconciliationScreen } from './components/DailyReconciliationScreen'
 import { MonthClosureScreen } from './components/MonthClosureScreen'
@@ -56,6 +57,7 @@ type Screen =
   | 'transport'
   | 'milkReception'
   | 'milkDeliveries'
+  | 'milkFactors'
   | 'dailyAviz'
   | 'dailyReconciliation'
   | 'monthClosure'
@@ -118,6 +120,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
   if (routePathname() === '/milk-deliveries') return 'milkDeliveries'
+  if (routePathname() === '/milk-factors') return 'milkFactors'
   return 'startup'
 }
 
@@ -671,6 +674,12 @@ export function App() {
       {screen === 'milkDeliveries' && (
         <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in" description="Sign in as a Web user to use Milk Deliveries.">
           <MilkDeliveriesScreen onBack={openOcrMenu} />
+        </OcrAuthGate>
+      )}
+
+      {screen === 'milkFactors' && (
+        <OcrAuthGate requiredPermission="milk_reception" title="Web user sign in">
+          <MilkFactorsScreen />
         </OcrAuthGate>
       )}
 

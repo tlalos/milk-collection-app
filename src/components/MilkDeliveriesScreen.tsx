@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '../ocrPaths'
+import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import './MilkDeliveriesScreen.css'
 
 type DeliveryStatus = 'DRAFT' | 'AWAITING_GREECE' | 'COMPLETE'
 type WeightField = 'loadedWeightKg' | 'emptyWeightKg'
+type WeightSource = 'SCALE' | 'MANUAL'
 type WeighbridgeSource = 'server' | 'local-agent'
 type DeliverySaveStatus = 'waiting' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -34,8 +36,12 @@ interface MilkDelivery {
   densityFactor: number
   loadedWeightKg: number | string | null
   loadedWeighedAt: string
+  loadedWeightSource: WeightSource | null
+  loadedScaleCaptureId?: string
   emptyWeightKg: number | string | null
   emptyWeighedAt: string
+  emptyWeightSource: WeightSource | null
+  emptyScaleCaptureId?: string
   netQuantityKg: number | null
   calculatedLiters: number | null
   deliveryCategory: string
@@ -53,7 +59,7 @@ interface WeighbridgeClientConfig {
   agentUrl: string
 }
 
-const milkTypes: MilkTypeOption[] = [
+const defaultMilkTypes: MilkTypeOption[] = [
   { code: 'MILK-COW', label: 'Cow', densityFactor: 1.029 },
   { code: 'MILK-SHEEP', label: 'Sheep', densityFactor: 1.036 },
   { code: 'MILK-COW-GREECE', label: 'Standardized', densityFactor: 1.037 },
@@ -69,7 +75,7 @@ function localIsoDate(date = new Date()) {
   return local.toISOString().slice(0, 10)
 }
 
-function emptyDelivery(deliveryDate: string): MilkDelivery {
+function emptyDelivery(deliveryDate: string, milkTypes: MilkTypeOption[]): MilkDelivery {
   const id = `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   return {
     id,
@@ -84,8 +90,10 @@ function emptyDelivery(deliveryDate: string): MilkDelivery {
     densityFactor: milkTypes[0].densityFactor,
     loadedWeightKg: '',
     loadedWeighedAt: '',
+    loadedWeightSource: null,
     emptyWeightKg: '',
     emptyWeighedAt: '',
+    emptyWeightSource: null,
     netQuantityKg: null,
     calculatedLiters: null,
     deliveryCategory: 'SALES',
@@ -165,8 +173,10 @@ function ScaleIcon() {
 }
 
 export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
+  const [milkTypes, setMilkTypes] = useState<MilkTypeOption[]>(defaultMilkTypes)
   const [records, setRecords] = useState<MilkDelivery[]>([])
   const recordsRef = useRef<MilkDelivery[]>([])
+  const tableWrapRef = useRef<HTMLDivElement>(null)
   const revisionsRef = useRef(new Map<string, number>())
   const savedRevisionsRef = useRef(new Map<string, number>())
   const saveTimersRef = useRef(new Map<string, number>())
@@ -198,6 +208,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
       body: JSON.stringify({ area: 'milk_delivery' }),
     }).catch(() => {})
     void loadWeighbridgeConfig()
+    void loadMilkTypes()
   }, [])
 
   useEffect(() => {
@@ -342,6 +353,17 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     }
   }
 
+  async function loadMilkTypes() {
+    try {
+      const response = await fetch(appPath('/api/milk-factors'), { cache: 'no-store' })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || 'Could not load milk factors.')
+      if (payload.settings?.DELIVERIES?.length) setMilkTypes(payload.settings.DELIVERIES)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load milk factors.')
+    }
+  }
+
   function currentWeightUrl() {
     if (weighbridgeConfig.source === 'local-agent') {
       const baseUrl = weighbridgeConfig.agentUrl.replace(/\/+$/u, '') || defaultWeighbridgeConfig.agentUrl
@@ -351,7 +373,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function addDelivery() {
-    const record = emptyDelivery(selectedDate || localIsoDate())
+    const record = emptyDelivery(selectedDate || localIsoDate(), milkTypes)
     commitRecords([record, ...recordsRef.current])
     revisionsRef.current.set(record.id, 0)
     savedRevisionsRef.current.set(record.id, 0)
@@ -400,8 +422,10 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
       const validation = updateRecord(current.id, {
         [field]: String(weight),
         [field === 'loadedWeightKg' ? 'loadedWeighedAt' : 'emptyWeighedAt']: localDateTimeText(reading.capturedAt),
+        [field === 'loadedWeightKg' ? 'loadedWeightSource' : 'emptyWeightSource']: 'SCALE',
+        [field === 'loadedWeightKg' ? 'loadedScaleCaptureId' : 'emptyScaleCaptureId']: crypto.randomUUID(),
         ...(field === 'loadedWeightKg' && !current.deliveryTime ? { deliveryTime: localTimeText(reading.capturedAt) } : {}),
-      }, true)
+      } as Partial<MilkDelivery>, true)
       setNotice(validation
         ? `${label} filled from scale: ${formatNumber(weight)} kg. ${validation} It will save when the row is complete.`
         : `${label} filled from scale: ${formatNumber(weight)} kg. Saving...`)
@@ -546,11 +570,22 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     const target = `${record.id}:${field}`
     const label = field === 'loadedWeightKg' ? 'Loaded kg' : 'Empty kg'
     const weighedAt = field === 'loadedWeightKg' ? record.loadedWeighedAt : record.emptyWeighedAt
+    const source = field === 'loadedWeightKg' ? record.loadedWeightSource : record.emptyWeightSource
+    const timestampField = field === 'loadedWeightKg' ? 'loadedWeighedAt' : 'emptyWeighedAt'
+    const sourceField = field === 'loadedWeightKg' ? 'loadedWeightSource' : 'emptyWeightSource'
+    const captureField = field === 'loadedWeightKg' ? 'loadedScaleCaptureId' : 'emptyScaleCaptureId'
     return (
       <div className="delivery-weight-entry">
         <div className="delivery-weight-input-stack">
-          <input inputMode="decimal" value={record[field] ?? ''} onChange={(event) => updateRecord(record.id, { [field]: event.target.value })} />
-          {weighedAt && <small>{formatWeightTime(weighedAt)}</small>}
+          <input inputMode="decimal" value={record[field] ?? ''} onChange={(event) => updateRecord(record.id, {
+            [field]: event.target.value,
+            [timestampField]: '',
+            [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
+            [captureField]: '',
+          } as Partial<MilkDelivery>)} />
+          {numericValue(record[field]) !== null && <small title={source === 'SCALE' && weighedAt ? `Scale reading at ${formatWeightTime(weighedAt)}` : source ? undefined : 'Source was not recorded for this older weight'}>
+            {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown'}
+          </small>}
         </div>
         <button type="button" title={`Read scale into ${label}`} aria-label={`Read scale into ${label}`} disabled={Boolean(scaleReadingTarget)} onClick={() => void readScaleWeight(record, field)}>
           {scaleReadingTarget === target ? '...' : <ScaleIcon />}
@@ -564,6 +599,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
       <header className="app-topbar milk-deliveries-topbar">
         <button className="back-button" type="button" onClick={handleBack}>Back</button>
         <div className="app-title-block"><p>Factory dispatch workflow</p><h1>Milk Deliveries</h1></div>
+        <button className="milk-deliveries-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button>
       </header>
 
       <main className="milk-deliveries-content">
@@ -583,7 +619,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
             <div><h2>Delivery register</h2><p>{loading ? 'Loading deliveries...' : `${visibleRecords.length} rows shown`}</p></div>
             <span>Excel-like entry</span>
           </div>
-          <div className="milk-deliveries-table-scroll">
+          <div className="milk-deliveries-table-scroll" ref={tableWrapRef}>
             <table className="milk-deliveries-entry-table">
               <thead><tr><th /><th>Date</th><th>Truck</th><th>Tractor</th><th>AVIZ</th><th>Milk type</th><th>Loaded kg</th><th>Empty kg</th><th>Net kg</th><th>Liters</th><th>Category</th><th>Comments</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
@@ -629,6 +665,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
               </tbody>
             </table>
           </div>
+          <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll delivery register horizontally" />
         </section>
       </main>
     </div>
@@ -636,15 +673,17 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
 }
 
 function normalizeRecord(record: MilkDelivery): MilkDelivery {
-  const milk = milkTypes.find((option) => option.code === record.milkType)
+  const milk = defaultMilkTypes.find((option) => option.code === record.milkType)
   return withCalculations({
     ...record,
     id: record.id || record.deliveryId || '',
-    milkType: record.milkType || milkTypes[0].code,
-    milkTypeLabel: record.milkTypeLabel || milk?.label || milkTypes[0].label,
-    densityFactor: Number(record.densityFactor || milk?.densityFactor || milkTypes[0].densityFactor),
+    milkType: record.milkType || defaultMilkTypes[0].code,
+    milkTypeLabel: record.milkTypeLabel || milk?.label || defaultMilkTypes[0].label,
+    densityFactor: Number(record.densityFactor || milk?.densityFactor || defaultMilkTypes[0].densityFactor),
     loadedWeighedAt: record.loadedWeighedAt || '',
+    loadedWeightSource: record.loadedWeightSource || null,
     emptyWeighedAt: record.emptyWeighedAt || '',
+    emptyWeightSource: record.emptyWeightSource || null,
     departureComments: record.departureComments || '',
     arrivalComments: record.arrivalComments || '',
     invoiceNumber: record.invoiceNumber || '',

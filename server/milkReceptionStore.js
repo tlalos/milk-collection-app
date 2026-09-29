@@ -1,6 +1,7 @@
 import sql from 'mssql'
 import { receptionWeightEvents } from './receptionWeightHistory.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
+import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
 
 let poolPromise = null
 let initialized = false
@@ -534,7 +535,8 @@ ORDER BY receptionDate DESC, updatedAt DESC;
 export async function createMilkReception(input, username = '') {
   await initializeMilkReceptionStore()
   const pool = await getPool()
-  const record = normalizeReception(input)
+  const milk = await getMilkDensityFactor('RECEPTION', input.milkType || 'MILK-COW')
+  const record = normalizeReception({ ...input, densityFactor: milk.densityFactor, milkTypeLabel: milk.label })
   if (record.vehicleCategory === 'OTHER') record.routeId = ''
   await assertUniqueReceptionCombination(pool, record)
   record.receptionId = await nextReceptionId(pool, record)
@@ -565,7 +567,13 @@ export async function updateMilkReception(id, input, username = '') {
   await initializeMilkReceptionStore()
   const existing = await getMilkReception(id)
   if (!existing) return null
-  const record = normalizeReception({ ...existing, ...input, receptionId: id }, existing)
+  const milkType = input.milkType || existing.milkType
+  const milk = milkType !== existing.milkType ? await getMilkDensityFactor('RECEPTION', milkType) : null
+  const record = normalizeReception({
+    ...existing, ...input, receptionId: id,
+    densityFactor: milk ? milk.densityFactor : existing.densityFactor,
+    milkTypeLabel: milk ? milk.label : existing.milkTypeLabel,
+  }, existing)
   if (record.vehicleCategory === 'OTHER') {
     record.routeId = existing.vehicleCategory === 'OTHER' ? existing.routeId : ''
   }

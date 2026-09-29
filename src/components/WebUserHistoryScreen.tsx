@@ -3,10 +3,10 @@ import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
 import './WebUserHistoryScreen.css'
 
-type HistoryTab = 'general' | 'weights'
+type HistoryTab = 'general' | 'weights' | 'delivery_weights'
 type ActivityArea = '' | 'reception' | 'deliveries'
 type WeightSource = '' | 'SCALE' | 'MANUAL'
-type WeightKind = '' | 'FULL' | 'EMPTY'
+type WeightKind = '' | 'FULL' | 'LOADED' | 'EMPTY'
 
 interface AuditRow {
   auditId: string
@@ -21,8 +21,9 @@ interface AuditRow {
 
 interface WeightRow {
   eventId: string
-  receptionId: string
-  weightKind: 'FULL' | 'EMPTY'
+  receptionId?: string
+  deliveryId?: string
+  weightKind: 'FULL' | 'LOADED' | 'EMPTY'
   source: 'SCALE' | 'MANUAL'
   weightKg: number | null
   previousWeightKg: number | null
@@ -104,12 +105,12 @@ export function WebUserHistoryScreen() {
     try {
       const params = new URLSearchParams()
       if (username) params.set('username', username)
-      if (recordSearch.trim()) params.set(tab === 'general' ? 'entityId' : 'receptionId', recordSearch.trim())
+      if (recordSearch.trim()) params.set(tab === 'general' ? 'entityId' : tab === 'weights' ? 'receptionId' : 'deliveryId', recordSearch.trim())
       if (beforeId) params.set('beforeId', beforeId)
       if (tab === 'general' && area) params.set('area', area)
-      if (tab === 'weights' && source) params.set('source', source)
-      if (tab === 'weights' && weightKind) params.set('weightKind', weightKind)
-      const endpoint = tab === 'general' ? '/api/web-users/activity' : '/api/web-users/weight-history'
+      if (tab !== 'general' && source) params.set('source', source)
+      if (tab !== 'general' && weightKind) params.set('weightKind', weightKind)
+      const endpoint = tab === 'general' ? '/api/web-users/activity' : tab === 'weights' ? '/api/web-users/weight-history' : '/api/web-users/delivery-weight-history'
       const response = await fetch(appPath(`${endpoint}?${params.toString()}`))
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not load history.')
@@ -137,7 +138,8 @@ export function WebUserHistoryScreen() {
     <main className="web-users-main user-log-main">
       <div className="user-log-tabs" role="tablist" aria-label="History source">
         <button type="button" role="tab" aria-selected={tab === 'general'} onClick={() => setTab('general')}>General activity</button>
-        <button type="button" role="tab" aria-selected={tab === 'weights'} onClick={() => setTab('weights')}>Reception weights</button>
+        <button type="button" role="tab" aria-selected={tab === 'weights'} onClick={() => { setWeightKind(''); setTab('weights') }}>Reception weights</button>
+        <button type="button" role="tab" aria-selected={tab === 'delivery_weights'} onClick={() => { setWeightKind(''); setTab('delivery_weights') }}>Delivery weights</button>
       </div>
       <section className="user-log-panel">
         <div className="user-log-filters">
@@ -155,7 +157,9 @@ export function WebUserHistoryScreen() {
               <option value="">All sources</option><option value="SCALE">Scale</option><option value="MANUAL">Manual</option>
             </select>
             <select aria-label="Weight field" value={weightKind} onChange={(event) => setWeightKind(event.target.value as WeightKind)}>
-              <option value="">Full and empty</option><option value="FULL">Full kg</option><option value="EMPTY">Empty kg</option>
+              <option value="">{tab === 'weights' ? 'Full and empty' : 'Loaded and empty'}</option>
+              <option value={tab === 'weights' ? 'FULL' : 'LOADED'}>{tab === 'weights' ? 'Full kg' : 'Loaded kg'}</option>
+              <option value="EMPTY">Empty kg</option>
             </select>
           </>}
           <button type="button" onClick={() => void loadHistory()} disabled={loading}>Refresh</button>
@@ -181,12 +185,12 @@ export function WebUserHistoryScreen() {
           {!loading && activity.length === 0 && !error && <p className="web-users-muted web-users-audit-empty">No activity found.</p>}
         </div> : <div className="user-log-table-wrap">
           <table className="user-log-table">
-            <thead><tr><th>Recorded</th><th>User</th><th>Reception</th><th>Weight</th><th>Source</th><th>Change</th><th>Scale time</th></tr></thead>
+            <thead><tr><th>Recorded</th><th>User</th><th>{tab === 'weights' ? 'Reception' : 'Delivery'}</th><th>Weight</th><th>Source</th><th>Change</th><th>Scale time</th></tr></thead>
             <tbody>{weights.map((row) => <tr key={row.eventId}>
               <td>{displayTime(row.recordedAt)}</td>
               <td>{row.username || '-'}</td>
-              <td className="user-log-record-id">{row.receptionId}</td>
-              <td>{row.weightKind === 'FULL' ? 'Full kg' : 'Empty kg'}</td>
+              <td className="user-log-record-id">{row.receptionId || row.deliveryId}</td>
+              <td>{row.weightKind === 'EMPTY' ? 'Empty kg' : tab === 'weights' ? 'Full kg' : 'Loaded kg'}</td>
               <td><span className={`user-log-source ${row.source.toLowerCase()}`}>{row.source === 'SCALE' ? 'Scale' : 'Manual'}</span></td>
               <td>{weightValue(row.previousWeightKg)}{row.previousSource ? ` (${row.previousSource === 'SCALE' ? 'Scale' : 'Manual'})` : ''} <span aria-hidden="true">→</span> {weightValue(row.weightKg)}</td>
               <td>{displayTime(row.scaleCapturedAt)}</td>

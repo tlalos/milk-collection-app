@@ -29,7 +29,7 @@ import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { ocrFileJobId, ocrPermissionsForRoute } from './ocrPermissions.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
-import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
+import { MilkCollectionEditableDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings, initializeOcrSettingsStore, isOcrProviderConfigured, OCR_PROVIDERS, publicOcrSettings, saveOcrSettings } from './ocrSettingsStore.js'
 import { extractMilkCollectionDocument, normalizeMonthlyData } from './ocrService.js'
@@ -68,7 +68,6 @@ import {
   listMilkReceptionDrivers,
   listMilkReceptionRouteSettings,
   listMilkReceptionWeightHistoryForAdmin,
-  listMilkReceptionWeightEvents,
   listMilkReceptions,
   milkReceptionOptions,
   replaceMilkReceptionTruckRoutes,
@@ -88,9 +87,11 @@ import {
   getMilkDelivery,
   initializeMilkDeliveryStore,
   listMilkDeliveries,
+  listMilkDeliveryWeightHistoryForAdmin,
   updateMilkDelivery,
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
+import { getMilkDensitySettings, initializeMilkDensitySettingsStore } from './milkDensitySettingsStore.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
@@ -1157,6 +1158,28 @@ app.get('/api/web-users/weight-history', requirePermission('app_admin'), async (
   }
 })
 
+app.get('/api/web-users/delivery-weight-history', requirePermission('app_admin'), async (request, response, next) => {
+  try {
+    const source = String(request.query.source || '')
+    const weightKind = String(request.query.weightKind || '')
+    const cursor = String(request.query.beforeId || '')
+    if (!['', 'SCALE', 'MANUAL'].includes(source)) return response.status(400).json({ error: 'Unknown weight source.' })
+    if (!['', 'LOADED', 'EMPTY'].includes(weightKind)) return response.status(400).json({ error: 'Unknown weight field.' })
+    if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) {
+      return response.status(400).json({ error: 'Invalid weight history cursor.' })
+    }
+    response.json(await listMilkDeliveryWeightHistoryForAdmin({
+      username: String(request.query.username || '').slice(0, 160),
+      deliveryId: String(request.query.deliveryId || '').slice(0, 120),
+      source,
+      weightKind,
+      beforeId: cursor || null,
+    }))
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/activity/page-open', requirePermission('milk_reception'), async (request, response, next) => {
   try {
     const area = String(request.body?.area || '')
@@ -1282,10 +1305,28 @@ app.get('/api/weighbridge/config', (_request, response) => {
   response.json({ ok: true, weighbridge: getPublicWeighbridgeConfig() })
 })
 
+app.get('/api/milk-factors', requirePermission('milk_reception'), async (_request, response, next) => {
+  try {
+    response.json({ settings: await getMilkDensitySettings(), canEdit: false })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.put('/api/milk-factors', requirePermission('app_admin'), (_request, response) => {
+  response.status(403).json({ error: 'Milk factor editing is currently disabled.' })
+})
+
 app.use('/api/milk-receptions', requirePermission('milk_reception'))
 
 app.get('/api/milk-receptions/options', async (_request, response) => {
   const warnings = []
+  let milkTypes = milkReceptionOptions.milkTypes
+  try {
+    milkTypes = (await getMilkDensitySettings()).RECEPTION.map((item) => ({ ...item, displayName: item.label }))
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : 'Could not load milk density settings.')
+  }
   let vehicles = []
   let routes = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'R20']
   let vehicleRoutes = []
@@ -1307,7 +1348,7 @@ app.get('/api/milk-receptions/options', async (_request, response) => {
     vehicles = routeSettings.vehicles
     routes = routeSettings.routes
     vehicleRoutes = routeSettings.vehicleRoutes
-    return response.json({ options: { ...milkReceptionOptions, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
+    return response.json({ options: { ...milkReceptionOptions, milkTypes, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
   }
 
   try {
@@ -1321,7 +1362,7 @@ app.get('/api/milk-receptions/options', async (_request, response) => {
   } catch (error) {
     warnings.push(error instanceof Error ? error.message : 'Could not load route reference list.')
   }
-  response.json({ options: { ...milkReceptionOptions, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
+  response.json({ options: { ...milkReceptionOptions, milkTypes, vehicles, routes, vehicleRoutes, routeSettings: routeSettings.settings, driverSettings, drivers }, warnings })
 })
 
 app.get('/api/milk-receptions/driver-settings', async (_request, response, next) => {
@@ -1442,17 +1483,6 @@ app.get('/api/milk-receptions', async (request, response, next) => {
   }
 })
 
-app.get('/api/milk-receptions/:id/weight-events', async (request, response, next) => {
-  try {
-    const cursor = String(request.query.beforeId || '')
-    if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) {
-      return response.status(400).json({ error: 'Invalid weight history cursor.' })
-    }
-    response.json(await listMilkReceptionWeightEvents(request.params.id, cursor || null))
-  } catch (error) {
-    next(error)
-  }
-})
 
 app.get('/api/daily-reconciliation/links', requirePermission('daily_reconciliation'), async (request, response, next) => {
   try {
@@ -1754,6 +1784,7 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
         reviewStatus: job.reviewStatus,
         excelStatus: job.excelExport?.status ?? null,
         erpStatus: job.erpExport?.status ?? null,
+        erpRowResult: job.erpExport?.rowLog?.find((entry) => entry.rowNumber === row.rowNumber) ?? null,
         createdAt: job.createdAt,
         completedAt: job.completedAt ?? null,
         rowNumber: row.rowNumber ?? null,
@@ -2137,7 +2168,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
 
     const isMonthlySettlement = current.documentCategory === 'journal_monthly_settlement'
-    const schema = isMonthlySettlement ? MonthlySettlementEditableDocumentSchema : MilkCollectionDocumentSchema
+    const schema = isMonthlySettlement ? MonthlySettlementEditableDocumentSchema : MilkCollectionEditableDocumentSchema
     const submittedData = isMonthlySettlement
       ? {
         ...request.body.data,
@@ -2311,7 +2342,7 @@ app.post('/api/ocr/jobs/:id/references/rematch', async (request, response, next)
       return response.status(409).json({ error: 'OCR data must be completed before operational matching can run.' })
     }
 
-    const parsedData = request.body?.data ? MilkCollectionDocumentSchema.safeParse(request.body.data) : null
+    const parsedData = request.body?.data ? MilkCollectionEditableDocumentSchema.safeParse(request.body.data) : null
     if (parsedData && !parsedData.success) {
       return response.status(400).json({ error: 'Document data is invalid.', details: parsedData.error.issues })
     }
@@ -2446,6 +2477,7 @@ app.use((error, _request, response, _next) => {
 await initializeAuthStore()
 await initializeJobStore()
 await initializeOcrSettingsStore()
+await initializeMilkDensitySettingsStore()
 await initializeMilkDeliveryStore()
 await initializeDailyReconciliationLinks()
 const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()

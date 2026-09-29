@@ -3,6 +3,7 @@ import './MilkReceptionScreen.css'
 import { appPath } from '../ocrPaths'
 import { db } from '../db/database'
 import type { LocalTruck } from '../types/trucks'
+import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 
 interface MilkReceptionScreenProps {
   onBack: () => void
@@ -153,40 +154,6 @@ interface MilkReceptionRecord {
   isNew?: boolean
 }
 
-interface WeightHistoryEvent {
-  eventId: string
-  weightKind: 'FULL' | 'EMPTY'
-  source: WeightSource
-  weightKg: number | null
-  previousWeightKg: number | null
-  previousSource: WeightSource | null
-  scaleCapturedAt: string | null
-  recordedAt: string
-  username: string
-}
-
-interface WeightHistoryState {
-  entries: WeightHistoryEvent[]
-  nextBeforeId: string | null
-  loading: boolean
-  error: string
-}
-
-function groupWeightHistory(entries: WeightHistoryEvent[]) {
-  const groups: WeightHistoryEvent[][] = []
-  for (const event of entries) {
-    const group = groups[groups.length - 1]
-    const previous = group?.[group.length - 1]
-    const closeInTime = previous && Math.abs(Date.parse(previous.recordedAt) - Date.parse(event.recordedAt)) <= 120000
-    if (group && previous?.source === 'MANUAL' && event.source === 'MANUAL' &&
-      previous.weightKind === event.weightKind && previous.username === event.username && closeInTime) {
-      group.push(event)
-    } else {
-      groups.push([event])
-    }
-  }
-  return groups
-}
 
 const defaultOptions: MilkReceptionOptions = {
   milkTypes: [
@@ -344,6 +311,7 @@ function storedDateTimeInput(value: string) {
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [records, setRecords] = useState<MilkReceptionRecord[]>([])
   const recordsRef = useRef<MilkReceptionRecord[]>([])
+  const tableWrapRef = useRef<HTMLDivElement>(null)
   const revisionsRef = useRef(new Map<string, number>())
   const savedRevisionsRef = useRef(new Map<string, number>())
   const saveTimersRef = useRef(new Map<string, number>())
@@ -378,8 +346,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
-  const [weightHistory, setWeightHistory] = useState<Record<string, WeightHistoryState>>({})
-  const [weightHistoryOpenId, setWeightHistoryOpenId] = useState('')
 
   useEffect(() => {
     void fetch(appPath('/api/activity/page-open'), {
@@ -809,33 +775,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }
   }
 
-  async function loadWeightHistory(id: string, beforeId: string | null = null) {
-    setWeightHistory((current) => ({
-      ...current,
-      [id]: { entries: current[id]?.entries || [], nextBeforeId: current[id]?.nextBeforeId || null, loading: true, error: '' },
-    }))
-    try {
-      const params = beforeId ? `?beforeId=${encodeURIComponent(beforeId)}` : ''
-      const response = await fetch(appPath(`/api/milk-receptions/${encodeURIComponent(id)}/weight-events${params}`))
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || 'Could not load weight history.')
-      setWeightHistory((current) => ({
-        ...current,
-        [id]: {
-          entries: beforeId ? [...(current[id]?.entries || []), ...(payload.entries || [])] : payload.entries || [],
-          nextBeforeId: payload.nextBeforeId || null,
-          loading: false,
-          error: '',
-        },
-      }))
-    } catch (loadError) {
-      setWeightHistory((current) => ({
-        ...current,
-        [id]: { entries: current[id]?.entries || [], nextBeforeId: current[id]?.nextBeforeId || null, loading: false,
-          error: loadError instanceof Error ? loadError.message : 'Could not load weight history.' },
-      }))
-    }
-  }
 
   function updateQualityDetail(id: string, detailType: QualityDetailType, patch: Partial<QualityDetail>) {
     if (!recordsRef.current.some((record) => record.receptionId === id)) return
@@ -1078,7 +1017,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
         })
       }
       setRowSaveState(savedId, needsResave ? 'pending' : 'saved')
-      if (weightHistoryOpenId === savedId) void loadWeightHistory(savedId)
       if (!needsResave && reason !== 'auto') setNotice(`Reception ${savedId} saved.`)
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save milk reception.'
@@ -1126,53 +1064,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     }
   }
 
-  function renderWeightHistorySection(record: MilkReceptionRecord) {
-    const history = weightHistory[record.receptionId]
-    const groups = groupWeightHistory(history?.entries || [])
-    const weightText = (value: number | null) => value == null ? 'Cleared' : `${value.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg`
-    const timeText = (value: string) => new Date(value).toLocaleString()
-    return (
-      <details
-        className="detail-section-card reception-weight-history"
-        open={weightHistoryOpenId === record.receptionId}
-        onToggle={(event) => {
-          if (event.currentTarget.open) {
-            setWeightHistoryOpenId(record.receptionId)
-            if (!history) void loadWeightHistory(record.receptionId)
-          } else if (weightHistoryOpenId === record.receptionId) {
-            setWeightHistoryOpenId('')
-          }
-        }}
-      >
-        <summary className="detail-section-summary">Weight history{history?.entries.length ? ` · ${history.entries.length} saved changes` : ''}</summary>
-        {history?.error && <p role="alert" className="reception-history-error">{history.error}</p>}
-        {history?.loading && <p>Loading weight history...</p>}
-        {!history?.loading && !history?.entries.length && !history?.error && <p>No saved weight changes recorded yet. Earlier weights may predate this history.</p>}
-        {groups.length > 0 && <div className="reception-history-list">
-          {groups.map((group) => {
-            const newest = group[0]
-            const oldest = group[group.length - 1]
-            return <div className="reception-history-item" key={newest.eventId}>
-              <span className="reception-history-time">{timeText(newest.recordedAt)}</span>
-              <strong>{newest.weightKind === 'FULL' ? 'Full kg' : 'Empty kg'}</strong>
-              <span>{newest.source === 'SCALE' ? 'Scale' : 'Manual'}</span>
-              <span>{weightText(oldest.previousWeightKg)} → {weightText(newest.weightKg)}</span>
-              <span>{newest.username || 'Unknown user'}</span>
-              {newest.source === 'SCALE' && newest.scaleCapturedAt && <small>Scale at {formatWeightTime(newest.scaleCapturedAt)}</small>}
-              {group.length > 1 && <details className="reception-history-intermediate">
-                <summary>{group.length} quick saves · show individual changes</summary>
-                {group.map((event) => <div key={event.eventId}>
-                  <time>{timeText(event.recordedAt)}</time>
-                  <span>{weightText(event.previousWeightKg)} → {weightText(event.weightKg)}</span>
-                </div>)}
-              </details>}
-            </div>
-          })}
-        </div>}
-        {history?.nextBeforeId && <button type="button" className="reception-history-more" disabled={history.loading} onClick={() => void loadWeightHistory(record.receptionId, history.nextBeforeId)}>Load older changes</button>}
-      </details>
-    )
-  }
 
   function renderQualitySection(record: MilkReceptionRecord, detailType: QualityDetailType, title: string) {
     const detail = normalizeQualityDetails(record.qualityDetails)[detailType]
@@ -1352,10 +1243,13 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
             <h1>Milk Reception</h1>
           </div>
         </div>
-        <button className="reception-settings-tile" type="button" onClick={() => setSettingsOpen((open) => !open)}>
-          <span>Settings</span>
-          <strong>{options.vehicles.length} trucks</strong>
-        </button>
+        <div className="reception-header-actions">
+          <button className="reception-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button>
+          <button className="reception-settings-tile" type="button" onClick={() => setSettingsOpen((open) => !open)}>
+            <span>Settings</span>
+            <strong>{options.vehicles.length} trucks</strong>
+          </button>
+        </div>
       </header>
 
       <main className="reception-content">
@@ -1534,7 +1428,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
             <span>Excel-like entry</span>
           </div>
 
-          <div className="reception-table-wrap">
+          <div className="reception-table-wrap" ref={tableWrapRef}>
             <table className="reception-table">
               <thead>
                 <tr>
@@ -1641,7 +1535,6 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           <td colSpan={16}>
                             <div className="reception-details">
                               {renderReconciliationSection(computed)}
-                              {!record.isNew && renderWeightHistorySection(record)}
                               {renderQualitySection(record, 'ORIGINAL', 'Original values')}
                               {renderQualitySection(record, 'CUSTOM', 'Custom values')}
                             </div>
@@ -1654,6 +1547,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
               </tbody>
             </table>
           </div>
+          <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll reception register horizontally" />
         </section>
       </main>
     </div>

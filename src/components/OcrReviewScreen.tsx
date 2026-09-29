@@ -24,6 +24,7 @@ interface ExtractedRow {
   water: number | null
   temperature: number | null
   noticeNumber: string | null
+  sampleId?: string | null
   confidence: number
   uncertainFields: string[]
 }
@@ -174,7 +175,7 @@ interface OcrJob {
 
 type QueueView = 'pending' | 'reviewed' | 'failed'
 type TextField = 'companyName' | 'date' | 'driverName' | 'vehicleRegistration' | 'route'
-type RowTextField = 'collectionCenter' | 'noticeNumber' | 'milkType'
+type RowTextField = 'collectionCenter' | 'noticeNumber' | 'milkType' | 'sampleId'
 type RowNumberField = 'liters' | 'fatPercent' | 'density' | 'water' | 'temperature'
 const JOBS_PER_PAGE = 5
 const AUTO_RESOLVED_UNCERTAIN_FIELDS = new Set<RowNumberField>(['temperature'])
@@ -1111,6 +1112,7 @@ export function OcrReviewScreen() {
         water: null,
         temperature: null,
         noticeNumber: '',
+        sampleId: '',
         confidence: 1,
         uncertainFields: ['collectionCenter', 'liters', 'fatPercent', 'temperature', 'noticeNumber'],
       }
@@ -1276,7 +1278,7 @@ export function OcrReviewScreen() {
     }
     const confirmation = selected.erpExport?.status === 'failed' && selected.erpExport.rowLog?.length
       ? (isRo ? 'Trimiterea anterioară a eșuat. Verificați mai întâi ERP pentru a evita duplicatele. Încercați din nou?' : 'The previous send failed. Check ERP first to avoid duplicates. Try again?')
-      : (isRo ? `Trimiteți ${draft.rows.length} rânduri aviz în ERP?` : `Send ${draft.rows.length} aviz rows to ERP?`)
+      : (isRo ? `Trimiteți aviz 5101 și NIR 2153 pentru fiecare dintre cele ${draft.rows.length} rânduri?` : `Send aviz 5101 and NIR 2153 for each of the ${draft.rows.length} rows (${draft.rows.length * 2} documents)?`)
     if (!window.confirm(confirmation)) return
 
     const startedAt = new Date().toISOString()
@@ -1301,19 +1303,19 @@ export function OcrReviewScreen() {
       const result = await sendDailyRouteDetailsToErp(
         draft,
         centerMatches,
-        selected.sourceFile,
         undefined,
-        (progress) => {
+        async (progress) => {
           progressState.current = progress
           setSelected((current) => current ? { ...current, erpExport: progress } : current)
           setSelectedSummary((current) => current ? { ...current, erpExport: progress } : current)
+          await saveErpExportState(progress)
         },
       )
       await saveErpExportState(result)
       await loadJobs()
 
       if (result.status === 'sent') {
-        setSuccess(isRo ? `${result.successCount ?? 0} avize au fost trimise în ERP.` : `${result.successCount ?? 0} aviz rows were sent to ERP.`)
+        setSuccess(isRo ? `Aviz și NIR trimise pentru ${result.successCount ?? 0} rânduri.` : `Aviz and NIR sent for ${result.successCount ?? 0} rows.`)
       } else {
         const failedRows = result.rowLog?.filter((row) => row.status === 'failed').map((row) => row.rowNumber).join(', ')
         setError(
@@ -1325,7 +1327,7 @@ export function OcrReviewScreen() {
     } catch (sendError) {
       const sentRows = progressState.current?.rowLog?.filter((row) => row.status === 'sent').length ?? 0
       const failedState: DailyRouteErpExport = {
-        status: sentRows > 0 ? 'partial' : 'failed',
+        status: sentRows > 0 || progressState.current?.rowLog?.some((row) => row.documents?.some((doc) => ['sent', 'sending', 'unconfirmed'].includes(doc.status))) ? 'partial' : 'failed',
         startedAt,
         completedAt: new Date().toISOString(),
         error: sendError instanceof Error ? sendError.message : 'Could not send daily route rows to ERP.',
@@ -1680,12 +1682,37 @@ export function OcrReviewScreen() {
                           ? (isRo ? 'Trimiterea în ERP este în curs…' : 'Sending daily route rows to ERP…')
                           : selected.erpExport.error || (isRo ? 'Trimiterea în ERP a eșuat.' : 'ERP send failed.')}</span>
                     </div>
-                    {selected.erpExport.rowLog?.length ? <ul>
-                      {selected.erpExport.rowLog.map((row) => <li className={`erp-row-${row.status}`} key={row.rowNumber}>
-                        <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber}</b>
-                        <span>{row.status === 'sent' ? (row.newid ? `ERP #${row.newid}` : (isRo ? 'Trimis' : 'Sent')) : row.status === 'failed' ? row.message : (isRo ? 'Pregătit' : 'Ready')}</span>
-                      </li>)}
-                    </ul> : null}
+                    {selected.erpExport.rowLog?.length ? <div className="erp-results-scroll">
+                      <table className="erp-results-table">
+                        <thead><tr>
+                          <th>{isRo ? 'Rând / Centru' : 'Row / Center'}</th>
+                          <th>Aviz · 5101 · 111 → 0</th>
+                          <th>NIR · 2153 · 111 → 110</th>
+                        </tr></thead>
+                        <tbody>{selected.erpExport.rowLog.map((row) => <tr key={row.rowNumber}>
+                          <th scope="row">
+                            <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber} · {row.center || '—'}</b>
+                            <span>Aviz {row.aviz || '—'}</span>
+                            {row.status === 'failed' && !row.documents?.some((doc) => doc.message) && <span className="erp-result-error">{row.message}</span>}
+                          </th>
+                          {(['aviz', 'nir'] as const).map((kind) => {
+                            const doc = row.documents?.find((item) => item.kind === kind)
+                            const legacyAviz = !row.documents?.length && kind === 'aviz'
+                            const status = doc?.status ?? (legacyAviz ? row.status : 'unrecorded')
+                            const labels: Record<string, string> = isRo
+                              ? { sent: 'Trimis', failed: 'Eșuat', ready: 'Netrimis', sending: 'În curs', unconfirmed: 'Neconfirmat — verificați ERP', unrecorded: 'Fără rezultat înregistrat' }
+                              : { sent: 'Sent', failed: 'Failed', ready: 'Not sent', sending: 'Sending', unconfirmed: 'Unconfirmed — check ERP', unrecorded: 'No recorded result' }
+                            const id = doc?.newid ?? (legacyAviz ? row.newid : undefined)
+                            return <td key={kind}>
+                              <strong className={`erp-document-status status-${status}`}>{labels[status]}</strong>
+                              {id && <span>ERP ID: {id}</span>}
+                              {doc?.completedAt && <time dateTime={doc.completedAt}>{new Date(doc.completedAt).toLocaleString(isRo ? 'ro-RO' : 'en-GB')}</time>}
+                              {(doc?.status === 'failed' || doc?.status === 'unconfirmed') && <span className="erp-result-error">{doc.message}</span>}
+                            </td>
+                          })}
+                        </tr>)}</tbody>
+                      </table>
+                    </div> : null}
                   </div>
                 )}
 
@@ -1817,8 +1844,8 @@ export function OcrReviewScreen() {
 
                 <div className="review-table-wrap">
                   <table>
-                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-milk-type" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-actions" /></colgroup>
-                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
+                    <colgroup><col className="col-row" /><col className="col-center" /><col className="col-milk-type" /><col className="col-liters" /><col className="col-fat" /><col className="col-temp" /><col className="col-water" /><col className="col-aviz" /><col className="col-sample" /><col className="col-actions" /></colgroup>
+                    <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'ID probă' : 'Sample ID'}</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${rowHasRequiredAttention(row, centerNameNeedsReview(row, centerMatches.find((item) => item.rowNumber === row.rowNumber))) ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
                         <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small>{(() => {
@@ -1866,6 +1893,7 @@ export function OcrReviewScreen() {
                         <td className={rowNumberFieldNeedsReview(row, 'temperature') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'water')} onBlur={() => commitRowNumberInput(index, row, 'water')} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
                         <td className={rowTextFieldNeedsReview(row, 'noticeNumber') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><input aria-label={isRo ? `ID probă pentru rândul ${row.rowNumber}` : `Sample ID for row ${row.rowNumber}`} value={row.sampleId ?? ''} onChange={(event) => updateRowText(index, 'sampleId', event.target.value)} /></td>
                         <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
                     ))}</tbody>

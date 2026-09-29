@@ -31,6 +31,10 @@ export const MilkCollectionDocumentSchema = z.object({
   rawTranscription: z.string(),
 })
 
+export const MilkCollectionEditableDocumentSchema = MilkCollectionDocumentSchema.extend({
+  rows: z.array(CollectionRowSchema.extend({ sampleId: nullableText.optional().default(null) })),
+})
+
 export const MonthlySettlementRowSchema = z.object({
   rowNumber: z.number().int().positive(),
   producer: nullableText,

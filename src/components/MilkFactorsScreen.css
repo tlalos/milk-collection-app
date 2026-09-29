@@ -1,0 +1,130 @@
+.app-topbar.milk-factors-topbar {
+  justify-content: flex-start;
+  gap: 16px;
+  padding-right: calc(18px + var(--ocr-auth-session-space, 204px));
+}
+
+.milk-factors-content {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 20px calc(var(--safe-bottom) + 28px);
+}
+
+.milk-factors-topbar .app-title-block { flex: 1; min-width: 0; }
+
+.milk-factors-section {
+  margin-bottom: 30px;
+}
+
+.milk-factors-section h2 {
+  margin: 0 0 10px;
+  font-size: 1.25rem;
+}
+
+.milk-factors-table-wrap {
+  overflow-x: auto;
+  border-top: 2px solid #14704c;
+}
+
+.milk-factors-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  text-align: left;
+}
+
+.milk-factors-table th,
+.milk-factors-table td {
+  border-bottom: 1px solid #dbe7df;
+  padding: 12px 16px;
+}
+
+.milk-factors-table thead {
+  background: #edf5f0;
+  color: #174b35;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.milk-factors-table tbody th {
+  width: 35%;
+}
+
+.milk-factors-table td:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.milk-factors-table input {
+  width: 140px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #adc4b5;
+  border-radius: 6px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.milk-factors-table input:disabled {
+  background: #f4f7f5;
+  color: #325543;
+}
+
+.milk-factors-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid #cdded2;
+  padding-top: 16px;
+}
+
+.milk-factors-footer p {
+  margin: 0;
+  color: #50695b;
+  font-size: 0.88rem;
+}
+
+.milk-factors-save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.milk-factors-save span {
+  color: #426850;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.milk-factors-save button {
+  min-height: 42px;
+  border: 1px solid #12623e;
+  border-radius: 6px;
+  padding: 0 16px;
+  background: #176a45;
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.milk-factors-save button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.milk-factors-error {
+  border: 1px solid #e3a99e;
+  padding: 10px 12px;
+  background: #fff0eb;
+  color: #8a3323;
+}
+
+@media (max-width: 700px) {
+  .app-topbar.milk-factors-topbar { padding: 62px 14px 14px; }
+  .milk-factors-content { padding: 18px 12px calc(var(--safe-bottom) + 28px); }
+  .milk-factors-table th, .milk-factors-table td { padding: 10px 8px; }
+  .milk-factors-table input { width: 106px; }
+  .milk-factors-footer { align-items: flex-start; flex-direction: column; }
+}

@@ -47,6 +47,7 @@ export interface ERP_SuppliesPickingOrder {
   silo: string
   ph: string
   mobility: string
+  vatid?: string
 }
 
 export interface ERP_RetFunc {

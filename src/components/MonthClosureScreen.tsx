@@ -5,6 +5,7 @@ import {
   loadOcrReferenceSuppliers,
   type OcrReferenceProducer,
 } from '../store/ocrReferenceSuppliersStore'
+import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import './MonthClosureScreen.css'
 
 type ReconciliationStatus = 'ok' | 'difference' | 'missing_monthly' | 'missing_aviz'
@@ -205,6 +206,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   const [bulkPriceError, setBulkPriceError] = useState('')
   const bulkPriceInputRef = useRef<HTMLInputElement>(null)
   const bulkCenterTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const tableWrapRef = useRef<HTMLDivElement>(null)
   const [erpReferenceProducers, setErpReferenceProducers] = useState<OcrReferenceProducer[]>(() =>
     getCachedOcrReferenceSuppliers()?.producers || [],
   )
@@ -932,7 +934,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
             </div>
           )}
 
-          <div className="month-closure-table-wrap">
+          <div className="month-closure-table-wrap" ref={tableWrapRef}>
             {view === 'pricing' ? (
             <table className="month-closure-table">
               <thead>
@@ -1217,6 +1219,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
               </datalist>
             )}
           </div>
+          <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll month closure table horizontally" refreshKey={view} />
         </section>
       </main>
     </div>

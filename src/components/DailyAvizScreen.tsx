@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
+import type { DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
 import './DailyAvizScreen.css'
 
 interface DailyAvizRow {
+  erpRowResult?: DailyRouteErpRowLog | null
   id: string
   jobId: string
   sourceFile: string
@@ -138,6 +140,22 @@ function formatNumber(value: number | null | undefined, maximumFractionDigits = 
 function statusLabel(status: string | null | undefined) {
   if (!status) return '-'
   return status.replace('_', ' ')
+}
+
+function ErpDocumentStatus({ row, kind }: { row: DailyAvizRow; kind: 'aviz' | 'nir' }) {
+  const result = row.erpRowResult
+  const document = result?.documents?.find((item) => item.kind === kind)
+  const legacyAviz = kind === 'aviz' && result && !result.documents?.length
+  const status = document?.status ?? (legacyAviz ? result.status : result ? 'unrecorded' : 'ready')
+  const labels: Record<string, string> = { ready: 'Not sent', sent: 'Sent', failed: 'Failed', sending: 'Sending', unconfirmed: 'Unconfirmed', unrecorded: 'No recorded result' }
+  const id = document?.newid ?? (legacyAviz ? result.newid : undefined)
+  const message = document?.message || result?.message || ''
+  return <div className="daily-aviz-erp-result" title={message}>
+    <span className={`daily-aviz-badge erp-${status}`}>{labels[status]}</span>
+    {id && <small>ERP #{id}</small>}
+    {document?.completedAt && <small>{new Date(document.completedAt).toLocaleString('en-GB')}</small>}
+    {(status === 'failed' || status === 'unconfirmed') && <small>{message}</small>}
+  </div>
 }
 
 function displayMilkType(value: string | null | undefined) {
@@ -390,11 +408,11 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                   <th>Milk type</th>
                   <th>Liters</th>
                   <th>Fat%</th>
-                  <th>Temp</th>
                   <th>W%</th>
                   <th>Review</th>
                   <th>Excel</th>
-                  <th>File</th>
+                  <th>Aviz ERP</th>
+                  <th>NIR ERP</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -422,7 +440,6 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                     <td title={row.milkType || ''}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
                     <td>{formatNumber(row.fatPercent, 2)}</td>
-                    <td>{formatNumber(row.temperature, 1)}</td>
                     <td>{formatNumber(row.water, 2)}</td>
                     <td>
                       <span className={`daily-aviz-badge ${row.reviewStatus}`}>
@@ -430,7 +447,8 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                       </span>
                     </td>
                     <td>{row.excelStatus ? <span className={`daily-aviz-badge ${row.excelStatus}`}>{statusLabel(row.excelStatus)}</span> : '-'}</td>
-                    <td title={row.sourceFile}>{row.sourceFile}</td>
+                    <td><ErpDocumentStatus row={row} kind="aviz" /></td>
+                    <td><ErpDocumentStatus row={row} kind="nir" /></td>
                     <td>
                       <div className="daily-aviz-actions">
                         <button type="button" onClick={() => openFile(row)}>File</button>

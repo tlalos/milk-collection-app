@@ -5,10 +5,12 @@
 .user-log-tabs {
   display: flex;
   gap: 2px;
+  overflow-x: auto;
   border-bottom: 1px solid #b9d3c3;
 }
 
 .user-log-tabs button {
+  flex: 0 0 auto;
   border: 1px solid #b9d3c3;
   border-bottom: 0;
   border-radius: 6px 6px 0 0;
@@ -17,6 +19,7 @@
   color: #365746;
   font: inherit;
   font-weight: 800;
+  white-space: nowrap;
   cursor: pointer;
 }
 

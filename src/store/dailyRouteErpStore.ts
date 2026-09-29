@@ -13,6 +13,14 @@ import type { ERP_ZgParam } from '../types/zgParam'
 
 export type DailyMilkTypeCode = 'MILK-COW' | 'MILK-SHEEP' | 'MILK-GOAT' | 'MILK-BUFF'
 
+type DailyRouteMilkItem = Pick<ERP_Item, 'item_id' | 'item_code'>
+
+const DAILY_ROUTE_MILK_ITEMS: Partial<Record<DailyMilkTypeCode, DailyRouteMilkItem>> = {
+  'MILK-COW': { item_id: 16551, item_code: 'MF0010' },
+  'MILK-SHEEP': { item_id: 17119, item_code: 'mff0000000000038' },
+  'MILK-BUFF': { item_id: 17155, item_code: 'mff0000000000042' },
+}
+
 export interface DailyRouteExtractedRow {
   rowNumber: number
   collectionCenter: string | null
@@ -23,6 +31,7 @@ export interface DailyRouteExtractedRow {
   water: number | null
   temperature: number | null
   noticeNumber: string | null
+  sampleId?: string | null
 }
 
 export interface DailyRouteExtractedData {
@@ -47,6 +56,13 @@ export interface DailyRouteErpRowLog {
   status: 'ready' | 'sent' | 'failed'
   message?: string
   newid?: string
+  documents?: Array<{
+    kind: 'aviz' | 'nir'
+    status: 'ready' | 'sending' | 'sent' | 'failed' | 'unconfirmed'
+    message?: string
+    newid?: string
+    completedAt?: string
+  }>
 }
 
 export interface DailyRouteErpExport {
@@ -73,10 +89,6 @@ function readSetting(settings: UserSettings | null, keys: string[], fallback: un
   return fallback
 }
 
-function readNumberSetting(settings: UserSettings | null, keys: string[], fallback = 0): number {
-  return toNumber(readSetting(settings, keys, fallback), fallback)
-}
-
 function readStringSetting(settings: UserSettings | null, keys: string[], fallback = ''): string {
   return String(readSetting(settings, keys, fallback))
 }
@@ -87,7 +99,7 @@ function preferParam(value: string | undefined, fallback: string): string {
 }
 
 function normalize(value: string | null | undefined): string {
-  return String(value ?? '').trim().toLowerCase().replace(/[\s_.-]+/g, '')
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
 function hasValue(value: unknown): boolean {
@@ -110,22 +122,25 @@ function missingErpFields(row: DailyRouteExtractedRow): string[] {
 }
 
 function milkAliases(milkType: DailyMilkTypeCode): string[] {
-  if (milkType === 'MILK-COW') return ['milkcow', 'cow', 'cowmilk', 'vaca', 'laptedevaca', 'mf0010']
-  if (milkType === 'MILK-SHEEP') return ['milksheep', 'sheep', 'sheepmilk', 'oaie', 'laptedeoaie']
-  if (milkType === 'MILK-GOAT') return ['milkgoat', 'goat', 'goatmilk', 'capra', 'laptedecapra']
-  return ['milkbuff', 'buff', 'buffalo', 'buffalomilk', 'bivol', 'laptedebivol']
+  if (milkType === 'MILK-COW') return ['cowmilk', 'milkcow', 'cow']
+  if (milkType === 'MILK-SHEEP') return ['sheepmilk', 'milksheep', 'sheep']
+  if (milkType === 'MILK-GOAT') return ['goatmilk', 'milkgoat', 'goat']
+  return ['milkbuff']
 }
 
-function findDailyRouteMilkItem(items: ERP_Item[], milkType: DailyMilkTypeCode): ERP_Item | undefined {
-  const milkItems = items.filter((item) => normalize(item.item_offline_type) === 'milkcollection')
-  const candidates = milkItems.length ? milkItems : items
+function findDailyRouteMilkItem(items: ERP_Item[], milkType: DailyMilkTypeCode): DailyRouteMilkItem | undefined {
+  const fixedItem = DAILY_ROUTE_MILK_ITEMS[milkType]
+  if (fixedItem) return fixedItem
+  const candidates = items.filter((item) => ['milkcollection', 'supplies'].includes(normalize(item.item_offline_type)))
   const wanted = milkAliases(milkType)
 
-  return candidates.find((item) => normalize(item.item_utbl04) === normalize(milkType))
-    ?? candidates.find((item) => wanted.includes(normalize(item.item_utbl04)))
-    ?? candidates.find((item) => wanted.includes(normalize(item.item_code)))
+  return candidates.find((item) => wanted.includes(normalize(item.item_utbl04)))
+    ?? candidates.find((item) => wanted.includes(normalize(item.item_descr)))
     ?? candidates.find((item) => wanted.some((alias) => normalize(item.item_descr).includes(alias)))
-    ?? (milkType === 'MILK-COW' ? candidates.find((item) => normalize(item.item_code) === 'mf0010') ?? candidates[0] : undefined)
+    ?? candidates.find((item) => wanted.includes(normalize(item.item_code)))
+    ?? items.find((item) => wanted.includes(normalize(item.item_descr)))
+    ?? items.find((item) => wanted.some((alias) => normalize(item.item_descr).includes(alias)))
+    ?? items.find((item) => wanted.includes(normalize(item.item_code)))
 }
 
 function resolveCenter(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[]) {
@@ -139,33 +154,17 @@ function resolveCenter(row: DailyRouteExtractedRow, centerMatches: DailyRouteCen
   }
 }
 
-function matchSupplier(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[], suppliers: ERP_Supplier[]): ERP_Supplier | undefined {
+function matchSupplier(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[], suppliers: ERP_Supplier[]): ERP_Supplier {
   const center = resolveCenter(row, centerMatches)
-  if (center.code) {
-    const byCode = suppliers.find((supplier) => normalize(supplier.sup_code) === normalize(center.code))
-    if (byCode) return byCode
-  }
-  if (center.name) {
-    const byName = suppliers.find((supplier) => normalize(supplier.sup_name) === normalize(center.name))
-    if (byName) return byName
-  }
-  if (row.collectionCenter) {
-    return suppliers.find((supplier) => normalize(supplier.sup_name) === normalize(row.collectionCenter))
-  }
-  return undefined
+  if (!center.code) throw new Error(`Row ${row.rowNumber}: select an ERP center code before sending.`)
+  const supplier = suppliers.find((item) => String(item.sup_code ?? '').trim().toLowerCase() === center.code!.toLowerCase())
+  if (!supplier) throw new Error(`Row ${row.rowNumber}: center code "${center.code}" was not found in ERP.`)
+  return supplier
 }
 
 function toDateKey(value: string | null): string {
   const date = value?.slice(0, 10)
   return date && /^\d{4}-\d{2}-\d{2}$/u.test(date) ? date : new Date().toISOString().slice(0, 10)
-}
-
-function createInternalNumber(data: DailyRouteExtractedData, row: DailyRouteExtractedRow, sourceFile: string): string {
-  const datePart = toDateKey(data.date).replace(/\D/gu, '').slice(2)
-  const routePart = normalize(data.route || sourceFile).replace(/\D/gu, '').slice(-2).padStart(2, '0')
-  const avizPart = String(row.noticeNumber || row.rowNumber).replace(/\D/gu, '').slice(-5).padStart(5, '0')
-  const rowPart = String(row.rowNumber).replace(/\D/gu, '').slice(-2).padStart(2, '0')
-  return `${datePart}${routePart}${avizPart}${rowPart}`.slice(-9)
 }
 
 function normalizedMilkType(value: DailyMilkTypeCode | null | undefined): DailyMilkTypeCode {
@@ -175,22 +174,18 @@ function normalizedMilkType(value: DailyMilkTypeCode | null | undefined): DailyM
 function buildPayloadLine(
   data: DailyRouteExtractedData,
   row: DailyRouteExtractedRow,
-  sourceFile: string,
-  item: ERP_Item,
+  item: DailyRouteMilkItem,
   supplier: ERP_Supplier,
   username: string,
   userSettings: UserSettings | null,
   zgParam: ERP_ZgParam | undefined,
 ): ERP_SuppliesPickingOrder {
-  const salespickingseries = toNumber(
-    zgParam?.par_supplies_series1,
-    readNumberSetting(userSettings, ['salespickingseries', 'salesPickingSeries', 'sales_picking_series']),
-  )
+  const salespickingseries = 5101
   const frombranch = preferParam(zgParam?.par_from_branch, readStringSetting(userSettings, ['frombranch', 'fromBranch']))
-  const fromstore = preferParam(zgParam?.par_from_store, readStringSetting(userSettings, ['fromstore', 'fromStore', 'fromwhouse']))
+  const fromstore = '111'
   const fromposition = readStringSetting(userSettings, ['fromposition', 'fromPosition'])
   const tobranch = preferParam(zgParam?.par_to_branch, readStringSetting(userSettings, ['tobranch', 'toBranch']))
-  const tostore = preferParam(zgParam?.par_to_store, readStringSetting(userSettings, ['tostore', 'toStore', 'towhouse']))
+  const tostore = '0'
   const toposition = readStringSetting(userSettings, ['toposition', 'toPosition'])
   const qty1 = toNumber(row.liters)
   const notice = String(row.noticeNumber ?? '').trim()
@@ -224,12 +219,12 @@ function buildPayloadLine(
     tostore,
     toposition,
     transportnum: data.vehicleRegistration ?? '',
-    comments: `${data.route || ''} ${row.collectionCenter || ''}`.trim(),
-    sampleid: notice,
+    comments: notice,
+    sampleid: String(row.sampleId ?? '').trim(),
     countryid: readStringSetting(userSettings, ['countryid', 'countryId']),
     compartmentid: '',
     buyerid: readStringSetting(userSettings, ['buyerid', 'buyerId']),
-    internalnum: createInternalNumber(data, row, sourceFile),
+    internalnum: notice,
     setdate: toDateKey(data.date),
     origin_supid: supplier.sup_id,
     carrierid: readStringSetting(userSettings, ['carrierid', 'carrierId']),
@@ -244,15 +239,15 @@ function buildPayloadLine(
     silo: '',
     ph: '',
     mobility: '',
+    vatid: '',
   }
 }
 
 export async function sendDailyRouteDetailsToErp(
   data: DailyRouteExtractedData,
   centerMatches: DailyRouteCenterMatch[],
-  sourceFile: string,
   signal?: AbortSignal,
-  onProgress?: (exportState: DailyRouteErpExport) => void,
+  onProgress?: (exportState: DailyRouteErpExport) => void | Promise<void>,
 ): Promise<DailyRouteErpExport> {
   const startedAt = new Date().toISOString()
   const settings = ocrConnectionSettingsStore.get()
@@ -275,14 +270,13 @@ export async function sendDailyRouteDetailsToErp(
     throw new Error(`ERP login failed: ${readableApiError(error)}. Check the OCR connection settings.`)
   })
 
-  const username = loginResponse.user_name || settings.apiUsername
+  const username = 'zg1'
   const userSettings = loginResponse.user_settings
   const [items, suppliers, zgParams] = await Promise.all([
     getRomOfflineItems('ALL', username, signal, loginResponse.access_token, settings.serverUrl),
     getRomOfflineSuppliers('ALL', username, signal, loginResponse.access_token, settings.serverUrl),
     getRomZgParam(username, signal, loginResponse.access_token, settings.serverUrl),
   ])
-  if (!items.length) throw new Error('ERP returned no milk items for daily routes.')
   if (!suppliers.length) throw new Error('ERP returned no suppliers for daily routes.')
   const zgParam = zgParams[0]
   const rowLog: DailyRouteErpRowLog[] = rows.map((row) => ({
@@ -290,42 +284,60 @@ export async function sendDailyRouteDetailsToErp(
     aviz: row.noticeNumber,
     center: resolveCenter(row, centerMatches).name,
     status: 'ready',
+    documents: [{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }],
   }))
 
-  onProgress?.({ status: 'sending', startedAt, rowCount: rows.length, rowLog })
+  const persistProgress = () => onProgress?.({ status: 'sending', startedAt, rowCount: rows.length, rowLog: structuredClone(rowLog) })
+  await persistProgress()
 
   for (const row of rows) {
     const logIndex = rowLog.findIndex((entry) => entry.rowNumber === row.rowNumber)
+    let payload: ERP_SuppliesPickingOrder
     try {
       const supplier = matchSupplier(row, centerMatches, suppliers)
-      if (!supplier) throw new Error(`No synced supplier matched center "${row.collectionCenter || ''}".`)
       const item = findDailyRouteMilkItem(items, normalizedMilkType(row.milkType))
       if (!item) throw new Error(`No synced ERP item matched milk type "${normalizedMilkType(row.milkType)}".`)
-      const payload = buildPayloadLine(data, row, sourceFile, item, supplier, username, userSettings, zgParam)
-      const response = await saveZGParalavesSuppliesOrder([payload], signal, loginResponse.access_token, settings.serverUrl)
-        .catch((error) => {
-          throw new Error(`ERP save failed for row ${row.rowNumber}, aviz ${row.noticeNumber || '-'}: ${readableApiError(error)}`)
-        })
-      if (!response.status) throw new Error(response.status_message || 'ERP rejected this aviz.')
-      rowLog[logIndex] = {
-        ...rowLog[logIndex],
-        status: 'sent',
-        message: response.status_message || 'Sent to ERP.',
-        newid: response.newid,
-      }
+      payload = buildPayloadLine(data, row, item, supplier, username, userSettings, zgParam)
     } catch (error) {
       rowLog[logIndex] = {
         ...rowLog[logIndex],
         status: 'failed',
         message: error instanceof Error ? error.message : 'Could not send this aviz to ERP.',
       }
+      await persistProgress()
+      continue
     }
-    onProgress?.({ status: 'sending', startedAt, rowCount: rows.length, rowLog: [...rowLog] })
+    const entry = rowLog[logIndex]
+    for (const document of entry.documents!) {
+      document.status = 'sending'
+      await persistProgress()
+      try {
+        const order = document.kind === 'nir'
+          ? { ...payload, salespickingseries: 2153, tostore: '110' }
+          : payload
+        const response = await saveZGParalavesSuppliesOrder([order], signal, loginResponse.access_token, settings.serverUrl)
+        if (typeof response?.status !== 'boolean') throw new Error('ERP returned no definitive status.')
+        document.status = response.status ? 'sent' : 'failed'
+        document.message = response.status_message || (response.status ? 'Sent to ERP.' : 'ERP rejected the document.')
+        document.newid = response.newid
+      } catch (error) {
+        document.status = 'unconfirmed'
+        document.message = `Check ERP before retrying: ${readableApiError(error)}`
+      }
+      document.completedAt = new Date().toISOString()
+      entry.status = entry.documents!.every((doc) => doc.status === 'sent') ? 'sent' : 'failed'
+      entry.message = entry.documents!.map((doc) => `${doc.kind.toUpperCase()}: ${doc.status}${doc.message ? ` - ${doc.message}` : ''}${doc.newid ? ` (ID ${doc.newid})` : ''}`).join(' | ')
+      await persistProgress()
+      if (document.status !== 'sent') break
+    }
+    // An unreadable response may still represent a saved ERP document. Stop the batch.
+    if (entry.documents!.some((doc) => doc.status === 'unconfirmed')) break
   }
 
   const successCount = rowLog.filter((row) => row.status === 'sent').length
-  const failedCount = rowLog.filter((row) => row.status === 'failed').length
-  const status = failedCount === 0 ? 'sent' : successCount === 0 ? 'failed' : 'partial'
+  const failedCount = rowLog.length - successCount
+  const hasSentOrUnconfirmed = rowLog.some((row) => row.documents?.some((doc) => ['sent', 'sending', 'unconfirmed'].includes(doc.status)))
+  const status = failedCount === 0 ? 'sent' : hasSentOrUnconfirmed ? 'partial' : 'failed'
   const error = failedCount > 0 ? `${failedCount} ERP row${failedCount === 1 ? '' : 's'} failed.` : null
 
   return {

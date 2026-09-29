@@ -50,6 +50,8 @@ node .\scripts\transferMilkDeliveries.mjs import "C:\temp\milk-deliveries-data\m
 
 The importer inserts missing deliveries in one transaction. It skips identical IDs, refuses conflicting IDs or duplicate deliveries, and never updates or deletes existing production rows. Run the dry-run again afterward; `wouldInsert` should be `0`. This transfers the delivery records, not the local activity log.
 
+The Milk Deliveries API also creates `dbo.MilkDeliveryWeightEvents` and adds nullable weight-source fields to `dbo.MilkDeliveries`. New manual and scale changes are logged with the user and save time. Existing rows are not backfilled with a guessed source or event history.
+
 ## Persistent data
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.
