@@ -1,5 +1,18 @@
 const normalized = value => String(value || '').trim().replace(/\s+/gu, ' ').toUpperCase()
 
+export function matchingMonthlyHeader(headerName, match) {
+  if (!match || normalized(headerName) === normalized(match.selectedName)) return match
+  return { ...match, selectedCode: null, selectedName: null, status: 'unmatched' }
+}
+
+export function reconcileMonthlyHeader(headerName, match, centers) {
+  const candidates = (centers || []).filter(center => /^c/i.test(center.code || '') && normalized(center.name) === normalized(headerName))
+  const center = candidates.length === 1 ? candidates[0] : null
+  return { ...(match || {}), originalName: match?.originalName ?? headerName,
+    selectedName: center?.name || null, selectedCode: center?.code || null,
+    status: center ? 'confirmed' : 'unmatched', suggestions: match?.suggestions || [] }
+}
+
 export function monthlyPricingProducerWarning(row, references) {
   if (!/^p\S+$/iu.test(String(row.producerCode || '').trim())) return 'No ERP match'
   return monthlyProducerWarning(row, references)

@@ -930,8 +930,9 @@ export function MonthlySettlementReviewScreen() {
         )
       : [];
     const liveSearchOptions = searchedOptions?.length ? searchedOptions : fallbackProducerOptions;
-    const headerCenterName = selected?.headerCenterMatch?.selectedName || draft?.headerCenterName || "";
-    const headerCenterCode = selected?.headerCenterMatch?.selectedCode || null;
+    const headerCenterName = draft?.headerCenterName || "";
+    const headerCenterCode = normalizeReferenceName(headerCenterName) === normalizeReferenceName(selected?.headerCenterMatch?.selectedName || "")
+      ? selected?.headerCenterMatch?.selectedCode || null : null;
     const sortProducerOptions = (first: ProducerSuggestion, second: ProducerSuggestion) => {
       const firstHeaderMatch = referenceCentersMatch(first.centerName, first.centerCode, headerCenterName, headerCenterCode);
       const secondHeaderMatch = referenceCentersMatch(second.centerName, second.centerCode, headerCenterName, headerCenterCode);
@@ -1798,6 +1799,12 @@ export function MonthlySettlementReviewScreen() {
                           list="monthly-header-centers"
                           value={draft.headerCenterName || ""}
                           onChange={(e) => {
+                            setSelected(current => current ? {
+                              ...current,
+                              headerCenterMatch: current.headerCenterMatch ? {
+                                ...current.headerCenterMatch, selectedCode: null, selectedName: null, status: "unmatched",
+                              } : undefined,
+                            } : current);
                             setDraft((current) =>
                               current
                                 ? {

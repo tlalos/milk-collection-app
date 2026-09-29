@@ -1,6 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { matchingMonthlyProducer, reconcileMonthlyProducerMatches, monthlyProducerWarning, monthlyPricingProducerWarning } from './monthlyProducerValidation.js'
+import { matchingMonthlyProducer, reconcileMonthlyProducerMatches, monthlyProducerWarning, monthlyPricingProducerWarning, matchingMonthlyHeader, reconcileMonthlyHeader } from './monthlyProducerValidation.js'
+
+test('edited headers cannot keep stale center identity; exact ERP names save together', () => {
+ const old = {selectedCode:'c22', selectedName:'BATIN 2',originalName:'Batin',status:'auto_replaced',suggestions:[]}
+ const name = 'BATIN - MUNTII VLADESEI COOP. AGRICOLA'
+ assert.equal(matchingMonthlyHeader(name,old).selectedCode,null)
+ assert.equal(matchingMonthlyHeader(' batin 2 ',old),old)
+ const result = reconcileMonthlyHeader(name,old,[{code:'c89',name}])
+ assert.equal(result.selectedCode,'c89')
+ assert.equal(result.selectedName,name)
+ assert.equal(result.originalName,'Batin')
+ assert.equal(reconcileMonthlyHeader('Unknown',old,[{code:'c89',name}]).selectedCode,null)
+ assert.equal(reconcileMonthlyHeader(name,old,[{code:'c89',name},{code:'c90',name}]).selectedCode,null)
+ assert.equal(old.selectedCode,'c22')
+})
 
 test('pricing requires an explicit P code and the correct ERP center', () => {
  const refs = {centers:[{code:'c1',name:'AGRIES'}], producers:[{producerCode:'p1',producerName:'PERSON',centerCode:'c1'}]}

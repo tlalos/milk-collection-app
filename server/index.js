@@ -57,7 +57,7 @@ import {
 import { fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
 import { getErpReferenceSnapshot, saveErpReferenceSnapshot } from './erpReferenceStore.js'
 import { correctedCenterMatch, validateDailyCenterMatches } from './dailyCenterValidation.js'
-import { matchingMonthlyProducer, reconcileMonthlyProducerMatches, monthlyProducerWarning, monthlyPricingProducerWarning } from './monthlyProducerValidation.js'
+import { matchingMonthlyProducer, reconcileMonthlyProducerMatches, monthlyProducerWarning, monthlyPricingProducerWarning, matchingMonthlyHeader, reconcileMonthlyHeader } from './monthlyProducerValidation.js'
 import { monthlyJournalDuplicateGroups } from './monthlyJournalDuplicates.js'
 import { journalAvizIssues } from './journalAvizIssues.js'
 import {
@@ -264,7 +264,7 @@ function issueBase(job, source, type, row, problem) {
     rowNumber: row?.rowNumber ?? null,
     producer: row?.producer || row?.centerName || null,
     center: row?.collectionCenter || row?.centerName || job.data?.headerCenterName || null,
-    headerCenter: job.headerCenterMatch?.selectedName || job.data?.headerCenterName || null,
+    headerCenter: job.data?.headerCenterName || null,
     referenceCenter: null,
     milkType: row?.milkType || job.data?.milkType || null,
     liters: finiteNumber(row?.liters),
@@ -298,8 +298,8 @@ function monthlyOcrIssuesFromJobs(jobs, referenceProducers) {
             problem: 'Producer name does not exactly exist in the ERP P* list.',
           })
         } else {
-          const headerCenterName = job.headerCenterMatch?.selectedName || job.data?.headerCenterName || ''
-          const headerCenterCode = job.headerCenterMatch?.selectedCode || ''
+          const headerCenterName = job.data?.headerCenterName || ''
+          const headerCenterCode = matchingMonthlyHeader(headerCenterName, job.headerCenterMatch)?.selectedCode || ''
           const producersWithCenter = exactMatches.filter((producer) => producer.centerCode || producer.centerName)
           if (headerCenterName && producersWithCenter.length) {
             const belongsToHeader = producersWithCenter.some((producer) =>
@@ -2265,7 +2265,8 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
       const submittedProducerMatches = sanitizeProducerMatches(request.body.producerMatches)
       const producerMatches = reconcileMonthlyProducerMatches(data.rows,
         Array.isArray(request.body.producerMatches) ? submittedProducerMatches : current.producerMatches || [])
-      const headerCenterMatch = current.headerCenterMatch || null
+      const references = await getErpReferenceSnapshot()
+      const headerCenterMatch = reconcileMonthlyHeader(data.headerCenterName, current.headerCenterMatch, references?.centers)
       const producerMatchError = current.producerMatchError || null
       const producerMatchErrorAt = current.producerMatchErrorAt || null
       const job = await updateJob(current.id, { data, producerMatches, headerCenterMatch, producerMatchError, producerMatchErrorAt })

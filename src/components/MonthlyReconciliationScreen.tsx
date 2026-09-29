@@ -194,6 +194,13 @@ function issueValue(issue: OcrIssue) {
 }
 
 function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] }) {
+  const orderedIssues = useMemo(() => [...issues].sort((left, right) =>
+    left.type.localeCompare(right.type) ||
+    String(right.month || '').localeCompare(String(left.month || '')) ||
+    issueValue(left).localeCompare(issueValue(right), undefined, { numeric: true }) ||
+    left.jobId.localeCompare(right.jobId) ||
+    String(left.rowNumber ?? '').localeCompare(String(right.rowNumber ?? ''), undefined, { numeric: true }),
+  ), [issues])
   return (
     <section className="monthly-recon-ocr-issue-section">
       <h3>
@@ -219,7 +226,7 @@ function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] 
               </tr>
             </thead>
             <tbody>
-              {issues.map((issue) => (
+              {orderedIssues.map((issue) => (
                 <tr key={issue.id}>
                   <td>{issue.month ? displayMonth(issue.month) : '-'}</td>
                   <td title={issue.sourceFile || issue.jobId}><span className="monthly-recon-issue-document">{issue.sourceFile || issue.jobId}</span></td>
