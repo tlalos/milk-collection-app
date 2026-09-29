@@ -104,6 +104,8 @@ interface ReferenceCenterOption {
 type OcrIssueSource = 'monthly' | 'daily' | 'reconciliation'
 
 interface OcrIssue {
+  vehicleRegistration?: string | null
+  route?: string | null
   id: string
   source: OcrIssueSource
   type: string
@@ -195,7 +197,7 @@ function issueValue(issue: OcrIssue) {
     : issue.center || '-'
 }
 
-function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] }) {
+function OcrIssueSection({ title, issues, daily = false }: { title: string; issues: OcrIssue[]; daily?: boolean }) {
   const orderedIssues = useMemo(() => [...issues].sort((left, right) =>
     left.type.localeCompare(right.type) ||
     String(right.month || '').localeCompare(String(left.month || '')) ||
@@ -213,10 +215,11 @@ function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] 
         <p className="monthly-recon-ocr-issue-empty">No possible mistakes found.</p>
       ) : (
         <div className="monthly-recon-ocr-issue-table-wrap">
-          <table className="monthly-recon-ocr-issue-table">
+          <table className={`monthly-recon-ocr-issue-table${daily ? ' monthly-recon-daily-issues' : ''}`}>
             <thead>
               <tr>
-                <th>Month</th>
+                <th>{daily ? 'Date' : 'Month'}</th>
+                {daily && <><th>Truck</th><th>Route</th></>}
                 <th>Document</th>
                 <th>Row</th>
                 <th>Problem</th>
@@ -230,7 +233,8 @@ function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] 
             <tbody>
               {orderedIssues.map((issue) => (
                 <tr key={issue.id}>
-                  <td>{issue.month ? displayMonth(issue.month) : '-'}</td>
+                  <td>{daily ? displayDate(issue.documentDate) : issue.month ? displayMonth(issue.month) : '-'}</td>
+                  {daily && <><td>{issue.vehicleRegistration || '-'}</td><td>{issue.route || '-'}</td></>}
                   <td title={issue.sourceFile || issue.jobId}><span className="monthly-recon-issue-document">{issue.sourceFile || issue.jobId}</span></td>
                   <td>{issue.rowNumber ?? '-'}</td>
                   <td><span className="monthly-recon-issue-problem">{issue.problem}</span></td>
@@ -270,6 +274,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedProducers, setExpandedProducers] = useState<Set<string>>(new Set())
   const [showJournalCenters, setShowJournalCenters] = useState(false)
+  const [showAvizApprovals, setShowAvizApprovals] = useState(false)
   const [correctionDraft, setCorrectionDraft] = useState<AvizCenterCorrectionDraft | null>(null)
   const [correctionSaving, setCorrectionSaving] = useState(false)
   const [referenceCenters, setReferenceCenters] = useState<ReferenceCenterOption[]>([])
@@ -668,7 +673,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
             )}
             <OcrIssueSection title="Monthly settlement OCR" issues={monthlyOcrIssues} />
             <OcrIssueSection title="Journals vs aviz" issues={journalAvizWarnings} />
-            <OcrIssueSection title="Daily aviz OCR" issues={dailyOcrIssues} />
+            <OcrIssueSection title="Daily aviz OCR" issues={dailyOcrIssues} daily />
           </section>
         )}
 
@@ -692,6 +697,15 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                 {tableRows.length} aviz centers shown · {formatNumber(tableAvizLiters)} aviz L · {formatNumber(tableMonthlyLiters)} monthly L · {formatNumber(tableDifference)} diff L
               </p>
             </div>
+            {avizApprovals.some(a => !monthFilter || a.monthKey === monthFilter) && (
+              <button className="monthly-recon-approvals-toggle" type="button"
+                aria-expanded={showAvizApprovals} aria-controls="monthly-aviz-approvals"
+                onClick={() => setShowAvizApprovals(current => !current)}>
+                <span aria-hidden="true">{showAvizApprovals ? '−' : '+'}</span>
+                Aviz pricing approvals ({avizApprovals.filter(a => !monthFilter || a.monthKey === monthFilter).length})
+                {avizApprovals.some(a => (!monthFilter || a.monthKey === monthFilter) && a.status === 'NEEDS_REVIEW') && <span className="monthly-aviz-approval-review">Needs review</span>}
+              </button>
+            )}
           </div>
           {showJournalCenters && (
             <div className="monthly-recon-journal-centers" aria-label="Received journal centers">
@@ -726,9 +740,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               )}
             </div>
           )}
-          {avizApprovals.some(a => !monthFilter || a.monthKey === monthFilter) && (
-            <section className="monthly-aviz-approvals" aria-label="Aviz pricing approvals">
-              <h3>Aviz pricing approvals</h3>
+          {showAvizApprovals && avizApprovals.some(a => !monthFilter || a.monthKey === monthFilter) && (
+            <section id="monthly-aviz-approvals" className="monthly-aviz-approvals" aria-label="Aviz pricing approvals">
               {avizApprovals.filter(a => !monthFilter || a.monthKey === monthFilter).map(approval => (
                 <div key={approval.approvalId} className="monthly-aviz-approval">
                   <div><strong>{approval.centerName} · {displayMonth(approval.monthKey)}</strong>
@@ -763,9 +776,15 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                 {!loading && tableRows.length === 0 && (
                   <tr><td colSpan={10} className="monthly-recon-empty">No aviz centers found for this view.</td></tr>
                 )}
-                {!loading && tableRows.map((row) => (
+                {!loading && tableRows.map((row) => {
+                  const approved = row.monthlyRowCount === 0 && avizApprovals.some(approval =>
+                    approval.status === 'APPROVED' && approval.monthKey === row.month &&
+                    approval.centerCode.toLowerCase() === row.avizPricing?.centerCode?.toLowerCase() &&
+                    approval.milkType === row.milkType && !row.avizPricing?.reason && !row.avizPricing?.centerMatchWarning)
+                  const displayStatus = approved ? 'ok' : row.status
+                  return (
                   <Fragment key={row.id}>
-                    <tr className={`monthly-recon-row ${row.status}`}>
+                    <tr className={`monthly-recon-row ${displayStatus}`}>
                       <td>
                         <button
                           className="monthly-recon-expand"
@@ -776,8 +795,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                           {expandedId === row.id ? '-' : '+'}
                         </button>
                       </td>
-                      <td className={`monthly-recon-center-cell ${row.status}`} title={row.center}>
-                        {row.monthlyRowCount === 0 && <span className="monthly-recon-center-alert">!</span>}
+                      <td className={`monthly-recon-center-cell ${displayStatus}`} title={row.center}>
+                        {row.monthlyRowCount === 0 && !approved && <span className="monthly-recon-center-alert">!</span>}
                         <span>{row.center}</span>
                         {row.monthlyRowCount === 0 && row.avizPricing && (
                           <div className="monthly-aviz-pricing-action">
@@ -805,7 +824,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                                 </ul>}
                               </div>
                             )}
-                            {row.avizPricing.centerMatchWarning ? <small role="alert">{row.avizPricing.centerMatchWarning}</small>
+                            {approved ? null : row.avizPricing.centerMatchWarning ? <small role="alert">{row.avizPricing.centerMatchWarning}</small>
                               : row.avizPricing.reason ? null
                               : avizApprovals.some(a => a.monthKey === row.month && a.centerCode.toLowerCase() === row.avizPricing?.centerCode && a.milkType === row.milkType)
                                 ? <small>See aviz pricing approval above</small>
@@ -820,7 +839,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       <td>{row.differencePercent == null ? '-' : `${formatNumber(row.differencePercent, 2)}%`}</td>
                       <td>{row.avizLineCount}</td>
                       <td>{row.monthlyRowCount}</td>
-                      <td><span className={`monthly-recon-badge ${row.status}`}>{statusLabel(row.status)}</span></td>
+                      <td><span className={`monthly-recon-badge ${displayStatus}`}>{approved ? 'Approved' : statusLabel(row.status)}</span></td>
                     </tr>
                     {expandedId === row.id && (
                       <tr key={`${row.id}-details`}>
@@ -915,7 +934,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       </tr>
                     )}
                   </Fragment>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -261,6 +261,8 @@ function issueBase(job, source, type, row, problem) {
     fileUrl: publicJob.fileUrl,
     month: monthKeyFromJob(job),
     documentDate: normalizeReconciliationDate(job.data?.date) || null,
+    vehicleRegistration: source === 'daily' ? job.data?.vehicleRegistration || null : null,
+    route: source === 'daily' ? job.data?.route || null : null,
     rowNumber: row?.rowNumber ?? null,
     producer: row?.producer || row?.centerName || null,
     center: row?.collectionCenter || row?.centerName || job.data?.headerCenterName || null,

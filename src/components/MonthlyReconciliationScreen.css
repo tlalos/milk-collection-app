@@ -305,6 +305,17 @@
 .monthly-recon-ocr-issue-table th:nth-child(7),
 .monthly-recon-ocr-issue-table th:nth-child(8),
 .monthly-recon-ocr-issue-table th:nth-child(9) { width: 72px; }
+.monthly-recon-daily-issues th:nth-child(1) { width: 96px; }
+.monthly-recon-daily-issues th:nth-child(2) { width: 110px; }
+.monthly-recon-daily-issues th:nth-child(3) { width: 70px; }
+.monthly-recon-daily-issues th:nth-child(4) { width: 100px; }
+.monthly-recon-daily-issues th:nth-child(5) { width: 64px; }
+.monthly-recon-daily-issues th:nth-child(6) { width: 240px; }
+.monthly-recon-daily-issues th:nth-child(7) { width: 190px; }
+.monthly-recon-daily-issues th:nth-child(8) { width: 220px; }
+.monthly-recon-daily-issues th:nth-child(9),
+.monthly-recon-daily-issues th:nth-child(10),
+.monthly-recon-daily-issues th:nth-child(11) { width: 90px; }
 
 .monthly-recon-table-card {
   overflow: hidden;
@@ -316,6 +327,7 @@
 
 .monthly-recon-table-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -899,6 +911,10 @@
   }
 }
 .monthly-aviz-approvals { padding: 16px; border-bottom: 1px solid #bdd4c6; }
+.monthly-recon-approvals-toggle { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-left: auto; padding: 7px 10px; max-width: 100%; border: 1px solid #bcd5c7; border-radius: 6px; background: #f3faf6; color: #155b3b; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.monthly-recon-approvals-toggle:hover { background: #e4f2e9; }
+.monthly-recon-approvals-toggle:focus-visible { outline: 2px solid #237c66; outline-offset: 4px; }
+.monthly-aviz-approval-review { margin-left: 10px; color: #925700; font-size: 12px; }
 .monthly-aviz-approval { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #dce7e0; }
 .monthly-aviz-approval p { margin: 4px 0; }
 .monthly-aviz-pricing-action { white-space: normal; margin-top: 6px; font-size: 12px; }
