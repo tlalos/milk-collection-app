@@ -900,4 +900,33 @@
 .monthly-aviz-approval { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #dce7e0; }
 .monthly-aviz-approval p { margin: 4px 0; }
 .monthly-aviz-pricing-action { white-space: normal; margin-top: 6px; font-size: 12px; }
+.monthly-aviz-pricing-button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; max-width: 100%; margin-top: 4px; padding: 7px 12px; border: 1px solid #b3d4c3; border-radius: 6px; background: #e8f4ed; color: #155b3b; font: inherit; font-weight: 700; line-height: 1.4; white-space: normal; text-align: center; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
+.monthly-aviz-pricing-button:hover { background: #d6ebdf; border-color: #6da88a; }
+.monthly-aviz-pricing-button:active { background: #c5e1d1; }
+.monthly-aviz-pricing-button:focus-visible { outline: 2px solid #237c66; outline-offset: 3px; }
+.monthly-recon-producers { margin-bottom: 6px; color: #36585b; font-weight: 500; }
+.monthly-recon-producer-count { display: flex; align-items: center; gap: 6px; }
+.monthly-recon-producer-count button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #36585b; cursor: pointer; }
+.monthly-recon-producer-count button:hover { background: #e7f0ed; }
+.monthly-recon-producer-count button:focus-visible { outline: 2px solid #237c66; outline-offset: 2px; }
+.monthly-recon-producer-chevron { display: block; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
+.monthly-recon-producer-count button[aria-expanded="true"] .monthly-recon-producer-chevron { transform: rotate(45deg); }
+.monthly-recon-producers ul { margin: 6px 0; padding-left: 24px; overflow-wrap: anywhere; }
+.monthly-recon-producers li { margin: 4px 0; }
 .monthly-aviz-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; }
+.monthly-aviz-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.monthly-aviz-dialog-details { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px 24px; margin: 22px 0; }
+.monthly-aviz-dialog-details dt { font-size: 12px; font-weight: 600; color: #60716b; margin-bottom: 5px; }
+.monthly-aviz-dialog-details dd { margin: 0; font-size: 15px; font-weight: 600; color: #243d32; overflow-wrap: anywhere; }
+.monthly-aviz-dialog-producer { grid-column: 1 / -1; }
+.monthly-aviz-dialog-details .monthly-aviz-dialog-quantity { font-size: 23px; color: #155b3b; font-weight: 750; }
+.monthly-aviz-dialog .monthly-aviz-dialog-note { border-left: 3px solid #d29b36; padding: 10px 12px; background: #fff8e9; color: #70501e; font-size: 13px; font-weight: 500; line-height: 1.5; }
+.monthly-aviz-dialog .monthly-aviz-dialog-error { color: #a32929; font-weight: 500; }
+.monthly-aviz-dialog-actions { border-top: 1px solid #e0e9e4; padding-top: 18px; flex-wrap: wrap; }
+.monthly-aviz-dialog-actions button { min-height: 40px; white-space: normal; }
+.monthly-aviz-dialog-actions button:focus-visible { outline: 2px solid #237c66; outline-offset: 3px; }
+.monthly-aviz-dialog-actions button:not(:disabled):hover { filter: brightness(0.95); }
+@media (max-width: 480px) {
+  .monthly-aviz-dialog-details { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .monthly-aviz-dialog-actions button { flex: 1 1 140px; }
+}

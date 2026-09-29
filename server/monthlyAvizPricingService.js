@@ -6,8 +6,29 @@ import { buildMonthlyAvizApprovalSnapshot, initializeMonthlyAvizPricingApprovals
 const code = value => String(value || '').trim().toLowerCase()
 const name = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/gu, '').trim().toUpperCase().replace(/\s+/gu, ' ')
 
+export function centerMatchWarning(group, references) {
+  if (!references) return 'Cannot verify the center: ERP reference list is unavailable.'
+  for (const row of group.avizRows) {
+    if (!code(row.centerCode)) return 'ERP center code is missing. Select the correct center on the aviz line.'
+    const center = references.centers.find(center => code(center.code) === code(row.centerCode))
+    if (!center) return `ERP center code ${row.centerCode} does not exist in the reference list.`
+    if (name(row.centerName ?? group.center) !== name(center.name)) {
+      return `Saved center name "${row.centerName ?? group.center}" does not match ERP center "${center.name}" (${center.code}). Correct the aviz center match.`
+    }
+  }
+  return null
+}
+
 export function approvalCandidates(groups, references) {
   return groups.map(group => {
+    const warning = centerMatchWarning(group, references)
+    const savedCodes = [...new Set(group.avizRows.map(row => code(row.centerCode)))]
+    const resolvedCenter = savedCodes.length === 1 && savedCodes[0] && references?.centers.find(center => code(center.code) === savedCodes[0])
+    const linkedProducers = resolvedCenter
+      ? [...new Map(references.producers.filter(producer => code(producer.centerCode) === savedCodes[0])
+        .map(producer => [code(producer.producerCode), { producerCode: producer.producerCode, producerName: producer.producerName }])).values()]
+        .sort((a, b) => String(a.producerName).localeCompare(String(b.producerName)))
+      : null
     try {
       if (!references) throw new Error('ERP reference list is unavailable.')
       const selected = [...new Set(group.avizRows.map(row => code(row.centerCode)).filter(Boolean))]
@@ -32,8 +53,8 @@ export function approvalCandidates(groups, references) {
         throw new Error('This producer already has a journal for this month and milk type.')
       }
       const producer = references.producers.find(p => code(p.producerCode) === snapshot.producerCode)
-      return { groupId: group.id, ...snapshot, centerName: center.name, producerName: producer.producerName }
-    } catch (error) { return { groupId: group.id, reason: error.message } }
+      return { groupId: group.id, ...snapshot, centerName: center.name, producerName: producer.producerName, centerMatchWarning: warning, linkedProducers }
+    } catch (error) { return { groupId: group.id, reason: error.message, centerMatchWarning: warning, linkedProducers } }
   })
 }
 

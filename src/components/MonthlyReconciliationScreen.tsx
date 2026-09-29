@@ -34,7 +34,7 @@ interface MonthlyReconciliationJournalRow {
 }
 
 interface MonthlyReconciliationRow {
-  avizPricing?: { reason?: string; producerName?: string; producerCode?: string; centerCode?: string; approvedLiters?: number; sourceFingerprint?: string }
+  avizPricing?: { reason?: string; centerMatchWarning?: string | null; linkedProducers?: { producerCode: string; producerName: string }[] | null; producerName?: string; producerCode?: string; centerCode?: string; approvedLiters?: number; sourceFingerprint?: string }
   id: string
   month: string
   center: string
@@ -73,6 +73,7 @@ interface AvizPricingApproval {
   centerCode: string
   centerName: string
   producerName: string
+  producerCode: string
   milkType: string
   approvedLiters: number
   status: string
@@ -257,6 +258,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedProducers, setExpandedProducers] = useState<Set<string>>(new Set())
   const [showJournalCenters, setShowJournalCenters] = useState(false)
   const [correctionDraft, setCorrectionDraft] = useState<AvizCenterCorrectionDraft | null>(null)
   const [correctionSaving, setCorrectionSaving] = useState(false)
@@ -766,10 +768,35 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                         <span>{row.center}</span>
                         {row.monthlyRowCount === 0 && row.avizPricing && (
                           <div className="monthly-aviz-pricing-action">
-                            {row.avizPricing.reason ? <small>{row.avizPricing.reason}</small>
+                            {row.avizPricing.linkedProducers == null ? <p>ERP producer count unavailable until the center is resolved.</p> : (
+                              <div className="monthly-recon-producers">
+                                <div className="monthly-recon-producer-count">
+                                  {row.avizPricing.linkedProducers.length > 0 && <button
+                                    type="button"
+                                    aria-label={`${expandedProducers.has(row.id) ? 'Hide' : 'Show'} producers for ${row.center}`}
+                                    aria-expanded={expandedProducers.has(row.id)}
+                                    title={`${expandedProducers.has(row.id) ? 'Hide' : 'Show'} producers`}
+                                    onClick={() => setExpandedProducers(current => {
+                                      const next = new Set(current)
+                                      if (next.has(row.id)) next.delete(row.id)
+                                      else next.add(row.id)
+                                      return next
+                                    })}
+                                  ><span className="monthly-recon-producer-chevron" aria-hidden="true" /></button>}
+                                  <span>{row.avizPricing.linkedProducers.length} {row.avizPricing.linkedProducers.length === 1 ? 'producer belongs' : 'producers belong'} to this center in ERP.</span>
+                                </div>
+                                {expandedProducers.has(row.id) && row.avizPricing.linkedProducers.length > 0 && <ul>
+                                  {row.avizPricing.linkedProducers.map(producer => <li key={producer.producerCode}>
+                                    {producer.producerName} <span>({producer.producerCode})</span>
+                                  </li>)}
+                                </ul>}
+                              </div>
+                            )}
+                            {row.avizPricing.centerMatchWarning ? <small role="alert">{row.avizPricing.centerMatchWarning}</small>
+                              : row.avizPricing.reason ? null
                               : avizApprovals.some(a => a.monthKey === row.month && a.centerCode.toLowerCase() === row.avizPricing?.centerCode && a.milkType === row.milkType)
                                 ? <small>See aviz pricing approval above</small>
-                                : canApproveAviz && <button type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}
+                                : canApproveAviz && <button className="monthly-aviz-pricing-button" type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}
                           </div>
                         )}
                       </td>
@@ -879,15 +906,19 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
 
         {(approvalDraft || cancelDraft) && (
           <div className="monthly-recon-modal-backdrop">
-            <section className="monthly-recon-modal" role="dialog" aria-modal="true" aria-labelledby="aviz-pricing-title">
+            <section className="monthly-recon-modal monthly-aviz-dialog" role="dialog" aria-modal="true" aria-labelledby="aviz-pricing-title">
               <h2 id="aviz-pricing-title">{cancelDraft ? 'Cancel aviz pricing approval' : 'Use aviz for pricing'}</h2>
-              <p>{cancelDraft?.centerName || approvalDraft?.center} · {displayMonth(cancelDraft?.monthKey || approvalDraft?.month || '')}</p>
-              <p><strong>{cancelDraft?.producerName || approvalDraft?.avizPricing?.producerName}</strong></p>
-              <p>{cancelDraft?.milkType || approvalDraft?.milkType} · {formatNumber(cancelDraft?.approvedLiters ?? approvalDraft?.avizPricing?.approvedLiters, 3)} L</p>
-              {!cancelDraft && <p>No journal received. Confirm this aviz quantity for Month Closure.</p>}
+              <dl className="monthly-aviz-dialog-details">
+                <div><dt>Center</dt><dd>{cancelDraft?.centerName || approvalDraft?.center}</dd></div>
+                <div><dt>Month</dt><dd>{displayMonth(cancelDraft?.monthKey || approvalDraft?.month || '')}</dd></div>
+                <div className="monthly-aviz-dialog-producer"><dt>Producer for pricing</dt><dd>{cancelDraft?.producerName || approvalDraft?.avizPricing?.producerName} ({cancelDraft?.producerCode || approvalDraft?.avizPricing?.producerCode})</dd></div>
+                <div><dt>Milk type</dt><dd>{cancelDraft?.milkType || approvalDraft?.milkType}</dd></div>
+                <div><dt>Aviz quantity</dt><dd className="monthly-aviz-dialog-quantity">{formatNumber(cancelDraft?.approvedLiters ?? approvalDraft?.avizPricing?.approvedLiters, 3)} L</dd></div>
+              </dl>
+              {!cancelDraft && <p className="monthly-aviz-dialog-note">No journal received. Confirm this aviz quantity for Month Closure.</p>}
               {cancelDraft && <label>Cancellation reason<input value={cancelReason} maxLength={1000} onChange={e => setCancelReason(e.target.value)} /></label>}
-              {approvalError && <p role="alert">{approvalError}</p>}
-              <div className="monthly-aviz-dialog-actions">
+              {approvalError && <p className="monthly-aviz-dialog-error" role="alert">{approvalError}</p>}
+              <div className="monthly-aviz-dialog-actions monthly-recon-modal-actions">
                 <button type="button" disabled={approvalBusy} onClick={() => { setApprovalDraft(null); setCancelDraft(null) }}>Close</button>
                 <button type="button" disabled={approvalBusy || Boolean(cancelDraft && !cancelReason.trim())} onClick={() => void saveAvizApproval()}>{approvalBusy ? 'Saving...' : cancelDraft ? 'Confirm cancellation' : 'Confirm approval'}</button>
               </div>
