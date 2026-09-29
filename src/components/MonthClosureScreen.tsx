@@ -41,6 +41,9 @@ interface MonthClosurePricingRow {
   centerAvizLines: number
   pricingStatus: PricingStatus
   readyForPricing: boolean
+  producerWarning?: string | null
+  duplicateProducer?: boolean
+  missingLiters?: boolean
 }
 
 interface MonthClosureSummary {
@@ -248,6 +251,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   }
 
   function updatePricingDraft(rowId: string, field: PricingDraftField, value: string) {
+    if (rows.find(row => row.id === rowId)?.producerWarning) return
     setPricingSaveStatus((current) => current === 'saving' ? current : 'idle')
     setPricingSaveMessage('')
     setPricingDrafts((current) => ({
@@ -287,7 +291,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     return typeof savedValue === 'number' && Number.isFinite(savedValue) ? savedValue : null
   }
 
-  const changedPricingRows = rows.filter((row) => Object.keys(pricingDrafts[row.id] || {}).length > 0)
+  const changedPricingRows = rows.filter((row) => !row.producerWarning && Object.keys(pricingDrafts[row.id] || {}).length > 0)
 
   async function savePricingRows() {
     if (!monthFilter || !changedPricingRows.length || pricingSaveStatus === 'saving') return
@@ -459,12 +463,12 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   }, [centerFilter, milkTypeFilter, monthFilter, producerFilter, rows, statusFilter])
 
   const bulkCenterRows = useMemo(() => rows.filter((row) => (
-    (!monthFilter || row.month === monthFilter) && row.center === bulkCenter
+    !row.producerWarning && (!monthFilter || row.month === monthFilter) && row.center === bulkCenter
   )), [bulkCenter, monthFilter, rows])
 
   function movePricingFocus(currentInput: HTMLInputElement, field: PricingDraftField, direction: 1 | -1) {
     const visibleInputs = Array.from(document.querySelectorAll<HTMLInputElement>(
-      `input[data-pricing-field="${field}"]`,
+      `input[data-pricing-field="${field}"]:not(:disabled)`,
     ))
     const currentIndex = visibleInputs.indexOf(currentInput)
     const nextInput = visibleInputs[currentIndex + direction]
@@ -502,6 +506,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     setPricingDrafts((current) => {
       const next = { ...current }
       for (const row of bulkCenterRows) {
+        if (row.producerWarning) continue
         next[row.id] = { ...next[row.id], price: normalizedPrice }
       }
       return next
@@ -525,7 +530,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     const vatStatusAmount = result === null || extraApplied || !hasRegularVat(vatStatus) ? 0 : result * 0.11
     const extraAmount = result === null || !extraApplied ? 0 : result * 0.08
     const hasFinalValue = result !== null || commissionValue !== null || electricityValue !== null
-    const finalResult = row.approvalReviewRequired ? null : hasFinalValue ? (result ?? 0) + commission + electricity + vatStatusAmount + extraAmount : null
+    const finalResult = row.approvalReviewRequired || row.producerWarning ? null : hasFinalValue ? (result ?? 0) + commission + electricity + vatStatusAmount + extraAmount : null
     return { row, erpProducer, price, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult }
   })
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
@@ -972,7 +977,13 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                         {row.center}
                       </button>
                     </td>
-                    <td title={row.producer}>{row.producer}<small className="month-closure-source">Source: {row.source === 'aviz' ? 'Aviz' : 'Journal'}{row.approvalReviewRequired ? ' · Needs approval review' : ''}</small></td>
+                    <td title={row.producer}>
+                      {row.producer}
+                      {row.producerWarning && <small className="month-closure-producer-warning">! {row.producerWarning}</small>}
+                      {row.duplicateProducer && <small className="month-closure-producer-warning">! Duplicate</small>}
+                      {row.missingLiters && <small className="month-closure-producer-warning">! Missing liters</small>}
+                      <small className="month-closure-source">Source: {row.source === 'aviz' ? 'Aviz' : 'Journal'}{row.approvalReviewRequired ? ' · Needs approval review' : ''}</small>
+                    </td>
                     <td title={row.milkType}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
                     <td className="month-closure-entry-cell">
@@ -981,6 +992,8 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                           className="month-closure-price-input"
                           inputMode="decimal"
                           aria-label={`Price for ${row.producer}`}
+                          disabled={Boolean(row.producerWarning)}
+                          title={row.producerWarning || undefined}
                           data-pricing-field="price"
                           value={pricingDraftValue(row, 'price')}
                           onChange={(event) => updatePricingDraft(row.id, 'price', event.target.value)}
@@ -998,6 +1011,8 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                           className="month-closure-price-input"
                           inputMode="decimal"
                           aria-label={`Commission for ${row.producer}`}
+                          disabled={Boolean(row.producerWarning)}
+                          title={row.producerWarning || undefined}
                           data-pricing-field="commission"
                           value={pricingDraftValue(row, 'commission')}
                           onChange={(event) => updatePricingDraft(row.id, 'commission', event.target.value)}
@@ -1018,6 +1033,8 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                           className="month-closure-price-input"
                           inputMode="decimal"
                           aria-label={`Electricity for ${row.producer}`}
+                          disabled={Boolean(row.producerWarning)}
+                          title={row.producerWarning || undefined}
                           data-pricing-field="electricity"
                           value={pricingDraftValue(row, 'electricity')}
                           onChange={(event) => updatePricingDraft(row.id, 'electricity', event.target.value)}

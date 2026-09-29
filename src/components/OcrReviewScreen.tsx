@@ -349,7 +349,7 @@ function hasRequiredNumber(value: number | null) {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-const DAILY_REQUIRED_FIELDS = new Set(['collectionCenter', 'liters', 'fatPercent', 'temperature', 'noticeNumber'])
+const DAILY_REQUIRED_FIELDS = new Set(['collectionCenter', 'liters', 'noticeNumber'])
 
 function inferMilkTypeFromFat(fatPercent: number | null | undefined): DailyMilkTypeCode {
   if (!hasRequiredNumber(fatPercent ?? null)) return 'MILK-COW'
@@ -383,8 +383,6 @@ function missingDailyExportFields(row: ExtractedRow) {
   return [
     !row.collectionCenter?.trim() ? 'center' : '',
     !hasRequiredNumber(row.liters) ? 'liters' : '',
-    !hasRequiredNumber(row.fatPercent) ? 'fat' : '',
-    !hasRequiredNumber(row.temperature) ? 'temperature' : '',
     !row.noticeNumber?.trim() ? 'aviz number' : '',
   ].filter(Boolean)
 }
@@ -1099,8 +1097,8 @@ export function OcrReviewScreen() {
       if (invalidRows.length) {
         setError(
           isRo
-            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de verificare. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
-            : `Fill center, liters, fat, temperature, and aviz number before marking reviewed. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+            ? `Completați centrul, litrii și avizul înainte de verificare. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, and aviz number before marking reviewed. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
         )
         return
       }
@@ -1242,8 +1240,8 @@ export function OcrReviewScreen() {
     if (invalidRows.length) {
         setError(
           isRo
-            ? `Completați centrul, litrii, grăsimea, temperatura și avizul înainte de trimiterea în ERP. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
-            : `Fill center, liters, fat, temperature, and aviz number before sending to ERP. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
+            ? `Completați centrul, litrii și avizul înainte de trimiterea în ERP. Rânduri: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`
+            : `Fill center, liters, and aviz number before sending to ERP. Rows: ${invalidRows.map((row) => row.rowNumber).join(', ')}.`,
         )
       return
     }
@@ -1881,7 +1879,7 @@ export function OcrReviewScreen() {
                   {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
                   <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
                   <button className="review-rematch" type="button" onClick={() => void rematchOperationalReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți șofer/vehicul/rută' : 'Refresh driver/truck/routes')}</button>
-                  {missingRequiredFields && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii, grăsimea, temperatura și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, fat, temperature, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
+                  {missingRequiredFields && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
                   <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={saving || autoSaveStatus === 'saving' || erpSending || !draft.rows.length || missingRequiredFields || selected.reviewStatus !== 'reviewed' || ['sent', 'partial', 'sending'].includes(selected.erpExport?.status || '') || erpHasSentRows} title={selected.reviewStatus !== 'reviewed' ? (isRo ? 'Verificați documentul înainte de trimitere' : 'Mark reviewed before sending') : erpHasSentRows || selected.erpExport?.status === 'partial' ? (isRo ? 'Verificați rândurile deja trimise înainte de retrimitere' : 'Check already sent rows before retrying') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimis în ERP' : 'Sent to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
                   {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || missingRequiredFields}>
                     {saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat' : 'Mark as reviewed')}

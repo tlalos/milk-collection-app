@@ -57,6 +57,9 @@ import {
 import { fetchErpReferenceSuppliers } from './erpReferenceCenters.js'
 import { getErpReferenceSnapshot, saveErpReferenceSnapshot } from './erpReferenceStore.js'
 import { correctedCenterMatch, validateDailyCenterMatches } from './dailyCenterValidation.js'
+import { matchingMonthlyProducer, reconcileMonthlyProducerMatches, monthlyProducerWarning, monthlyPricingProducerWarning } from './monthlyProducerValidation.js'
+import { monthlyJournalDuplicateGroups } from './monthlyJournalDuplicates.js'
+import { journalAvizIssues } from './journalAvizIssues.js'
 import {
   createMilkReception,
   deleteMilkReception,
@@ -321,6 +324,21 @@ function monthlyOcrIssuesFromJobs(jobs, referenceProducers) {
           problem: 'Liters are missing.',
         })
       }
+    }
+  }
+  const duplicates = monthlyJournalDuplicateGroups(jobs, {
+    monthKey: monthKeyFromJob, normalizeName: normalizeSuggestionText, normalizeMilkType: normalizeMonthlyReconciliationMilkType,
+  })
+  for (const group of duplicates) {
+    const documents = new Set(group.entries.map(entry => entry.job.id)).size
+    const locations = group.entries.map(({ job, row }) =>
+      `${job.sourceFile || 'Document'} [${job.id.slice(0, 8)}], row ${row.rowNumber}, ${job.data?.headerCenterName || 'unknown center'}`).join('; ')
+    for (const { job, row } of group.entries) {
+      issues.push({
+        ...issueBase(job, 'monthly', 'monthly_duplicate_producer_milk_type', row,
+          `Possible duplicate: this producer and milk type appear ${group.entries.length} times across ${documents} document(s) in ${group.month}. ${locations}.`),
+        id: `monthly-duplicate-producer-milk-${job.id}-${row.rowNumber}`,
+      })
     }
   }
   return issues
@@ -601,9 +619,10 @@ function resolvedMonthlyJournalCenter(job, data, row) {
 }
 
 function monthlyProducerReferenceForRow(job, row) {
-  const match = Array.isArray(job.producerMatches)
+  const savedMatch = Array.isArray(job.producerMatches)
     ? job.producerMatches.find((item) => Number(item.rowNumber) === Number(row.rowNumber))
     : null
+  const match = matchingMonthlyProducer(row, savedMatch)
   const selectedCode = match?.selectedCode ? String(match.selectedCode).trim() : ''
   const selectedReference = selectedCode
     ? match?.suggestions?.find((item) => String(item.code).trim().toLocaleLowerCase() === selectedCode.toLocaleLowerCase())
@@ -780,7 +799,10 @@ function monthClosureSummary(rows) {
   }
 }
 
-function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizApprovals = []) {
+function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizApprovals = [], references = null) {
+  const duplicateJournalRows = new Set(monthlyJournalDuplicateGroups(jobs, {
+    monthKey: monthKeyFromJob, normalizeName: normalizeSuggestionText, normalizeMilkType: normalizeMonthlyReconciliationMilkType,
+  }).flatMap(group => group.entries.map(({ job, row }) => `${job.id}:${row.rowNumber}`)))
   const reconciliation = monthlyReconciliationFromJobs(jobs)
   const reconciliationByGroup = new Map(reconciliation.rows.map((row) => [monthlyReconciliationKey(row.month, row.center, row.milkType), row]))
   const rowsByProducer = new Map()
@@ -814,6 +836,9 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizA
         })
       }
       const pricingRow = rowsByProducer.get(key)
+      pricingRow.producerWarning ||= monthlyPricingProducerWarning({ producer, producerCode, centerName: group.center }, references)
+      pricingRow.duplicateProducer ||= duplicateJournalRows.has(`${journalRow.jobId}:${journalRow.rowNumber}`)
+      pricingRow.missingLiters ||= !Number.isFinite(Number(journalRow.liters)) || Number(journalRow.liters) <= 0
       pricingRow.liters += finiteNumber(journalRow.liters) ?? 0
       pricingRow.sourceRowCount += 1
       pricingRow.journalRows.push(journalRow)
@@ -832,6 +857,7 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizA
       producerKey: normalizeSuggestionText(approval.producerName), liters: Number(approval.approvedLiters),
       sourceRowCount: 0, journalRows: [], source: 'aviz', approvalId: approval.approvalId,
       approvalReviewRequired: approval.status !== 'APPROVED',
+      producerWarning: monthlyPricingProducerWarning({ producer: approval.producerName, producerCode: approval.producerCode, centerName: approval.centerName }, references),
       reconciliationStatus: 'missing_monthly', reconciliationDifferenceLiters: null,
       centerAvizLiters: Number(approval.approvedLiters), centerMonthlyLiters: 0, centerJournalRows: 0, centerAvizLines: 0,
     })
@@ -843,7 +869,7 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizA
     const pricing = savedPricing.get(savedPricingKey(row.month, row.producerCode, row.milkType))
     const previousPricing = savedPricing.get(savedPricingKey(previousMonth, row.producerCode, row.milkType))
     const group = reconciliationByGroup.get(monthlyReconciliationKey(row.month, row.center, row.milkType))
-    const blocked = row.approvalReviewRequired || (row.source !== 'aviz' && (!group || group.status !== 'ok'))
+    const blocked = Boolean(row.producerWarning) || row.approvalReviewRequired || (row.source !== 'aviz' && (!group || group.status !== 'ok'))
     return {
       ...row,
       source: row.source || 'journal',
@@ -1839,7 +1865,9 @@ app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next)
     response.json({ ...context.reconciliation,
       canApproveAviz: userHasPermission(_request.authUser, 'month_closure'),
       avizApprovals: context.approvals,
-      rows: context.reconciliation.rows.map(row => ({ ...row, avizPricing: context.candidates.find(c => c.groupId === row.id) })),
+      rows: context.reconciliation.rows.map(row => ({ ...row,
+        monthlyRows: row.monthlyRows.map(detail => ({ ...detail, producerWarning: monthlyProducerWarning(detail, context.references) })),
+        avizPricing: context.candidates.find(c => c.groupId === row.id) })),
     })
   } catch (error) {
     next(error)
@@ -1886,14 +1914,16 @@ app.get('/api/ocr/issues', async (_request, response, next) => {
 
     const monthly = monthlyOcrIssuesFromJobs(jobs, referenceProducers)
     const daily = dailyAvizIssuesFromJobs(jobs, referenceCenters)
+    const reconciliation = journalAvizIssues(monthlyReconciliationFromJobs(jobs).rows, jobs, monthKeyFromJob)
     response.json({
-      issues: [...monthly, ...daily].sort((left, right) =>
+      issues: [...monthly, ...daily, ...reconciliation].sort((left, right) =>
         String(right.month || '').localeCompare(String(left.month || '')) ||
         String(right.documentDate || '').localeCompare(String(left.documentDate || '')) ||
         String(left.sourceFile || '').localeCompare(String(right.sourceFile || ''), undefined, { numeric: true }) ||
         String(left.rowNumber || '').localeCompare(String(right.rowNumber || ''), undefined, { numeric: true })),
       summary: {
-        total: monthly.length + daily.length,
+        total: monthly.length + daily.length + reconciliation.length,
+        reconciliation: reconciliation.length,
         monthly: monthly.length,
         daily: daily.length,
       },
@@ -1954,11 +1984,11 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
     const context = isSqlOcrStoreEnabled() ? await monthlyAvizApprovalContext(monthlyReconciliationFromJobs) : null
     const jobs = context?.jobs || await listJobs()
     const approvals = context?.approvals || []
-    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month }, [], approvals)
+    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month }, [], approvals, context?.references)
     const pricingRows = isSqlOcrStoreEnabled() && basePricing.selectedMonth
       ? await listMonthlyProducerPricingRows([basePricing.selectedMonth, previousMonthKey(basePricing.selectedMonth)])
       : []
-    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals))
+    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals, context?.references))
   } catch (error) {
     next(error)
   }
@@ -2008,6 +2038,14 @@ app.post('/api/month-closure/pricing-rows', requirePermission('month_closure'), 
       }
     })
 
+    const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
+    const currentRows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references).rows
+    for (const row of rows) {
+      const current = currentRows.find(item => String(item.producerCode || '').toLowerCase() === row.producerCode.toLowerCase() && item.milkType === row.milkType)
+      if (!current || current.producerWarning) {
+        return response.status(409).json({ error: `${row.producerName || row.producerCode}: ${current?.producerWarning || 'No current journal or approved aviz row'}. Correct the producer match before saving prices.` })
+      }
+    }
     const result = await upsertMonthlyProducerPricingRows(rows)
     await auditAction({
       request,
@@ -2225,9 +2263,8 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     if (current.documentCategory === 'journal_monthly_settlement') {
       const data = normalizeMonthlyData(parsed.data)
       const submittedProducerMatches = sanitizeProducerMatches(request.body.producerMatches)
-      const producerMatches = submittedProducerMatches.length
-        ? submittedProducerMatches
-        : current.producerMatches || []
+      const producerMatches = reconcileMonthlyProducerMatches(data.rows,
+        Array.isArray(request.body.producerMatches) ? submittedProducerMatches : current.producerMatches || [])
       const headerCenterMatch = current.headerCenterMatch || null
       const producerMatchError = current.producerMatchError || null
       const producerMatchErrorAt = current.producerMatchErrorAt || null

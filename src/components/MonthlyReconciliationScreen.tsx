@@ -20,6 +20,7 @@ interface MonthlyReconciliationAvizRow {
 }
 
 interface MonthlyReconciliationJournalRow {
+  producerWarning?: string | null
   id: string
   jobId: string
   sourceFile: string
@@ -100,7 +101,7 @@ interface ReferenceCenterOption {
   name: string
 }
 
-type OcrIssueSource = 'monthly' | 'daily'
+type OcrIssueSource = 'monthly' | 'daily' | 'reconciliation'
 
 interface OcrIssue {
   id: string
@@ -221,9 +222,9 @@ function OcrIssueSection({ title, issues }: { title: string; issues: OcrIssue[] 
               {issues.map((issue) => (
                 <tr key={issue.id}>
                   <td>{issue.month ? displayMonth(issue.month) : '-'}</td>
-                  <td title={issue.sourceFile}>{issue.sourceFile || issue.jobId}</td>
+                  <td title={issue.sourceFile || issue.jobId}><span className="monthly-recon-issue-document">{issue.sourceFile || issue.jobId}</span></td>
                   <td>{issue.rowNumber ?? '-'}</td>
-                  <td>{issue.problem}</td>
+                  <td><span className="monthly-recon-issue-problem">{issue.problem}</span></td>
                   <td title={issueValue(issue)}>{issueValue(issue)}</td>
                   <td title={[issue.headerCenter, issue.referenceCenter].filter(Boolean).join(' / ')}>
                     {[issue.headerCenter, issue.referenceCenter].filter(Boolean).join(' / ') || '-'}
@@ -396,6 +397,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   )
   const monthlyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'monthly')
   const dailyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'daily')
+  const journalAvizWarnings = visibleOcrIssues.filter((issue) => issue.source === 'reconciliation')
   const journalCenters = useMemo(() => {
     const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean; hasDifference: boolean }>()
     for (const row of rows) {
@@ -497,9 +499,10 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
       })
       const payload = await response.json() as AvizCenterCorrectionPayload
       if (!response.ok) throw new Error(payload.error || 'Could not update the aviz center.')
-      setRows(payload.reconciliation.rows || [])
       setExpandedId(null)
       setCorrectionDraft(null)
+      // The correction response contains basic rows, without ERP warnings or approval details.
+      await loadRows()
       setNotice(`Updated ${payload.updatedRows} daily aviz row${payload.updatedRows === 1 ? '' : 's'} in ${payload.updatedJobs} document${payload.updatedJobs === 1 ? '' : 's'}.`)
     } catch (saveError) {
       setError((saveError as Error).message || 'Could not update the aviz center.')
@@ -655,6 +658,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               </div>
             )}
             <OcrIssueSection title="Monthly settlement OCR" issues={monthlyOcrIssues} />
+            <OcrIssueSection title="Journals vs aviz" issues={journalAvizWarnings} />
             <OcrIssueSection title="Daily aviz OCR" issues={dailyOcrIssues} />
           </section>
         )}
@@ -883,7 +887,12 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                                     {row.monthlyRows.map((detail) => (
                                       <tr key={detail.id}>
                                         <td>{displayDate(detail.documentDate)}</td>
-                                        <td title={detail.producer || detail.centerName || ''}>{detail.producer || detail.centerName || '-'}</td>
+                                        <td title={detail.producer || detail.centerName || ''}>
+                                          {detail.producer || detail.centerName || '-'}
+                                          {detail.producerWarning && <span className="monthly-recon-producer-warning" role="status">
+                                            <span aria-hidden="true">!</span> {detail.producerWarning}
+                                          </span>}
+                                        </td>
                                         <td>{formatNumber(detail.liters)}</td>
                                         <td><button type="button" onClick={() => openFile(detail.fileUrl)}>Open</button></td>
                                       </tr>

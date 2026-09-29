@@ -133,6 +133,6 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       await audit('monthly_aviz_pricing.cancel',approval.approvalId,{...approval,cancellationReason:reason})
     }
     await tx.commit()
-    return { jobs, reconciliation, candidates, approvals: approvals.filter(a => a.status !== 'CANCELLED'), saved }
+    return { jobs, reconciliation, candidates, references, approvals: approvals.filter(a => a.status !== 'CANCELLED'), saved }
   } catch (error) { await tx.rollback(); throw error }
 }

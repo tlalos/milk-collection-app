@@ -115,8 +115,6 @@ function missingErpFields(row: DailyRouteExtractedRow): string[] {
   return [
     !hasValue(row.collectionCenter) ? 'center' : '',
     !hasValue(row.liters) ? 'liters' : '',
-    !hasValue(row.fatPercent) ? 'fat' : '',
-    !hasValue(row.temperature) ? 'temperature' : '',
     !hasValue(row.noticeNumber) ? 'aviz number' : '',
   ].filter(Boolean)
 }

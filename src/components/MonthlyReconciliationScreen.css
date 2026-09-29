@@ -295,9 +295,11 @@
 }
 
 .monthly-recon-ocr-issue-table th:nth-child(1) { width: 82px; }
-.monthly-recon-ocr-issue-table th:nth-child(2) { width: 180px; }
+.monthly-recon-ocr-issue-table th:nth-child(2) { width: 100px; }
+.monthly-recon-issue-document { display: block; width: 100px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .monthly-recon-ocr-issue-table th:nth-child(3) { width: 64px; }
-.monthly-recon-ocr-issue-table th:nth-child(4) { width: 300px; }
+.monthly-recon-ocr-issue-table th:nth-child(4) { width: 240px; }
+.monthly-recon-issue-problem { display: block; width: 240px; max-width: 240px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .monthly-recon-ocr-issue-table th:nth-child(5) { width: 190px; }
 .monthly-recon-ocr-issue-table th:nth-child(6) { width: 220px; }
 .monthly-recon-ocr-issue-table th:nth-child(7),
@@ -482,7 +484,7 @@
 }
 
 .monthly-recon-table {
-  width: max-content;
+  width: 100%;
   min-width: 1120px;
   border-collapse: collapse;
   table-layout: fixed;
@@ -913,6 +915,8 @@
 .monthly-recon-producer-count button[aria-expanded="true"] .monthly-recon-producer-chevron { transform: rotate(45deg); }
 .monthly-recon-producers ul { margin: 6px 0; padding-left: 24px; overflow-wrap: anywhere; }
 .monthly-recon-producers li { margin: 4px 0; }
+.monthly-recon-producer-warning { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; color: #925700; font-size: 12px; font-weight: 600; white-space: normal; }
+.monthly-recon-producer-warning > span { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 16px; width: 16px; height: 16px; border-radius: 50%; background: #e39a24; color: #fff; font-weight: 800; }
 .monthly-aviz-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; }
 .monthly-aviz-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .monthly-aviz-dialog-details { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px 24px; margin: 22px 0; }

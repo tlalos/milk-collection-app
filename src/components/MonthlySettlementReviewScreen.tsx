@@ -730,6 +730,15 @@ export function MonthlySettlementReviewScreen() {
   }
 
   function updateRow(index: number, field: keyof MonthlyRow, value: string) {
+    if (field === "producer") {
+      const rowNumber = draft?.rows[index]?.rowNumber;
+      setSelected(current => current ? {
+        ...current,
+        producerMatches: current.producerMatches?.map(match => match.rowNumber === rowNumber
+          ? { ...match, selectedCode: null, selectedName: null, status: "unmatched" }
+          : match),
+      } : current);
+    }
     const numeric = ["liters", "ugPercent", "gValue"].includes(field);
     setDraft((current) =>
       current
@@ -941,7 +950,9 @@ export function MonthlySettlementReviewScreen() {
           normalizeReferenceName(item.name) === normalizeReferenceName(option.name),
         ) === optionIndex,
     );
-    const displaySuggestion = rankedOcrOptions[0] || null;
+    const savedProducerCode = match?.selectedCode &&
+      normalizeReferenceName(match.selectedName || "") === normalizeReferenceName(value)
+      ? match.selectedCode : "";
     const liveSearchVisible = activeProducerSearchKey === key && value.trim().length >= 1 && rankedLiveOptions.length > 0;
     const producerSearchErrorVisible =
       activeProducerSearchKey === key &&
@@ -1083,26 +1094,24 @@ export function MonthlySettlementReviewScreen() {
             {isRo ? "Fără potrivire în listă" : "No match in reference list"}
           </small>
         )}
-        {rankedOcrOptions.length > 0 && (
+        {(rankedOcrOptions.length > 0 || match) && (
           <select
             className="monthly-producer-suggestion-select"
-            value=""
+            value={savedProducerCode}
             aria-label={isRo ? `Potriviri posibile pentru rândul ${row.rowNumber}` : `Possible matches for row ${row.rowNumber}`}
             onChange={(event) => {
-              const optionIndex = Number(event.target.value);
-              const suggestion = rankedOcrOptions[optionIndex];
+              const suggestion = rankedOcrOptions.find(option => option.code === event.target.value);
               if (suggestion) selectProducerSuggestion(index, row.rowNumber, suggestion, key);
             }}
           >
-            <option value="" disabled hidden>
-              {displaySuggestion
-                ? `${Math.round((displaySuggestion.score || 0) * 100)}% · ${displaySuggestion.name}${displaySuggestion.centerName ? ` · ${displaySuggestion.centerName}` : ""}${displaySuggestion.code ? ` · ${displaySuggestion.code}` : ""}`
-                : isRo
-                  ? "Alegeți o sugestie..."
-                  : "Choose suggestion..."}
+            <option value="" disabled>
+              {isRo ? "Selectați producătorul ERP..." : "Select ERP producer..."}
             </option>
-            {rankedOcrOptions.map((item, optionIndex) => (
-              <option key={`ocr-${item.code}-${item.name}`} value={optionIndex}>
+            {savedProducerCode && !rankedOcrOptions.some(item => item.code === savedProducerCode) && (
+              <option value={savedProducerCode}>{match?.selectedName} · {savedProducerCode}</option>
+            )}
+            {rankedOcrOptions.map((item) => (
+              <option key={`ocr-${item.code}-${item.name}`} value={item.code}>
                 {Math.round((item.score || 0) * 100)}% · {item.name}
                 {item.centerName ? ` · ${item.centerName}` : ""}
                 {item.code ? ` · ${item.code}` : ""}
