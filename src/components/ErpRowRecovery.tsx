@@ -3,10 +3,11 @@ import type { DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
 
 export type ErpManualChecks = Record<'aviz' | 'nir', { outcome: '' | 'found' | 'absent'; erpId: string }>
 
-export function ErpRowRecovery({ row, busy, isRo, onRecover }: {
+export function ErpRowRecovery({ row, busy, isRo, identity, onRecover }: {
   row: DailyRouteErpRowLog
   busy: boolean
   isRo: boolean
+  identity: string
   onRecover: (checks: ErpManualChecks) => Promise<void>
 }) {
   const [checks, setChecks] = useState<ErpManualChecks>({ aviz: { outcome: '', erpId: '' }, nir: { outcome: '', erpId: '' } })
@@ -14,8 +15,11 @@ export function ErpRowRecovery({ row, busy, isRo, onRecover }: {
   const unresolved = (['aviz', 'nir'] as const).filter(kind => row.documents?.find(doc => doc.kind === kind)?.status !== 'sent')
   if (!unresolved.length || (!row.documents?.length && row.status === 'sent')) return null
   const valid = confirmed && unresolved.every(kind => checks[kind].outcome === 'absent' || (checks[kind].outcome === 'found' && /^[1-9]\d*$/.test(checks[kind].erpId.trim())))
+  const missing = unresolved.filter(kind => checks[kind].outcome === 'absent')
+  const checksComplete = unresolved.every(kind => checks[kind].outcome === 'absent' || (checks[kind].outcome === 'found' && /^[1-9]\d*$/.test(checks[kind].erpId.trim())))
   return <details className="erp-row-recovery">
     <summary>{isRo ? 'Verificare / recuperare' : 'Verify / recover row'}</summary>
+    <p>{identity}</p>
     {unresolved.map(kind => <div key={kind} className="erp-recovery-document">
       <label>{kind === 'aviz' ? 'Aviz 5101' : 'NIR 2153'}
         <select disabled={busy} value={checks[kind].outcome} onChange={event => {
@@ -40,6 +44,13 @@ export function ErpRowRecovery({ row, busy, isRo, onRecover }: {
       <input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />
       {isRo ? 'Am verificat data, centrul, avizul, tipul de lapte și cantitatea în ERP. Trimiterea inițială s-a oprit.' : 'I checked the date, center, aviz number, milk type and quantity in ERP. The original send is no longer running.'}
     </label>
+    {checksComplete ? <p className="erp-recovery-plan">
+      {missing.length
+        ? `${isRo ? 'De trimis' : 'Will send'}: ${missing.join(' + ').toUpperCase()}.`
+        : (isRo ? 'Se vor înregistra doar ID-urile existente. Nu se trimit documente noi.' : 'Record existing IDs only. No new documents will be sent.')}
+      {' '}{isRo ? 'Documentele trimise nu se retrimit.' : 'Already sent documents will not be resent.'}
+    </p> : <p>{isRo ? 'Selectați rezultatul verificării pentru fiecare document și completați ID-urile celor găsite.' : 'Choose a lookup result for each document and enter the IDs of documents found.'}</p>}
+    {checksComplete && !confirmed && <p>{isRo ? 'Bifați confirmarea verificării pentru a continua.' : 'Tick the verification checkbox to continue.'}</p>}
     <button type="button" disabled={busy || !valid} onClick={() => void onRecover(checks)}>
       {busy ? (isRo ? 'În curs...' : 'Working...') : (isRo ? 'Confirmați recuperarea' : 'Confirm recovery')}
     </button>

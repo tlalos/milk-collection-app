@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { appPath } from '../ocrPaths'
-import type { DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
+import { failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyRouteCenterMatch, type DailyRouteExtractedData, type DailyRouteErpExport, type DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
 import './DailyAvizScreen.css'
 
 interface DailyAvizRow {
+  erpSendBlocker?: string | null
+  erpSendSource?: unknown
   erpRowResult?: DailyRouteErpRowLog | null
   id: string
   jobId: string
@@ -79,7 +81,9 @@ const emptySummary: DailyAvizSummary = {
 function displayDate(value: string | null | undefined) {
   if (!value) return '-'
   const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
-  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
+  if (isoMatch) return `${Number(isoMatch[3])}/${Number(isoMatch[2])}/${isoMatch[1].slice(-2)}`
+  const displayMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/u)
+  if (displayMatch) return `${Number(displayMatch[1])}/${Number(displayMatch[2])}/${displayMatch[3].slice(-2)}`
   return value
 }
 
@@ -211,6 +215,10 @@ function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => str
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const tableWrapRef = useRef<HTMLDivElement>(null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [confirmSend, setConfirmSend] = useState<DailyAvizRow | null>(null)
+  const [sendingRowId, setSendingRowId] = useState('')
+  const sendingRef = useRef(false)
+  const [sendFeedback, setSendFeedback] = useState<{ id: string; message: string; failed: boolean } | null>(null)
   const [rows, setRows] = useState<DailyAvizRow[]>([])
   const [summary, setSummary] = useState<DailyAvizSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
@@ -236,6 +244,57 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
       setError((loadError as Error).message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function sendRow(row: DailyAvizRow) {
+    if (sendingRef.current || row.erpSendBlocker !== null) return
+    sendingRef.current = true
+    setSendingRowId(row.id)
+    setConfirmSend(null)
+    setSendFeedback({ id: row.id, message: 'Preparing Aviz and NIR...', failed: false })
+    type SendJob = { id: string; data: DailyRouteExtractedData; centerMatches: DailyRouteCenterMatch[]; erpExport: DailyRouteErpExport }
+    let job: SendJob | null = null
+    let latest: DailyRouteErpExport | null = null
+    const persist = async (state: DailyRouteErpExport) => {
+      latest = state
+      const response = await fetch(appPath(`/api/ocr/jobs/${job!.id}`), {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: job!.data, centerMatches: job!.centerMatches, erpExport: state }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Could not save ERP results.')
+      setRows(current => current.map(item => item.jobId === job!.id ? {
+        ...item, erpRowResult: state.rowLog?.find(log => log.rowNumber === item.rowNumber) ?? item.erpRowResult,
+        erpSendBlocker: 'ERP send in progress. Wait for completion.',
+      } : item))
+    }
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${row.jobId}/erp-send-row`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowNumber: row.rowNumber, expectedSource: row.erpSendSource }),
+      })
+      const payload = await response.json() as { job?: SendJob; error?: string }
+      if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not start this ERP send.')
+      job = payload.job
+      latest = job.erpExport
+      setSendFeedback({ id: row.id, message: 'Sending Aviz, then NIR...', failed: false })
+      const result = await sendDailyRouteDetailsToErp(job.data, job.centerMatches ?? [], undefined, persist,
+        { state: job.erpExport, rowNumber: row.rowNumber!, initial: true })
+      await persist(result)
+      const sent = result.rowLog?.find(log => log.rowNumber === row.rowNumber)?.status === 'sent'
+      setSendFeedback({ id: row.id, failed: !sent, message: sent ? 'Aviz and NIR sent.' : 'Send incomplete. Check the results and use Verify / recover row in OCR review.' })
+    } catch (sendError) {
+      let message = (sendError as Error).message
+      if (job && latest) {
+        try { await persist(failedDailyErpRecovery(latest, message)) }
+        catch { message += ' Final status could not be saved. Check ERP before retrying.' }
+      }
+      setSendFeedback({ id: row.id, message, failed: true })
+    } finally {
+      await loadRows()
+      sendingRef.current = false
+      setSendingRowId('')
     }
   }
 
@@ -461,10 +520,23 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                     <td><ErpDocumentStatus row={row} kind="nir" /></td>
                     <td>
                       <div className="daily-aviz-actions">
-                        <button type="button" onClick={() => openFile(row)}>File</button>
+                        <button className="daily-aviz-file-icon" type="button" title="Open file" aria-label={`Open file for aviz ${row.noticeNumber || '-'}, line ${row.rowNumber ?? '-'}`} onClick={() => openFile(row)}><span aria-hidden="true">📄</span></button>
+                        <button type="button" disabled={Boolean(sendingRowId) || row.erpSendBlocker !== null}
+                          title={row.erpSendBlocker || 'Send Aviz and NIR for this row'}
+                          onClick={() => setConfirmSend(row)}>{sendingRowId === row.id ? 'Sending...' : 'Send to ERP'}</button>
                       </div>
                     </td>
                   </tr>
+                  {confirmSend?.id === row.id && <tr><td colSpan={13} className="daily-aviz-quality-cell">
+                    <div className="daily-aviz-send-confirm">
+                      <span>Send 1 Aviz + 1 NIR: {row.collectionCenter} · {displayDate(row.documentDate)} · Aviz {row.noticeNumber} · {formatNumber(row.liters)} L · {displayMilkType(row.milkType)}?</span>
+                      <button type="button" disabled={Boolean(sendingRowId)} onClick={() => void sendRow(confirmSend)}>Confirm send</button>
+                      <button type="button" onClick={() => setConfirmSend(null)}>Cancel</button>
+                    </div>
+                  </td></tr>}
+                  {sendFeedback?.id === row.id && <tr><td colSpan={13} className="daily-aviz-quality-cell">
+                    <p className={sendFeedback.failed ? 'daily-aviz-send-error' : ''} role={sendFeedback.failed ? 'alert' : 'status'}>{sendFeedback.message}</p>
+                  </td></tr>}
                   {expandedRows.has(row.id) && <tr>
                     <td colSpan={13} className="daily-aviz-quality-cell">
                       <dl id={`quality-${row.id}`} className="daily-aviz-quality" aria-label="Milk quality">

@@ -3,7 +3,7 @@ import './OcrReviewScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
-import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
+import { failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
 import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 import { ErpRowRecovery, type ErpManualChecks } from './ErpRowRecovery'
@@ -587,6 +587,7 @@ export function OcrReviewScreen() {
   const [reprocessingId, setReprocessingId] = useState('')
   const [rematchingReferences, setRematchingReferences] = useState(false)
   const [erpSending, setErpSending] = useState(false)
+  const [recoveryFeedback, setRecoveryFeedback] = useState<{ jobId: string; rowNumber: number; message: string; failed: boolean } | null>(null)
   const [matchingCenters, setMatchingCenters] = useState(false)
   const [rowNumberDrafts, setRowNumberDrafts] = useState<Record<string, string>>({})
   const [openCenterSuggestions, setOpenCenterSuggestions] = useState<number | null>(null)
@@ -1226,20 +1227,29 @@ export function OcrReviewScreen() {
   }
 
   async function recoverErpRow(rowNumber: number, checks: ErpManualChecks) {
-    if (!selected?.erpExport || !selected.data || erpSending || saving || autoSaveStatus === 'saving') return
+    if (!selected) return
+    const feedback = (message: string, failed = true) => setRecoveryFeedback({ jobId: selected.id, rowNumber, message, failed })
+    if (!selected.erpExport || !selected.data) {
+      feedback(isRo ? 'Reîncărcați documentul înainte de recuperare.' : 'Reload the document before recovery.')
+      return
+    }
+    if (erpSending || saving || autoSaveStatus === 'saving') {
+      feedback(isRo ? 'Așteptați finalizarea operației curente.' : 'Wait for the current save or send to finish.')
+      return
+    }
     if (JSON.stringify({ data: draft, centerMatches }) !== lastSavedRef.current) {
-      setError(isRo ? 'Salvați modificările înainte de verificarea ERP.' : 'Save your changes before verifying ERP results.')
+      feedback(isRo ? 'Salvați modificările înainte de verificarea ERP.' : 'Save your changes before verifying ERP results.')
       return
     }
     const row = selected.erpExport.rowLog?.find(item => item.rowNumber === rowNumber)
-    if (!row) return
+    if (!row) {
+      feedback(isRo ? 'Rândul ERP nu mai există. Reîncărcați documentul.' : 'ERP row not found. Reload the document.')
+      return
+    }
     const missing = (['aviz', 'nir'] as const).filter(kind => row.documents?.find(doc => doc.kind === kind)?.status !== 'sent' && checks[kind].outcome === 'absent')
-    const message = isRo
-      ? `Rând ${rowNumber}: ${missing.length ? `trimiteți doar ${missing.join(' + ').toUpperCase()}` : 'înregistrați ID-urile ERP existente'}. Documentele deja trimise nu vor fi retrimise. Continuați?`
-      : `Row ${rowNumber}: ${missing.length ? `send only ${missing.join(' + ').toUpperCase()}` : 'record existing ERP IDs'}. Already sent documents will not be resent. Continue?`
-    const source = selected.data.rows.find(item => item.rowNumber === rowNumber)
-    const identity = `${selected.data.date || '-'} | ${row.center || '-'} | Aviz ${row.aviz || '-'} | ${source?.milkType || 'MILK-COW'} | ${source?.liters ?? '-'} L`
-    if (!window.confirm(`${identity}\n\n${message}`)) return
+    feedback(isRo ? 'Se înregistrează verificarea ERP...' : 'Recording ERP verification...', false)
+    let recoveryJob: OcrJob | null = null
+    let latestProgress: DailyRouteErpExport | null = null
     setErpSending(true)
     setError('')
     setSuccess('')
@@ -1251,22 +1261,40 @@ export function OcrReviewScreen() {
       const payload = await response.json() as { job?: OcrJob; error?: string }
       if (!response.ok || !payload.job?.erpExport || !payload.job.data) throw new Error(payload.error || 'Could not start ERP recovery.')
       const job = payload.job
+      recoveryJob = job
+      latestProgress = job.erpExport!
       setSelected(job)
       setSelectedSummary(job)
       jobCacheRef.current.set(job.id, job)
       if (missing.length) {
+        feedback(`${isRo ? 'Se trimite' : 'Sending'} ${missing.join(' + ').toUpperCase()}...`, false)
         const result = await sendDailyRouteDetailsToErp(job.data!, job.centerMatches ?? [], undefined,
-          async progress => { await saveErpExportState(progress, job) },
+          async progress => {
+            latestProgress = progress
+            await saveErpExportState(progress, job)
+          },
           { state: job.erpExport!, rowNumber })
+        latestProgress = result
         await saveErpExportState(result, job)
         if (result.rowLog?.find(item => item.rowNumber === rowNumber)?.status !== 'sent') {
           throw new Error(isRo ? 'Rând incomplet. Verificați rezultatele ERP înainte de o altă încercare.' : 'Row incomplete. Check the ERP results before another attempt.')
         }
       }
       setSuccess(isRo ? `Rând ${rowNumber}: Aviz și NIR confirmate.` : `Row ${rowNumber}: Aviz and NIR confirmed.`)
+      feedback(isRo ? 'Aviz și NIR confirmate.' : 'Aviz and NIR confirmed.', false)
     } catch (recoveryError) {
-      // Keep persisted sending/unconfirmed results: a failed save may follow an ERP success.
-      setError((recoveryError as Error).message)
+      let message = (recoveryError as Error).message
+      if (recoveryJob && latestProgress) {
+        try {
+          await saveErpExportState(failedDailyErpRecovery(latestProgress, message), recoveryJob)
+        } catch {
+          message += isRo
+            ? ' Starea finală nu a putut fi salvată. Reîncărcați și verificați ERP înainte de retrimitere.'
+            : ' Could not save the final status. Reload and check ERP before retrying; the saved Sending label may be stale.'
+        }
+      }
+      setError(message)
+      feedback(message)
     } finally {
       setErpSending(false)
       await loadJobs().catch(() => undefined)
@@ -1713,7 +1741,10 @@ export function OcrReviewScreen() {
                             <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber} · {row.center || '—'}</b>
                             <span>Aviz {row.aviz || '—'}</span>
                             {row.status === 'failed' && !row.documents?.some((doc) => doc.message) && <span className="erp-result-error">{row.message}</span>}
-                            <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo} onRecover={checks => recoverErpRow(row.rowNumber, checks)} />
+                            <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo}
+                              identity={`${selected.data?.date || '-'} | ${row.center || '-'} | Aviz ${row.aviz || '-'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.milkType || 'MILK-COW'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.liters ?? '-'} L`}
+                              onRecover={checks => recoverErpRow(row.rowNumber, checks)} />
+                            {recoveryFeedback?.jobId === selected.id && recoveryFeedback.rowNumber === row.rowNumber && <p className={recoveryFeedback.failed ? 'erp-result-error' : 'erp-recovery-feedback'} role={recoveryFeedback.failed ? 'alert' : 'status'}>{recoveryFeedback.message}</p>}
                           </th>
                           {(['aviz', 'nir'] as const).map((kind) => {
                             const doc = row.documents?.find((item) => item.kind === kind)

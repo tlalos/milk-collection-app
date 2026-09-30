@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dailyErpSource, prepareDailyErpRecovery } from './dailyErpRecovery.js'
+import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend } from './dailyErpRecovery.js'
 
 function fixture() {
   const job = {
@@ -16,6 +16,51 @@ function fixture() {
   return { job, request }
 }
 
+function unsentJob() {
+  const { job } = fixture()
+  job.erpExport = { status: 'not_ready' }
+  job.centerMatches = [{ rowNumber: 13, selectedCode: 'c1', selectedName: 'BATIN' }]
+  job.data.rows.push({ rowNumber: 14, collectionCenter: 'OTHER', noticeNumber: '4000', liters: 50 })
+  job.centerMatches.push({ rowNumber: 14, selectedCode: 'c2', selectedName: 'OTHER' })
+  return job
+}
+
+test('new row claim blocks duplicates and keeps untouched rows available afterward', () => {
+  const job = unsentJob()
+  const source = dailyErpSource(job.data, job.centerMatches, 13)
+  const state = prepareDailyErpRowSend(job, 13, source)
+  assert.equal(state.rowLog[0].neverAttempted, false)
+  assert.equal(state.rowLog[1].neverAttempted, true)
+  job.erpExport = state
+  assert.throws(() => prepareDailyErpRowSend(job, 13, source), /progress/)
+  job.erpExport.status = 'partial'
+  assert.match(dailyErpRowSendBlocker(job, 13), /already attempted/)
+  assert.equal(dailyErpRowSendBlocker(job, 14), null)
+  const next = prepareDailyErpRowSend(job, 14, dailyErpSource(job.data, job.centerMatches, 14))
+  assert.deepEqual(next.rowLog[0], state.rowLog[0])
+})
+
+test('new row send rejects stale values, unreviewed rows, missing values and mismatched centers', () => {
+  const job = unsentJob()
+  const source = dailyErpSource(job.data, job.centerMatches, 13)
+  job.data.rows[0].liters++
+  assert.throws(() => prepareDailyErpRowSend(job, 13, source), /changed/)
+  for (const change of [
+    job => { job.reviewStatus = 'pending' },
+    job => { job.data.rows[0].liters = null },
+    job => { job.data.rows[0].noticeNumber = '' },
+    job => { job.centerMatches[0].selectedName = 'OTHER' },
+  ]) { const job = unsentJob(); change(job); assert.ok(dailyErpRowSendBlocker(job, 13)) }
+})
+
+test('all historical row attempts, including ready legacy logs, block normal send', () => {
+  for (const status of ['ready', 'sent', 'failed', 'sending', 'unconfirmed']) {
+    const job = unsentJob()
+    job.erpExport = { status: 'partial', rowLog: [{ rowNumber: 13, status, documents: [{ kind: 'aviz', status }] }] }
+    assert.ok(dailyErpRowSendBlocker(job, 13))
+  }
+})
+
 test('manual absence preserves other rows and prior failure history', () => {
   const { job, request } = fixture()
   const result = prepareDailyErpRecovery(job, request)
@@ -24,6 +69,26 @@ test('manual absence preserves other rows and prior failure history', () => {
   assert.equal(result.rowLog[1].documents[0].attempts[0].message, 'Access violation')
   assert.equal(job.erpExport.rowLog[1].documents[0].status, 'failed')
   assert.ok(result.recoveryId)
+})
+
+test('legacy reviewed daily routes without a category can be recovered', () => {
+  for (const category of [undefined, null, '']) {
+    const { job, request } = fixture()
+    job.documentCategory = category
+    assert.equal(prepareDailyErpRecovery(job, request).status, 'sending')
+  }
+})
+
+test('monthly, pending and incomplete documents still cannot be recovered', () => {
+  for (const overrides of [
+    { documentCategory: 'journal_monthly_settlement' },
+    { reviewStatus: 'pending' },
+    { status: 'processing' },
+  ]) {
+    const { job, request } = fixture()
+    Object.assign(job, overrides)
+    assert.throws(() => prepareDailyErpRecovery(job, request), /Only reviewed daily routes/)
+  }
 })
 
 test('existing ERP IDs complete a row without resending', () => {

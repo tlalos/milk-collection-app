@@ -50,6 +50,7 @@ export interface DailyRouteCenterMatch {
 }
 
 export interface DailyRouteErpRowLog {
+  neverAttempted?: boolean
   rowNumber: number
   aviz?: string | null
   center?: string | null
@@ -68,6 +69,7 @@ export interface DailyRouteErpRowLog {
 }
 
 export interface DailyRouteErpExport {
+  initialRowNumber?: number
   recoveryId?: string
   recoveryRowNumber?: number
   status: 'not_ready' | 'sending' | 'sent' | 'failed' | 'partial'
@@ -78,6 +80,30 @@ export interface DailyRouteErpExport {
   successCount?: number
   failedCount?: number
   rowLog?: DailyRouteErpRowLog[]
+}
+
+export function failedDailyErpRecovery(state: DailyRouteErpExport, message: string): DailyRouteErpExport {
+  const result = structuredClone(state)
+  for (const row of result.rowLog ?? []) {
+    for (const doc of row.documents ?? []) {
+      if (doc.status === 'sending') {
+        doc.status = 'unconfirmed'
+        doc.message = `Check ERP before retrying: ${message}`
+      }
+    }
+    if (row.rowNumber === result.recoveryRowNumber && row.status !== 'sent') {
+      row.status = 'failed'
+      row.message = message
+    }
+  }
+  result.successCount = result.rowLog?.filter(row => row.status === 'sent').length ?? 0
+  result.rowCount = result.rowLog?.length ?? 0
+  result.failedCount = result.rowCount - result.successCount
+  const uncertainOrSent = result.rowLog?.some(row => row.status === 'sent' || row.documents?.some(doc => doc.status === 'sent' || doc.status === 'unconfirmed'))
+  result.status = result.failedCount === 0 && result.rowCount > 0 ? 'sent' : uncertainOrSent ? 'partial' : 'failed'
+  result.error = message
+  result.completedAt = new Date().toISOString()
+  return result
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -254,7 +280,7 @@ export async function sendDailyRouteDetailsToErp(
   centerMatches: DailyRouteCenterMatch[],
   signal?: AbortSignal,
   onProgress?: (exportState: DailyRouteErpExport) => void | Promise<void>,
-  recovery?: { state: DailyRouteErpExport; rowNumber: number },
+  recovery?: { state: DailyRouteErpExport; rowNumber: number; initial?: boolean },
 ): Promise<DailyRouteErpExport> {
   const startedAt = new Date().toISOString()
   const settings = ocrConnectionSettingsStore.get()
@@ -296,7 +322,8 @@ export async function sendDailyRouteDetailsToErp(
 
   if (recovery) {
     const entry = rowLog.find(row => row.rowNumber === recovery.rowNumber)
-    if (!entry?.documents?.length || entry.documents.some(doc => doc.status !== 'sent' && (doc.status !== 'ready' || doc.manualVerification?.outcome !== 'absent'))) {
+    const initial = recovery.initial && recovery.state.initialRowNumber === recovery.rowNumber && Boolean(recovery.state.recoveryId)
+    if (!entry?.documents?.length || entry.documents.some(doc => doc.status !== 'sent' && (doc.status !== 'ready' || (!initial && doc.manualVerification?.outcome !== 'absent')))) {
       throw new Error('Manual ERP verification is required before retrying.')
     }
   }
@@ -350,10 +377,12 @@ export async function sendDailyRouteDetailsToErp(
   }
 
   const successCount = rowLog.filter((row) => row.status === 'sent').length
-  const failedCount = rowLog.length - successCount
+  const failedCount = rowLog.filter((row) => row.status === 'failed').length
+  const pendingCount = rowLog.length - successCount - failedCount
   const hasSentOrUnconfirmed = rowLog.some((row) => row.documents?.some((doc) => ['sent', 'sending', 'unconfirmed'].includes(doc.status)))
-  const status = failedCount === 0 ? 'sent' : hasSentOrUnconfirmed ? 'partial' : 'failed'
-  const error = failedCount > 0 ? `${failedCount} ERP row${failedCount === 1 ? '' : 's'} failed.` : null
+  const status = successCount === rowLog.length ? 'sent' : hasSentOrUnconfirmed ? 'partial' : 'failed'
+  const error = failedCount > 0 ? `${failedCount} ERP row${failedCount === 1 ? '' : 's'} failed.`
+    : pendingCount > 0 ? `${pendingCount} ERP row${pendingCount === 1 ? '' : 's'} not sent yet.` : null
 
   return {
     ...recovery?.state,

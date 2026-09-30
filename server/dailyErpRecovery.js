@@ -12,8 +12,52 @@ export function dailyErpSource(data, centerMatches, rowNumber) {
   }
 }
 
+export function dailyErpRowSendBlocker(job, rowNumber) {
+  if ((job.documentCategory || 'daily_routes') !== 'daily_routes' || job.status !== 'completed' || job.reviewStatus !== 'reviewed') return 'Mark the document reviewed in OCR first.'
+  if (job.erpExport?.status === 'sending') return 'This document has an ERP send in progress or awaiting verification.'
+  const previous = job.erpExport?.rowLog?.find(row => row.rowNumber === rowNumber)
+  if (previous && previous.neverAttempted !== true) return 'ERP already attempted this row. Use Verify / recover row in OCR review.'
+  if (previous?.documents?.some(doc => doc.status !== 'ready')) return 'Existing ERP result requires verification in OCR review.'
+  if (job.erpExport?.status === 'sent') return 'This document has already been sent.'
+  const row = job.data?.rows?.find(row => row.rowNumber === rowNumber)
+  if (!row?.collectionCenter?.trim() || row.liters == null || !Number.isFinite(row.liters) || row.liters <= 0 || !String(row.noticeNumber || '').trim()) return 'Center, positive liters and aviz number are required.'
+  const match = job.centerMatches?.find(match => match.rowNumber === rowNumber)
+  const name = value => String(value || '').trim().replace(/\s+/gu, ' ').toUpperCase()
+  if (!match?.selectedCode || name(match.selectedName) !== name(row.collectionCenter)) return 'Select a matching ERP center in OCR review first.'
+  return null
+}
+
+export function prepareDailyErpRowSend(job, rowNumber, expectedSource) {
+  const blocker = dailyErpRowSendBlocker(job, rowNumber)
+  if (blocker) throw new Error(blocker)
+  const source = dailyErpSource(job.data, job.centerMatches, rowNumber)
+  if (JSON.stringify(source) !== JSON.stringify(expectedSource)) throw new Error('The row changed. Refresh Daily aviz before sending.')
+  const state = structuredClone(job.erpExport || {})
+  state.rowLog ??= []
+  for (const row of job.data.rows) {
+    if (!state.rowLog.some(entry => entry.rowNumber === row.rowNumber)) state.rowLog.push({
+      rowNumber: row.rowNumber, center: row.collectionCenter, aviz: row.noticeNumber,
+      status: 'ready', neverAttempted: true,
+      documents: [{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }],
+    })
+  }
+  const entry = state.rowLog.find(row => row.rowNumber === rowNumber)
+  entry.neverAttempted = false
+  entry.sourceSnapshot = source
+  state.status = 'sending'
+  state.error = null
+  state.startedAt = new Date().toISOString()
+  delete state.completedAt
+  state.recoveryId = randomUUID()
+  state.recoveryRowNumber = rowNumber
+  state.initialRowNumber = rowNumber
+  state.rowCount = job.data.rows.length
+  return state
+}
+
 export function prepareDailyErpRecovery(job, request, now = new Date().toISOString()) {
-  if (job.documentCategory !== 'daily_routes' || job.status !== 'completed' || job.reviewStatus !== 'reviewed') {
+  const documentCategory = job.documentCategory || 'daily_routes'
+  if (documentCategory !== 'daily_routes' || job.status !== 'completed' || job.reviewStatus !== 'reviewed') {
     throw new Error('Only reviewed daily routes can be recovered.')
   }
   if (!request.confirmedStopped) throw new Error('Confirm the original ERP request has finished and is no longer running.')
@@ -59,5 +103,11 @@ export function prepareDailyErpRecovery(job, request, now = new Date().toISOStri
   state.error = state.failedCount ? 'ERP recovery incomplete.' : null
   state.recoveryId = randomUUID()
   state.recoveryRowNumber = row.rowNumber
+  delete state.initialRowNumber
+  row.neverAttempted = false
+  if (state.status === 'sending') {
+    state.startedAt = now
+    delete state.completedAt
+  }
   return state
 }

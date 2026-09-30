@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
-import { dailyErpSource, prepareDailyErpRecovery } from './dailyErpRecovery.js'
+import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend } from './dailyErpRecovery.js'
 import multer from 'multer'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1822,6 +1822,8 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
         excelStatus: job.excelExport?.status ?? null,
         erpStatus: job.erpExport?.status ?? null,
         erpRowResult: job.erpExport?.rowLog?.find((entry) => entry.rowNumber === row.rowNumber) ?? null,
+        erpSendBlocker: dailyErpRowSendBlocker(job, row.rowNumber),
+        erpSendSource: dailyErpSource(job.data, job.centerMatches, row.rowNumber),
         createdAt: job.createdAt,
         completedAt: job.completedAt ?? null,
         rowNumber: row.rowNumber ?? null,
@@ -2233,6 +2235,22 @@ app.get('/api/ocr/archive-history', async (request, response, next) => {
 })
 
 const erpRecoveryClaims = new Set()
+app.post('/api/ocr/jobs/:id/erp-send-row', async (request, response, next) => {
+  const id = request.params.id
+  if (erpRecoveryClaims.has(id)) return response.status(409).json({ error: 'ERP status is being updated. Refresh before sending.' })
+  erpRecoveryClaims.add(id)
+  try {
+    const current = await getJob(id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    let erpExport
+    try { erpExport = prepareDailyErpRowSend(current, request.body.rowNumber, request.body.expectedSource) }
+    catch (error) { return response.status(409).json({ error: error.message }) }
+    const job = await updateJob(id, { erpExport })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) { next(error) }
+  finally { erpRecoveryClaims.delete(id) }
+})
+
 app.post('/api/ocr/jobs/:id/erp-recovery', async (request, response, next) => {
   const id = request.params.id
   if (erpRecoveryClaims.has(id)) return response.status(409).json({ error: 'ERP recovery is already being started.' })
@@ -2317,9 +2335,12 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         suggestions: Array.isArray(match.suggestions) ? match.suggestions.slice(0, 5) : [],
       }))
       : current.centerMatches
-    const centerValidationError = validateDailyCenterMatches(parsed.data.rows, centerMatches, (await getErpReferenceSnapshot())?.centers)
+    const sendingRows = request.body.erpExport?.recoveryId && request.body.erpExport?.recoveryRowNumber != null
+      ? parsed.data.rows.filter(row => row.rowNumber === request.body.erpExport.recoveryRowNumber)
+      : parsed.data.rows
+    const centerValidationError = validateDailyCenterMatches(sendingRows, centerMatches, (await getErpReferenceSnapshot())?.centers)
     if (centerValidationError) return response.status(409).json({ error: centerValidationError })
-    if (request.body.erpExport?.status === 'sending' && parsed.data.rows.some(row => !centerMatches?.some(match => Number(match.rowNumber) === Number(row.rowNumber) && match.selectedCode))) {
+    if (request.body.erpExport?.status === 'sending' && sendingRows.some(row => !centerMatches?.some(match => Number(match.rowNumber) === Number(row.rowNumber) && match.selectedCode))) {
       return response.status(409).json({ error: 'Select an ERP center for every row before sending.' })
     }
     const driverMatch = current.driverMatch?.status === 'auto_replaced' && parsed.data.driverName === current.driverMatch.selectedName

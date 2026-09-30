@@ -236,7 +236,7 @@
 }
 
 .daily-aviz-table th:nth-child(1) { width: 88px; }
-.daily-aviz-table th:nth-child(2) { width: 108px; }
+.daily-aviz-table th:nth-child(2) { width: 76px; }
 .daily-aviz-table th:nth-child(3) { width: 88px; }
 .daily-aviz-table th:nth-child(4) { width: 160px; }
 .daily-aviz-table th:nth-child(5) { width: 122px; }
@@ -246,7 +246,12 @@
 .daily-aviz-table th:nth-child(10) { width: 58px; }
 .daily-aviz-table th:nth-child(11) { width: 94px; }
 .daily-aviz-table th:nth-child(12) { width: 96px; }
-.daily-aviz-table th:nth-child(13) { width: 100px; }
+.daily-aviz-table th:nth-child(13) { width: 178px; }
+.daily-aviz-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.daily-aviz-send-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.daily-aviz-send-confirm button { padding: 7px 10px; border: 1px solid #17613a; border-radius: 5px; background: white; color: #17613a; font: inherit; cursor: pointer; }
+.daily-aviz-table .daily-aviz-send-error { color: #94372f; }
+.daily-aviz-actions button.daily-aviz-file-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; font-size: 16px; }
 .daily-aviz-table .daily-aviz-truck-route { white-space: normal; overflow-wrap: anywhere; }
 .daily-aviz-line { display: flex; align-items: center; gap: 8px; }
 .daily-aviz-expand { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid #cddbd3; border-radius: 6px; background: #e8f5ee; color: #10482d; font: inherit; cursor: pointer; }

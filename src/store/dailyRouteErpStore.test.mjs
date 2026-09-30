@@ -18,7 +18,7 @@ const built = await build({
     ` }))
   } }],
 })
-const { sendDailyRouteDetailsToErp } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
+const { failedDailyErpRecovery, sendDailyRouteDetailsToErp } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
 const data = { date: '2026-09-30', rows: [{ rowNumber: 13, collectionCenter: 'BATIN', liters: 100, noticeNumber: '3852' }] }
 const matches = [{ rowNumber: 13, selectedCode: 'c1', selectedName: 'BATIN', suggestions: [] }]
 const ready = kind => ({ kind, status: 'ready', manualVerification: { outcome: 'absent' }, attempts: [{ status: 'failed' }] })
@@ -26,6 +26,37 @@ const state = documents => ({ status: 'sending', recoveryId: 'test-recovery', ro
   { rowNumber: 12, status: 'sent', documents: [{ kind: 'aviz', status: 'sent', newid: '10' }, { kind: 'nir', status: 'sent', newid: '11' }] },
   { rowNumber: 13, status: 'ready', documents },
 ] })
+
+test('preparation failure clears Sending without changing unsent documents', () => {
+  const original = { status: 'sending', recoveryId: 'r', recoveryRowNumber: 13,
+    rowLog: [{ rowNumber: 13, status: 'ready', documents: [ready('aviz'), ready('nir')] }] }
+  const result = failedDailyErpRecovery(original, 'ERP connection is not configured.')
+  assert.equal(result.status, 'failed')
+  assert.equal(result.rowLog[0].status, 'failed')
+  assert.equal(result.rowLog[0].documents[0].status, 'ready')
+  assert.equal(result.error, 'ERP connection is not configured.')
+  assert.ok(result.completedAt)
+  assert.equal(original.status, 'sending')
+})
+
+test('interrupted recovery keeps sent IDs and marks only in-flight documents uncertain', () => {
+  const original = state([{ kind: 'aviz', status: 'sent', newid: '200' }, { kind: 'nir', status: 'sending' }])
+  original.recoveryRowNumber = 13
+  const result = failedDailyErpRecovery(original, 'Connection lost')
+  assert.equal(result.status, 'partial')
+  assert.deepEqual(result.rowLog[0], original.rowLog[0])
+  assert.equal(result.rowLog[1].documents[0].newid, '200')
+  assert.equal(result.rowLog[1].documents[0].status, 'sent')
+  assert.equal(result.rowLog[1].documents[1].status, 'unconfirmed')
+})
+
+test('a final save failure does not erase known ERP successes', () => {
+  const original = state([{ kind: 'aviz', status: 'sent', newid: '200' }, { kind: 'nir', status: 'sent', newid: '201' }])
+  original.rowLog[1].status = 'sent'
+  const result = failedDailyErpRecovery(original, 'SQL unavailable')
+  assert.equal(result.status, 'sent')
+  assert.deepEqual(result.rowLog, original.rowLog)
+})
 
 test('retries only NIR and preserves successful rows and recovery history', async () => {
   const calls = []
@@ -37,6 +68,19 @@ test('retries only NIR and preserves successful rows and recovery history', asyn
   assert.equal(result.recoveryId, 'test-recovery')
   assert.deepEqual(result.rowLog[0], original.rowLog[0])
   assert.equal(result.rowLog[1].documents[1].attempts.length, 1)
+})
+
+test('initial row send needs no manual lookup and sends only its two documents', async () => {
+  const calls = []
+  globalThis.__fakeErp = async orders => { calls.push(orders[0]); return { status: true, newid: String(300 + calls.length) } }
+  const original = state([{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }])
+  original.initialRowNumber = 13
+  original.rowLog.push({ rowNumber: 14, status: 'ready', neverAttempted: true, documents: [{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }] })
+  const result = await sendDailyRouteDetailsToErp({ ...data, rows: [...data.rows, { ...data.rows[0], rowNumber: 14 }] }, matches, undefined, async () => {}, { state: original, rowNumber: 13, initial: true })
+  assert.deepEqual(calls.map(item => item.salespickingseries), [5101, 2153])
+  assert.deepEqual(result.rowLog[0], original.rowLog[0])
+  assert.deepEqual(result.rowLog[2], original.rowLog[2])
+  assert.equal(result.status, 'partial')
 })
 
 test('failed Aviz prevents NIR send', async () => {
