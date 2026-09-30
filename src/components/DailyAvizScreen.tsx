@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { appPath } from '../ocrPaths'
 import type { DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
@@ -189,8 +189,10 @@ function receptionStatusTitle(row: DailyAvizRow) {
 }
 
 function initialMonthFilter() {
-  if (typeof window === 'undefined') return ''
-  return new URLSearchParams(window.location.search).get('month') || ''
+  const requestedMonth = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('month')
+  if (requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth)) return requestedMonth
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 }
 
 function normalizedSearch(value: unknown) {
@@ -208,6 +210,7 @@ function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => str
 
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const tableWrapRef = useRef<HTMLDivElement>(null)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [rows, setRows] = useState<DailyAvizRow[]>([])
   const [summary, setSummary] = useState<DailyAvizSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
@@ -402,17 +405,13 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                   <th>Line</th>
                   <th>Aviz date</th>
                   <th>Aviz no</th>
-                  <th>Truck no</th>
-                  <th>Route</th>
+                  <th>Truck no / Route</th>
                   <th>Reception</th>
                   <th>Driver</th>
                   <th>Center</th>
                   <th>Milk type</th>
                   <th>Liters</th>
-                  <th>Fat%</th>
-                  <th>W%</th>
                   <th>Review</th>
-                  <th>Excel</th>
                   <th>Aviz ERP</th>
                   <th>NIR ERP</th>
                   <th>Actions</th>
@@ -420,18 +419,30 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={17} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
+                  <tr><td colSpan={13} className="daily-aviz-empty">Loading daily aviz lines...</td></tr>
                 )}
                 {!loading && filteredRows.length === 0 && (
-                  <tr><td colSpan={17} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
+                  <tr><td colSpan={13} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
                 )}
                 {!loading && filteredRows.map((row) => (
-                  <tr className={`reception-row-${row.receptionMatch?.status || 'unknown'}`} key={row.id}>
-                    <td>{row.rowNumber ?? '-'}</td>
+                  <Fragment key={row.id}>
+                  <tr className={`reception-row-${row.receptionMatch?.status || 'unknown'}`}>
+                    <td><div className="daily-aviz-line">
+                      <button type="button" className="daily-aviz-expand"
+                        aria-expanded={expandedRows.has(row.id)} aria-controls={`quality-${row.id}`}
+                        aria-label={`${expandedRows.has(row.id) ? 'Hide' : 'Show'} quality for line ${row.rowNumber ?? '-'}, ${row.collectionCenter || '-'}`}
+                        title={expandedRows.has(row.id) ? 'Hide quality' : 'Show quality'}
+                        onClick={() => setExpandedRows(current => {
+                          const next = new Set(current)
+                          if (next.has(row.id)) next.delete(row.id)
+                          else next.add(row.id)
+                          return next
+                        })}>{expandedRows.has(row.id) ? '-' : '+'}</button>
+                      {row.rowNumber ?? '-'}
+                    </div></td>
                     <td>{displayDate(row.documentDate)}</td>
                     <td>{row.noticeNumber || '-'}</td>
-                    <td>{row.vehicleRegistration || '-'}</td>
-                    <td>{row.route || '-'}</td>
+                    <td className="daily-aviz-truck-route">{row.vehicleRegistration || '-'} / {row.route || '-'}</td>
                     <td>
                       <span className={`daily-aviz-badge reception-${row.receptionMatch?.status || 'unknown'}`} title={receptionStatusTitle(row)}>
                         {receptionStatusLabel(row.receptionMatch)}
@@ -441,23 +452,33 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                     <td title={row.collectionCenter || ''}>{row.collectionCenter || '-'}</td>
                     <td title={row.milkType || ''}>{displayMilkType(row.milkType)}</td>
                     <td>{formatNumber(row.liters)}</td>
-                    <td>{formatNumber(row.fatPercent, 2)}</td>
-                    <td>{formatNumber(row.water, 2)}</td>
                     <td>
                       <span className={`daily-aviz-badge ${row.reviewStatus}`}>
                         {statusLabel(row.reviewStatus)}
                       </span>
                     </td>
-                    <td>{row.excelStatus ? <span className={`daily-aviz-badge ${row.excelStatus}`}>{statusLabel(row.excelStatus)}</span> : '-'}</td>
                     <td><ErpDocumentStatus row={row} kind="aviz" /></td>
                     <td><ErpDocumentStatus row={row} kind="nir" /></td>
                     <td>
                       <div className="daily-aviz-actions">
                         <button type="button" onClick={() => openFile(row)}>File</button>
-                        <button type="button" onClick={() => { window.location.href = appPath('/ocr/review') }}>Review</button>
                       </div>
                     </td>
                   </tr>
+                  {expandedRows.has(row.id) && <tr>
+                    <td colSpan={13} className="daily-aviz-quality-cell">
+                      <dl id={`quality-${row.id}`} className="daily-aviz-quality" aria-label="Milk quality">
+                        <div><dt>Fat %</dt><dd>{formatNumber(row.fatPercent, 2)}</dd></div>
+                        <div><dt>Water %</dt><dd>{formatNumber(row.water, 2)}</dd></div>
+                        <div><dt>Density</dt><dd>{formatNumber(row.density, 3)}</dd></div>
+                        <div><dt>Temperature °C</dt><dd>{formatNumber(row.temperature, 2)}</dd></div>
+                        <div><dt>Alcohol</dt><dd>—</dd></div>
+                        <div><dt>Antibiotic</dt><dd>—</dd></div>
+                        <div><dt>pH</dt><dd>—</dd></div>
+                      </dl>
+                    </td>
+                  </tr>}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

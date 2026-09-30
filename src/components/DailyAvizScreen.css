@@ -210,7 +210,7 @@
 
 .daily-aviz-table {
   width: 100%;
-  min-width: 1620px;
+  min-width: 1380px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -235,22 +235,28 @@
   text-transform: uppercase;
 }
 
-.daily-aviz-table th:nth-child(1) { width: 58px; }
+.daily-aviz-table th:nth-child(1) { width: 88px; }
 .daily-aviz-table th:nth-child(2) { width: 108px; }
 .daily-aviz-table th:nth-child(3) { width: 88px; }
-.daily-aviz-table th:nth-child(4) { width: 112px; }
-.daily-aviz-table th:nth-child(5) { width: 70px; }
-.daily-aviz-table th:nth-child(6) { width: 122px; }
-.daily-aviz-table th:nth-child(7) { width: 104px; }
-.daily-aviz-table th:nth-child(9) { width: 88px; }
-.daily-aviz-table th:nth-child(10) { width: 74px; }
-.daily-aviz-table th:nth-child(11) { width: 56px; }
-.daily-aviz-table th:nth-child(12),
-.daily-aviz-table th:nth-child(13) { width: 58px; }
-.daily-aviz-table th:nth-child(14),
-.daily-aviz-table th:nth-child(15) { width: 94px; }
-.daily-aviz-table th:nth-child(16) { width: 96px; }
-.daily-aviz-table th:nth-child(17) { width: 136px; }
+.daily-aviz-table th:nth-child(4) { width: 160px; }
+.daily-aviz-table th:nth-child(5) { width: 122px; }
+.daily-aviz-table th:nth-child(6) { width: 104px; }
+.daily-aviz-table th:nth-child(8) { width: 88px; }
+.daily-aviz-table th:nth-child(9) { width: 74px; }
+.daily-aviz-table th:nth-child(10) { width: 58px; }
+.daily-aviz-table th:nth-child(11) { width: 94px; }
+.daily-aviz-table th:nth-child(12) { width: 96px; }
+.daily-aviz-table th:nth-child(13) { width: 100px; }
+.daily-aviz-table .daily-aviz-truck-route { white-space: normal; overflow-wrap: anywhere; }
+.daily-aviz-line { display: flex; align-items: center; gap: 8px; }
+.daily-aviz-expand { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid #cddbd3; border-radius: 6px; background: #e8f5ee; color: #10482d; font: inherit; cursor: pointer; }
+.daily-aviz-expand:hover { background: #dff4e8; }
+.daily-aviz-expand:focus-visible { outline: 2px solid #17613a; outline-offset: 2px; }
+.daily-aviz-table .daily-aviz-quality-cell { background: #f2f7f4; white-space: normal; }
+.daily-aviz-quality { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 4px 0; }
+.daily-aviz-quality > div { min-width: 110px; }
+.daily-aviz-quality dt { color: #526158; font-size: .72rem; font-weight: 500; }
+.daily-aviz-quality dd { margin: 5px 0 0; font-variant-numeric: tabular-nums; }
 
 .daily-aviz-table tbody tr:nth-child(even) {
   background: #f8fbf9;
