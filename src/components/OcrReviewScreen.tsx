@@ -6,6 +6,7 @@ import { APP_VERSION } from '../appVersion'
 import { sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
 import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
+import { ErpRowRecovery, type ErpManualChecks } from './ErpRowRecovery'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
   { value: 'MILK-COW', label: 'COW' },
@@ -1206,12 +1207,12 @@ export function OcrReviewScreen() {
     }
   }
 
-  async function saveErpExportState(erpExport: DailyRouteErpExport) {
+  async function saveErpExportState(erpExport: DailyRouteErpExport, recoveryJob?: OcrJob) {
     if (!selected || !draft) throw new Error('No OCR document is selected.')
-    const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
+    const response = await fetch(appPath(`/api/ocr/jobs/${recoveryJob?.id ?? selected.id}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: draft, centerMatches, erpExport }),
+      body: JSON.stringify({ data: recoveryJob?.data ?? draft, centerMatches: recoveryJob?.centerMatches ?? centerMatches, erpExport }),
     })
     const payload = await response.json() as { job?: OcrJob; error?: string }
     if (!response.ok || !payload.job) throw new Error(payload.error || 'Could not save ERP status.')
@@ -1224,13 +1225,61 @@ export function OcrReviewScreen() {
     return payload.job
   }
 
+  async function recoverErpRow(rowNumber: number, checks: ErpManualChecks) {
+    if (!selected?.erpExport || !selected.data || erpSending || saving || autoSaveStatus === 'saving') return
+    if (JSON.stringify({ data: draft, centerMatches }) !== lastSavedRef.current) {
+      setError(isRo ? 'Salvați modificările înainte de verificarea ERP.' : 'Save your changes before verifying ERP results.')
+      return
+    }
+    const row = selected.erpExport.rowLog?.find(item => item.rowNumber === rowNumber)
+    if (!row) return
+    const missing = (['aviz', 'nir'] as const).filter(kind => row.documents?.find(doc => doc.kind === kind)?.status !== 'sent' && checks[kind].outcome === 'absent')
+    const message = isRo
+      ? `Rând ${rowNumber}: ${missing.length ? `trimiteți doar ${missing.join(' + ').toUpperCase()}` : 'înregistrați ID-urile ERP existente'}. Documentele deja trimise nu vor fi retrimise. Continuați?`
+      : `Row ${rowNumber}: ${missing.length ? `send only ${missing.join(' + ').toUpperCase()}` : 'record existing ERP IDs'}. Already sent documents will not be resent. Continue?`
+    const source = selected.data.rows.find(item => item.rowNumber === rowNumber)
+    const identity = `${selected.data.date || '-'} | ${row.center || '-'} | Aviz ${row.aviz || '-'} | ${source?.milkType || 'MILK-COW'} | ${source?.liters ?? '-'} L`
+    if (!window.confirm(`${identity}\n\n${message}`)) return
+    setErpSending(true)
+    setError('')
+    setSuccess('')
+    try {
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/erp-recovery`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowNumber, checks, confirmedStopped: true, expectedExport: selected.erpExport, expectedData: selected.data }),
+      })
+      const payload = await response.json() as { job?: OcrJob; error?: string }
+      if (!response.ok || !payload.job?.erpExport || !payload.job.data) throw new Error(payload.error || 'Could not start ERP recovery.')
+      const job = payload.job
+      setSelected(job)
+      setSelectedSummary(job)
+      jobCacheRef.current.set(job.id, job)
+      if (missing.length) {
+        const result = await sendDailyRouteDetailsToErp(job.data!, job.centerMatches ?? [], undefined,
+          async progress => { await saveErpExportState(progress, job) },
+          { state: job.erpExport!, rowNumber })
+        await saveErpExportState(result, job)
+        if (result.rowLog?.find(item => item.rowNumber === rowNumber)?.status !== 'sent') {
+          throw new Error(isRo ? 'Rând incomplet. Verificați rezultatele ERP înainte de o altă încercare.' : 'Row incomplete. Check the ERP results before another attempt.')
+        }
+      }
+      setSuccess(isRo ? `Rând ${rowNumber}: Aviz și NIR confirmate.` : `Row ${rowNumber}: Aviz and NIR confirmed.`)
+    } catch (recoveryError) {
+      // Keep persisted sending/unconfirmed results: a failed save may follow an ERP success.
+      setError((recoveryError as Error).message)
+    } finally {
+      setErpSending(false)
+      await loadJobs().catch(() => undefined)
+    }
+  }
+
   async function sendDocumentToErp() {
     if (!selected || !draft || erpSending) return
     if (selected.reviewStatus !== 'reviewed') {
       setError(isRo ? 'Verificați documentul înainte de trimiterea în ERP.' : 'Mark the document reviewed before sending to ERP.')
       return
     }
-    if (selected.erpExport?.status === 'sent' || selected.erpExport?.status === 'partial' || selected.erpExport?.status === 'sending' || selected.erpExport?.rowLog?.some((row) => row.status === 'sent')) {
+    if (selected.erpExport?.status === 'sent' || selected.erpExport?.status === 'partial' || selected.erpExport?.status === 'sending' || selected.erpExport?.rowLog?.length) {
       setError(isRo ? 'Verificați starea ERP înainte de o nouă trimitere.' : 'Check the existing ERP send status before sending again.')
       return
     }
@@ -1256,7 +1305,7 @@ export function OcrReviewScreen() {
     setError('')
     setSuccess('')
     try {
-      await saveErpExportState({
+      const startingJob = await saveErpExportState({
         status: 'sending',
         startedAt,
         error: null,
@@ -1268,6 +1317,7 @@ export function OcrReviewScreen() {
           status: 'ready',
         })),
       })
+      progressState.current = startingJob.erpExport ?? null
 
       const result = await sendDailyRouteDetailsToErp(
         draft,
@@ -1421,7 +1471,7 @@ export function OcrReviewScreen() {
     .map((row) => ({ rowNumber: row.rowNumber, fields: missingDailyExportFields(row) }))
     .filter((row) => row.fields.length > 0) ?? []
   const missingRequiredFields = rowsMissingRequiredExportFields.length > 0
-  const erpHasSentRows = selected?.erpExport?.rowLog?.some((row) => row.status === 'sent') ?? false
+  const erpHasSentRows = Boolean(selected?.erpExport?.rowLog?.length)
   const sortedReceptionRoutes = [...receptionRoutes].sort((left, right) =>
     Number(receptionRouteMatches(right)) - Number(receptionRouteMatches(left)) ||
     String(left.truck || '').localeCompare(String(right.truck || ''), undefined, { numeric: true }) ||
@@ -1663,6 +1713,7 @@ export function OcrReviewScreen() {
                             <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber} · {row.center || '—'}</b>
                             <span>Aviz {row.aviz || '—'}</span>
                             {row.status === 'failed' && !row.documents?.some((doc) => doc.message) && <span className="erp-result-error">{row.message}</span>}
+                            <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo} onRecover={checks => recoverErpRow(row.rowNumber, checks)} />
                           </th>
                           {(['aviz', 'nir'] as const).map((kind) => {
                             const doc = row.documents?.find((item) => item.kind === kind)

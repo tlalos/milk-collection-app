@@ -62,10 +62,14 @@ export interface DailyRouteErpRowLog {
     message?: string
     newid?: string
     completedAt?: string
+    manualVerification?: { outcome: 'found' | 'absent'; erpId?: string; checkedAt: string }
+    attempts?: unknown[]
   }>
 }
 
 export interface DailyRouteErpExport {
+  recoveryId?: string
+  recoveryRowNumber?: number
   status: 'not_ready' | 'sending' | 'sent' | 'failed' | 'partial'
   startedAt?: string
   completedAt?: string
@@ -250,6 +254,7 @@ export async function sendDailyRouteDetailsToErp(
   centerMatches: DailyRouteCenterMatch[],
   signal?: AbortSignal,
   onProgress?: (exportState: DailyRouteErpExport) => void | Promise<void>,
+  recovery?: { state: DailyRouteErpExport; rowNumber: number },
 ): Promise<DailyRouteErpExport> {
   const startedAt = new Date().toISOString()
   const settings = ocrConnectionSettingsStore.get()
@@ -257,7 +262,7 @@ export async function sendDailyRouteDetailsToErp(
     throw new Error('OCR ERP connection is not configured. Open OCR connection settings and save the API URL, username, and password.')
   }
 
-  const rows = data.rows.filter((row) => hasValue(row.collectionCenter) || hasValue(row.liters) || hasValue(row.fatPercent) || hasValue(row.temperature) || hasValue(row.noticeNumber))
+  const rows = data.rows.filter((row) => (!recovery || row.rowNumber === recovery.rowNumber) && (hasValue(row.collectionCenter) || hasValue(row.liters) || hasValue(row.fatPercent) || hasValue(row.temperature) || hasValue(row.noticeNumber)))
   if (!rows.length) throw new Error('There are no daily route rows with center and liters to send.')
 
   const incompleteRows = rows
@@ -281,7 +286,7 @@ export async function sendDailyRouteDetailsToErp(
   ])
   if (!suppliers.length) throw new Error('ERP returned no suppliers for daily routes.')
   const zgParam = zgParams[0]
-  const rowLog: DailyRouteErpRowLog[] = rows.map((row) => ({
+  const rowLog: DailyRouteErpRowLog[] = recovery ? structuredClone(recovery.state.rowLog ?? []) : rows.map((row) => ({
     rowNumber: row.rowNumber,
     aviz: row.noticeNumber,
     center: resolveCenter(row, centerMatches).name,
@@ -289,7 +294,13 @@ export async function sendDailyRouteDetailsToErp(
     documents: [{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }],
   }))
 
-  const persistProgress = () => onProgress?.({ status: 'sending', startedAt, rowCount: rows.length, rowLog: structuredClone(rowLog) })
+  if (recovery) {
+    const entry = rowLog.find(row => row.rowNumber === recovery.rowNumber)
+    if (!entry?.documents?.length || entry.documents.some(doc => doc.status !== 'sent' && (doc.status !== 'ready' || doc.manualVerification?.outcome !== 'absent'))) {
+      throw new Error('Manual ERP verification is required before retrying.')
+    }
+  }
+  const persistProgress = () => onProgress?.({ ...recovery?.state, status: 'sending', startedAt, rowCount: rowLog.length, rowLog: structuredClone(rowLog) })
   await persistProgress()
 
   for (const row of rows) {
@@ -311,6 +322,8 @@ export async function sendDailyRouteDetailsToErp(
     }
     const entry = rowLog[logIndex]
     for (const document of entry.documents!) {
+      if (document.status === 'sent') continue
+      if (document.kind === 'nir' && entry.documents!.find(doc => doc.kind === 'aviz')?.status !== 'sent') break
       document.status = 'sending'
       await persistProgress()
       try {
@@ -343,11 +356,12 @@ export async function sendDailyRouteDetailsToErp(
   const error = failedCount > 0 ? `${failedCount} ERP row${failedCount === 1 ? '' : 's'} failed.` : null
 
   return {
+    ...recovery?.state,
     status,
     startedAt,
     completedAt: new Date().toISOString(),
     error,
-    rowCount: rows.length,
+    rowCount: rowLog.length,
     successCount,
     failedCount,
     rowLog,

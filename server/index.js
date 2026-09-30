@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
+import { dailyErpSource, prepareDailyErpRecovery } from './dailyErpRecovery.js'
 import multer from 'multer'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -2231,11 +2232,37 @@ app.get('/api/ocr/archive-history', async (request, response, next) => {
   }
 })
 
+const erpRecoveryClaims = new Set()
+app.post('/api/ocr/jobs/:id/erp-recovery', async (request, response, next) => {
+  const id = request.params.id
+  if (erpRecoveryClaims.has(id)) return response.status(409).json({ error: 'ERP recovery is already being started.' })
+  erpRecoveryClaims.add(id)
+  try {
+    const current = await getJob(id)
+    if (!current) return response.status(404).json({ error: 'OCR job not found.' })
+    let erpExport
+    try { erpExport = prepareDailyErpRecovery(current, { ...request.body, checkedBy: request.authUser?.username || request.authUser?.id || null }) }
+    catch (error) { return response.status(409).json({ error: error.message }) }
+    const job = await updateJob(id, { erpExport })
+    response.json({ job: toPublicJob(job, true) })
+  } catch (error) { next(error) }
+  finally { erpRecoveryClaims.delete(id) }
+})
+
 app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
+  const isErpUpdate = Boolean(request.body.erpExport)
+  if (erpRecoveryClaims.has(request.params.id)) return response.status(409).json({ error: 'ERP results are being updated. Try again after the current operation.' })
+  if (isErpUpdate) erpRecoveryClaims.add(request.params.id)
   try {
     const current = await getJob(request.params.id)
     if (!current) return response.status(404).json({ error: 'OCR job not found.' })
     if (current.status !== 'completed') return response.status(409).json({ error: 'Only completed OCR jobs can be edited.' })
+    if (request.body.erpExport && current.erpExport?.recoveryId && request.body.erpExport.recoveryId !== current.erpExport.recoveryId) {
+      return response.status(409).json({ error: 'ERP recovery results changed. Reload before continuing.' })
+    }
+    if (request.body.erpExport && current.erpExport?.rowLog?.length && !Array.isArray(request.body.erpExport.rowLog)) {
+      return response.status(409).json({ error: 'ERP document history cannot be removed.' })
+    }
 
     const isMonthlySettlement = current.documentCategory === 'journal_monthly_settlement'
     const schema = isMonthlySettlement ? MonthlySettlementEditableDocumentSchema : MilkCollectionEditableDocumentSchema
@@ -2260,6 +2287,12 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
         error: 'Corrected document data is invalid.',
         details: parsed.error.issues,
       })
+    }
+
+    if (current.erpExport?.recoveryId && current.erpExport.status === 'sending' && current.data.rows.some(row =>
+      JSON.stringify(dailyErpSource(current.data, current.centerMatches, row.rowNumber)) !==
+      JSON.stringify(dailyErpSource(parsed.data, request.body.centerMatches ?? current.centerMatches, row.rowNumber)))) {
+      return response.status(409).json({ error: 'Document changes are blocked while ERP recovery is running.' })
     }
 
     if (current.documentCategory === 'journal_monthly_settlement') {
@@ -2310,11 +2343,29 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     const erpExport = request.body.erpExport && typeof request.body.erpExport === 'object'
       ? request.body.erpExport
       : current.erpExport
+    if (request.body.erpExport?.rowLog) {
+      for (const row of erpExport.rowLog) {
+        const previous = current.erpExport?.rowLog?.find(item => item.rowNumber === row.rowNumber)
+        if (previous?.sourceSnapshot) row.sourceSnapshot = previous.sourceSnapshot
+        else if (!current.erpExport?.rowLog?.length) row.sourceSnapshot = dailyErpSource(data, centerMatches, row.rowNumber)
+        for (const sent of previous?.documents?.filter(doc => doc.status === 'sent') ?? []) {
+          const nextDoc = row.documents?.find(doc => doc.kind === sent.kind)
+          if (!nextDoc || nextDoc.status !== 'sent' || nextDoc.newid !== sent.newid) {
+            return response.status(409).json({ error: 'A successful ERP document cannot be overwritten or resent.' })
+          }
+        }
+      }
+      if (current.erpExport?.rowLog?.some(row => !erpExport.rowLog.some(nextRow => nextRow.rowNumber === row.rowNumber))) {
+        return response.status(409).json({ error: 'ERP document history cannot be removed.' })
+      }
+    }
     const job = await updateJob(current.id, { data, centerMatches, driverMatch, vehicleMatch, routeMatch, erpExport })
     const linkWarning = current.documentCategory === 'journal_monthly_settlement' ? null : await refreshSavedDailyLinks([current.data?.date, job.data?.date])
     response.json({ job: toPublicJob(job, true), ...(linkWarning ? { linkWarning } : {}) })
   } catch (error) {
     next(error)
+  } finally {
+    if (isErpUpdate) erpRecoveryClaims.delete(request.params.id)
   }
 })
 

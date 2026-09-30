@@ -256,6 +256,15 @@
 .erp-results-table .status-unconfirmed { color: #865800; }
 .erp-results-table .status-sending { color: #285888; }
 .erp-results-table .status-ready, .erp-results-table .status-unrecorded { color: #526158; }
+.erp-row-recovery { margin-top: 8px; font-weight: 400; }
+.erp-row-recovery summary { cursor: pointer; color: #17613a; font-weight: 700; }
+.erp-recovery-document { margin-top: 8px; }
+.erp-recovery-document label { display: grid; gap: 4px; margin-bottom: 6px; }
+.erp-recovery-document select, .erp-recovery-document input { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; border: 1px solid #b8cbbf; border-radius: 4px; background: white; color: #263b32; font: inherit; }
+.erp-recovery-confirm { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0; line-height: 1.4; }
+.erp-recovery-confirm input { flex: 0 0 auto; }
+.erp-row-recovery button { padding: 7px 9px; border: 1px solid #17613a; border-radius: 5px; background: #17613a; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+.erp-row-recovery button:disabled { opacity: .5; cursor: not-allowed; }
 .review-warnings { margin: 0 14px 8px; border: 1px solid #ead99f; border-radius: 8px; background: #fff9e7; color: #6d571b; font-size: .68rem; }
 .review-warnings summary { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; box-sizing: border-box; cursor: pointer; list-style: none; }
 .review-warnings summary::-webkit-details-marker { display: none; }
