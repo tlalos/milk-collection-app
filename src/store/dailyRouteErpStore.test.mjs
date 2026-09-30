@@ -18,9 +18,20 @@ const built = await build({
     ` }))
   } }],
 })
-const { failedDailyErpRecovery, sendDailyRouteDetailsToErp } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
+const { dailyCenterSelectionError, failedDailyErpRecovery, sendDailyRouteDetailsToErp } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
 const data = { date: '2026-09-30', rows: [{ rowNumber: 13, collectionCenter: 'BATIN', liters: 100, noticeNumber: '3852' }] }
 const matches = [{ rowNumber: 13, selectedCode: 'c1', selectedName: 'BATIN', suggestions: [] }]
+test('center mismatch blocks repeated attempts without modifying the selection', () => {
+  const wrong = [{ ...matches[0], suggestions: [{ code: 'c1', name: 'OTHER CENTER' }] }]
+  const before = structuredClone(wrong)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.match(dailyCenterSelectionError(data.rows, wrong), /Row 13:.*do not agree/)
+  }
+  assert.deepEqual(wrong, before)
+  assert.equal(dailyCenterSelectionError(data.rows, matches), null)
+  assert.match(dailyCenterSelectionError(data.rows, [{ ...matches[0], selectedName: 'OTHER' }]), /do not agree/)
+  assert.match(dailyCenterSelectionError(data.rows, []), /select an ERP center/)
+})
 const ready = kind => ({ kind, status: 'ready', manualVerification: { outcome: 'absent' }, attempts: [{ status: 'failed' }] })
 const state = documents => ({ status: 'sending', recoveryId: 'test-recovery', rowLog: [
   { rowNumber: 12, status: 'sent', documents: [{ kind: 'aviz', status: 'sent', newid: '10' }, { kind: 'nir', status: 'sent', newid: '11' }] },

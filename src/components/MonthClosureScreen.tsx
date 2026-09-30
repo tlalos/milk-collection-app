@@ -189,7 +189,7 @@ function pricingLabel(status: PricingStatus) {
   return status === 'blocked' ? 'Blocked' : 'Needs price'
 }
 
-export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
+export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: () => void; bankNotePage?: boolean }) {
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
   const [summary, setSummary] = useState<MonthClosureSummary>(emptySummary)
   const [monthOptions, setMonthOptions] = useState<string[]>([])
@@ -205,7 +205,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   const [producerFilter, setProducerFilter] = useState('')
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [view, setView] = useState<ClosureView>('pricing')
+  const [view, setView] = useState<ClosureView>(bankNotePage ? 'bankNote' : 'pricing')
   const [bulkCenter, setBulkCenter] = useState('')
   const [bulkPrice, setBulkPrice] = useState('')
   const [bulkPriceError, setBulkPriceError] = useState('')
@@ -558,12 +558,15 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
       current.finalAmount += invoiceRow.finalResult ?? 0
       current.totalLiters += invoiceRow.row.liters
       current.hasMissingAmount = current.hasMissingAmount || invoiceRow.finalResult === null
+      const center = invoiceRow.row.center.trim()
+      if (center && !current.centers.some(value => normalizedSearch(value) === normalizedSearch(center))) current.centers.push(center)
       return grouped
     }
     grouped.set(producerKey, {
       id: producerKey,
       producerName: invoiceRow.erpProducer?.producerName || invoiceRow.row.producer,
       producerCode: invoiceRow.row.producerCode,
+      centers: invoiceRow.row.center.trim() ? [invoiceRow.row.center.trim()] : [],
       erpProducer: invoiceRow.erpProducer,
       finalAmount: invoiceRow.finalResult ?? 0,
       totalLiters: invoiceRow.row.liters,
@@ -574,6 +577,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
     id: string
     producerName: string
     producerCode: string
+    centers: string[]
     erpProducer: OcrReferenceProducer | null
     finalAmount: number
     totalLiters: number
@@ -689,7 +693,10 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="month-closure-screen app-shell">
       <header className="app-topbar month-closure-topbar">
-        <button className="back-button month-closure-home-button" type="button" onClick={onBack} aria-label="Back">
+        <button className="back-button month-closure-home-button" type="button" onClick={() => {
+          if (bankNotePage) window.location.href = appPath(`/month-closure?month=${encodeURIComponent(monthFilter)}`)
+          else onBack()
+        }} aria-label={bankNotePage ? 'Back to Month Closure & Payments' : 'Back'}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5" />
             <path d="M12 19l-7-7 7-7" />
@@ -698,9 +705,13 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
         </button>
         <div className="app-title-block">
           <span>Monthly workflow</span>
-          <h1>Month Closure & Payments</h1>
+          <h1>{bankNotePage ? 'Bank note' : 'Month Closure & Payments'}</h1>
         </div>
         <div className="month-closure-actions">
+          {!bankNotePage && <button type="button"
+            disabled={loading || pricingSaveStatus === 'saving' || changedPricingRows.length > 0}
+            title={changedPricingRows.length ? 'Save pricing changes before opening Bank note' : undefined}
+            onClick={() => { window.location.href = appPath(`/bank-note?month=${encodeURIComponent(monthFilter)}`) }}>Bank note</button>}
           <button type="button" onClick={() => { window.location.href = appPath('/monthly-reconciliation') }}>Reconciliation</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>Monthly OCR</button>
           <button type="button" onClick={() => void loadRows()} disabled={loading}>Refresh</button>
@@ -805,11 +816,10 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                 {monthFilter ? ` · ${displayMonth(monthFilter)}` : ''}
               </p>
             </div>
-            <div className="month-closure-tabs" aria-label="Month closure views">
+            {!bankNotePage && <div className="month-closure-tabs" aria-label="Month closure views">
               <button className={view === 'pricing' ? 'active' : ''} type="button" onClick={() => setView('pricing')}>Pricing</button>
               <button className={view === 'erpInvoices' ? 'active' : ''} type="button" onClick={() => setView('erpInvoices')}>ERP invoices</button>
-              <button className={view === 'bankNote' ? 'active' : ''} type="button" onClick={() => setView('bankNote')}>Bank note</button>
-            </div>
+            </div>}
           </div>
 
           {view === 'pricing' && (
@@ -1153,15 +1163,16 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                   <th>IBAN</th>
                   <th>Final amount</th>
                   <th>Name</th>
+                  <th>Center</th>
                   <th>Comment</th>
                   <th>Connected account</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="month-closure-empty">Loading bank rows...</td></tr>}
+                {loading && <tr><td colSpan={8} className="month-closure-empty">Loading bank rows...</td></tr>}
                 {!loading && preparedBankRows.length === 0 && (
-                  <tr><td colSpan={7} className="month-closure-empty">No bank rows found for this view.</td></tr>
+                  <tr><td colSpan={8} className="month-closure-empty">No bank rows found for this view.</td></tr>
                 )}
                 {!loading && preparedBankRows.map((bankRow) => {
                   const readyForBank = Boolean(bankRow.paymentProducer?.iban && bankRow.finalAmount !== null)
@@ -1186,6 +1197,7 @@ export function MonthClosureScreen({ onBack }: { onBack: () => void }) {
                       <td title={bankRow.paymentProducer?.producerName || bankRow.producerName}>
                         {displayText(bankRow.paymentProducer?.producerName || bankRow.producerName)}
                       </td>
+                      <td className="month-closure-bank-center" title={bankRow.centers.join(', ')}>{displayText(bankRow.centers.join(', '))}</td>
                       <td>
                         <input
                           className="month-closure-bank-input"

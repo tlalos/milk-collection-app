@@ -61,6 +61,7 @@ type Screen =
   | 'dailyAviz'
   | 'dailyReconciliation'
   | 'monthClosure'
+  | 'bankNote'
   | 'monthlyReconciliation'
   | 'suppliers'
   | 'entry'
@@ -117,6 +118,7 @@ function initialScreen(): Screen {
   if (routePathname() === '/daily-aviz') return 'dailyAviz'
   if (routePathname() === '/daily-reconciliation') return 'dailyReconciliation'
   if (routePathname() === '/month-closure') return 'monthClosure'
+  if (routePathname() === '/bank-note') return 'bankNote'
   if (routePathname() === '/monthly-reconciliation') return 'monthlyReconciliation'
   if (routePathname() === '/milk-reception') return 'milkReception'
   if (routePathname() === '/milk-deliveries') return 'milkDeliveries'
@@ -697,6 +699,10 @@ export function App() {
 
       {screen === 'monthClosure' && (
         <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen onBack={openOcrMenu} /></OcrAuthGate>
+      )}
+
+      {screen === 'bankNote' && (
+        <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen bankNotePage onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (

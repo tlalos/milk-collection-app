@@ -171,7 +171,7 @@ function displayMilkType(value: string | null | undefined) {
 function receptionStatusLabel(match: DailyAvizReceptionMatch | null | undefined) {
   if (!match) return 'Unknown'
   if (match.status === 'matched') return 'Matched'
-  if (match.status === 'no_match') return 'No reception'
+  if (match.status === 'no_match') return 'No scale'
   if (match.status === 'conflict') return 'Conflict'
   return 'Incomplete'
 }

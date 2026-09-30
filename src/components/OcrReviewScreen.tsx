@@ -3,7 +3,7 @@ import './OcrReviewScreen.css'
 import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
-import { failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
+import { dailyCenterSelectionError, failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
 import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 import { ErpRowRecovery, type ErpManualChecks } from './ErpRowRecovery'
@@ -1322,6 +1322,11 @@ export function OcrReviewScreen() {
         )
       return
     }
+    const centerError = dailyCenterSelectionError(draft.rows, centerMatches)
+    if (centerError) {
+      setError(centerError)
+      return
+    }
     const confirmation = selected.erpExport?.status === 'failed' && selected.erpExport.rowLog?.length
       ? (isRo ? 'Trimiterea anterioară a eșuat. Verificați mai întâi ERP pentru a evita duplicatele. Încercați din nou?' : 'The previous send failed. Check ERP first to avoid duplicates. Try again?')
       : (isRo ? `Trimiteți aviz 5101 și NIR 2153 pentru fiecare dintre cele ${draft.rows.length} rânduri?` : `Send aviz 5101 and NIR 2153 for each of the ${draft.rows.length} rows (${draft.rows.length * 2} documents)?`)
@@ -1372,6 +1377,11 @@ export function OcrReviewScreen() {
         )
       }
     } catch (sendError) {
+      // A rejected starting save is validation, not an ERP attempt.
+      if (!progressState.current) {
+        setError(sendError instanceof Error ? sendError.message : 'Could not start ERP sending.')
+        return
+      }
       const sentRows = progressState.current?.rowLog?.filter((row) => row.status === 'sent').length ?? 0
       const failedState: DailyRouteErpExport = {
         status: sentRows > 0 || progressState.current?.rowLog?.some((row) => row.documents?.some((doc) => ['sent', 'sending', 'unconfirmed'].includes(doc.status))) ? 'partial' : 'failed',

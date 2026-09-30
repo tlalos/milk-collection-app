@@ -83,6 +83,7 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     const controller = new AbortController()
@@ -127,6 +128,13 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
     day.comparisons.some(comparisonVisible) || day.unmatched.some(unmatchedVisible) || day.others.some(otherVisible))
   const monthDocumentCount = monthData.days.reduce((total, day) => total + day.documentCount, 0)
   const attentionCount = monthData.days.reduce((total, day) => total + day.attentionCount, 0)
+  const scaleLiters = monthData.days.some(day => day.scaleLiters === null)
+    ? null : monthData.days.reduce((total, day) => total + (day.scaleLiters ?? 0), 0)
+  const avizLiters = monthData.days.some(day => day.avizLiters === null)
+    ? null : monthData.days.reduce((total, day) => total + (day.avizLiters ?? 0), 0)
+  const monthDifference = scaleLiters === null || avizLiters === null ? null : scaleLiters - avizLiters
+  const otherScaleLiters = monthData.others.some(row => numberOrNull(row.calculatedLiters) === null)
+    ? null : monthData.others.reduce((total, row) => total + (numberOrNull(row.calculatedLiters) ?? 0), 0)
 
   return <div className="daily-recon-screen app-shell">
     <header className="app-topbar daily-recon-topbar">
@@ -144,6 +152,16 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
     </header>
 
     <main className="daily-recon-content">
+      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Month liter totals">
+        <div title="Collection receptions only; excludes Other receptions"><span>Scale liters</span><strong>{loading ? '-' : formatLiters(scaleLiters)}</strong></div>
+        <div title="All aviz documents for this month, including unmatched documents"><span>Aviz liters</span><strong>{loading ? '-' : formatLiters(avizLiters)}</strong></div>
+        <div title="Monthly scale liters minus monthly aviz liters. Unavailable when quantities are missing."><span>Difference</span><strong>{loading ? '-' : formatLiters(monthDifference)}</strong></div>
+      </div>
+      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Other receptions month liter totals">
+        <div title="Other receptions only for the selected month"><span>Others scale liters</span><strong>{loading ? '-' : formatLiters(otherScaleLiters)}</strong></div>
+        <div title="No aviz comparison available for Other receptions"><span>Others aviz liters</span><strong>-</strong></div>
+        <div title="No aviz comparison available for Other receptions"><span>Others difference</span><strong>-</strong></div>
+      </div>
       <div className="daily-recon-summary" aria-label="Month totals">
         <div><span>Scale receptions</span><strong>{monthData.comparisons.length}</strong></div>
         <div><span>Aviz documents</span><strong>{monthDocumentCount}</strong></div>
@@ -178,6 +196,16 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
       <section className="daily-recon-ledger" aria-labelledby="daily-recon-days-title">
         <div className="daily-recon-section-heading">
           <h2 id="daily-recon-days-title">Daily records</h2>
+          <div className="daily-recon-expand-actions">
+            <button type="button" disabled={!visibleDays.some(day => collapsedDays.has(day.date))}
+              onClick={() => setCollapsedDays(current => {
+                const next = new Set(current)
+                visibleDays.forEach(day => next.delete(day.date))
+                return next
+              })}>Expand all</button>
+            <button type="button" disabled={!visibleDays.some(day => !collapsedDays.has(day.date))}
+              onClick={() => setCollapsedDays(current => new Set([...current, ...visibleDays.map(day => day.date)]))}>Collapse all</button>
+          </div>
           <span>{loading ? 'Loading...' : `${visibleDays.length} days shown`}</span>
         </div>
         {!loading && !error && !visibleDays.length && <div className="daily-recon-empty">No records match this month and filters.</div>}
@@ -185,16 +213,31 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
           const comparisons = day.comparisons.filter(comparisonVisible)
           const unmatched = day.unmatched.filter(unmatchedVisible)
           const others = day.others.filter(otherVisible)
+          const expanded = !collapsedDays.has(day.date)
+          const differences = comparisons.flatMap(item => item.differenceLiters === null ? [] : [item.differenceLiters])
+          const collectionDifference = differences.length ? differences.reduce((sum, value) => sum + value, 0) : null
           return <article className="daily-recon-day" key={day.date}>
-            <header className="daily-recon-day-header">
-              <h3>{weekday(day.date)} <time dateTime={day.date}>{displayDate(day.date)}</time></h3>
-              <div className="daily-recon-day-counts">
+            <button type="button" className="daily-recon-day-header" aria-expanded={expanded}
+              aria-controls={`daily-recon-day-${day.date}`} onClick={() => setCollapsedDays(current => {
+                const next = new Set(current)
+                if (next.has(day.date)) next.delete(day.date)
+                else next.add(day.date)
+                return next
+              })}>
+              <span className="daily-recon-day-title"><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{weekday(day.date)} <time dateTime={day.date}>{displayDate(day.date)}</time></span>
+              <span className="daily-recon-day-totals">
+                <span title={`Sum of ${differences.length} available collection differences in the shown records`}>
+                  Collection: <strong>{collectionDifference === null ? '-' : formatLiters(collectionDifference)}</strong>
+                </span>
+                <span title="No comparison available for other receptions">Others: <strong>-</strong></span>
+              </span>
+              <span className="daily-recon-day-counts">
                 <span>Scale <strong>{comparisons.length}</strong></span>
                 <span>Aviz <strong>{comparisons.reduce((total, item) => total + item.documents.length, 0) + unmatched.length}</strong></span>
                 <span>Others <strong>{others.length}</strong></span>
-              </div>
-            </header>
-            <div className="daily-recon-day-grid" role="table" aria-label={`Daily records for ${displayDate(day.date)}`}>
+              </span>
+            </button>
+            <div id={`daily-recon-day-${day.date}`} hidden={!expanded} className="daily-recon-day-grid" role="table" aria-label={`Daily records for ${displayDate(day.date)}`}>
               <div className="daily-recon-grid-head" role="row">
                 <span role="columnheader">Truck / route and details</span>
                 <span role="columnheader">Scale final</span>

@@ -171,6 +171,20 @@ function findDailyRouteMilkItem(items: ERP_Item[], milkType: DailyMilkTypeCode):
     ?? items.find((item) => wanted.includes(normalize(item.item_code)))
 }
 
+export function dailyCenterSelectionError(rows: DailyRouteExtractedRow[], matches: DailyRouteCenterMatch[]): string | null {
+  const name = (value: string | null | undefined) => (value || '').trim().replace(/\s+/gu, ' ').toUpperCase()
+  for (const row of rows) {
+    const match = matches.find(item => item.rowNumber === row.rowNumber)
+    if (!match?.selectedCode) return `Row ${row.rowNumber}: select an ERP center code before sending.`
+    const option = match.suggestions.find(item => item.code === match.selectedCode)
+    if (!name(row.collectionCenter) || name(row.collectionCenter) !== name(match.selectedName) ||
+      (option && name(option.name) !== name(row.collectionCenter))) {
+      return `Row ${row.rowNumber}: the center name and ERP selection do not agree. Select the correct ERP center again.`
+    }
+  }
+  return null
+}
+
 function resolveCenter(row: DailyRouteExtractedRow, centerMatches: DailyRouteCenterMatch[]) {
   const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
   const selectedCode = match?.selectedCode?.trim() || null

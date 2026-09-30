@@ -639,16 +639,22 @@
 .month-closure-invoice-table th:nth-child(12) { width: 72px; }
 
 .month-closure-bank-table {
-  min-width: 1140px;
+  min-width: 1320px;
 }
 
 .month-closure-bank-table th:nth-child(1) { width: 48px; }
 .month-closure-bank-table th:nth-child(2) { width: 205px; }
 .month-closure-bank-table th:nth-child(3) { width: 110px; }
 .month-closure-bank-table th:nth-child(4) { width: 185px; }
-.month-closure-bank-table th:nth-child(5) { width: 195px; }
-.month-closure-bank-table th:nth-child(6) { width: 250px; }
-.month-closure-bank-table th:nth-child(7) { width: 125px; }
+.month-closure-bank-table th:nth-child(5) { width: 180px; }
+.month-closure-bank-table th:nth-child(6) { width: 195px; }
+.month-closure-bank-table th:nth-child(7) { width: 250px; }
+.month-closure-bank-table th:nth-child(8) { width: 125px; }
+
+.month-closure-bank-center {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .month-closure-bank-check {
   width: 48px;

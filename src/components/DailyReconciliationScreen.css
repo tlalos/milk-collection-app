@@ -31,6 +31,8 @@
 .daily-recon-summary div + div { border-left: 1px solid #d9e6de; }
 .daily-recon-summary span, .daily-recon-toolbar label { color: var(--color-text-muted); font-size: 0.72rem; font-weight: 850; text-transform: uppercase; }
 .daily-recon-summary strong { color: #124b32; font-size: 1.4rem; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.daily-recon-volume-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.daily-recon-volume-summary strong { overflow-wrap: anywhere; }
 
 .daily-recon-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .daily-recon-toolbar label { display: grid; gap: 5px; min-width: 160px; }
@@ -42,14 +44,25 @@
 .daily-recon-error { border: 1px solid #edbbb2; border-radius: 6px; padding: 10px 14px; background: #fff1ef; color: #9e3a2b; font-size: 0.83rem; font-weight: 700; }
 
 .daily-recon-ledger { display: grid; gap: 12px; min-width: 0; }
-.daily-recon-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 2px; }
+.daily-recon-section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 0 2px; }
+.daily-recon-section-heading > span { margin-left: auto; }
+.daily-recon-expand-actions { display: flex; gap: 8px; }
+.daily-recon-expand-actions button { padding: 6px 10px; border: 1px solid #bfd8ca; border-radius: 6px; background: #fff; color: #18543b; font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.daily-recon-expand-actions button:disabled { opacity: 0.5; cursor: default; }
+.daily-recon-expand-actions button:focus-visible, .daily-recon-day-header:focus-visible { outline: 2px solid #2d8a56; outline-offset: -3px; }
 .daily-recon-section-heading h2 { margin: 0; font-size: 1.05rem; line-height: 1.25; }
 .daily-recon-section-heading span { color: var(--color-text-muted); font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
 .daily-recon-empty { padding: 18px 12px; text-align: center; }
 
 .daily-recon-day { min-width: 0; border: 2px solid #248a60; border-radius: 8px; overflow: hidden; background: #fff; }
-.daily-recon-day-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; min-height: 48px; border-bottom: 1px solid #dbe9e1; padding: 9px 16px; background: #f4faf7; }
-.daily-recon-day-header h3 { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 0.93rem; line-height: 1.3; }
+.daily-recon-day-header { display: flex; width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; min-height: 48px; border: 0; border-bottom: 1px solid #dbe9e1; padding: 9px 16px; background: #f4faf7; }
+.daily-recon-day-header[aria-expanded="false"] { border-bottom: 0; }
+.daily-recon-day-header:hover { background: #e7f3ec; }
+.daily-recon-day-title { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 0.93rem; font-weight: 700; line-height: 1.3; }
+.daily-recon-day-title > span { width: 12px; }
+.daily-recon-day-totals { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-right: auto; color: #405d4c; font-size: 0.85rem; }
+.daily-recon-day-totals > span { white-space: nowrap; }
+.daily-recon-day-totals strong { color: #183d2b; font-variant-numeric: tabular-nums; }
 .daily-recon-day-header time { color: #405d4c; font-weight: 650; }
 .daily-recon-day-counts { display: flex; flex-wrap: wrap; gap: 10px 18px; color: #557065; font-size: 0.82rem; font-weight: 700; }
 .daily-recon-day-counts strong { color: #183d2b; font-variant-numeric: tabular-nums; }
