@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { appPath } from '../ocrPaths'
 import type { DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
 import './DailyAvizScreen.css'
@@ -206,6 +207,7 @@ function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => str
 }
 
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
+  const tableWrapRef = useRef<HTMLDivElement>(null)
   const [rows, setRows] = useState<DailyAvizRow[]>([])
   const [summary, setSummary] = useState<DailyAvizSummary>(emptySummary)
   const [loading, setLoading] = useState(true)
@@ -393,7 +395,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               Open OCR review
             </button>
           </div>
-          <div className="daily-aviz-table-wrap">
+          <div className="daily-aviz-table-wrap" ref={tableWrapRef}>
             <table className="daily-aviz-table">
               <thead>
                 <tr>
@@ -460,6 +462,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               </tbody>
             </table>
           </div>
+          <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll daily aviz table horizontally" />
         </section>
       </main>
     </div>

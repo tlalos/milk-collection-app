@@ -839,7 +839,10 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       <td>{row.differencePercent == null ? '-' : `${formatNumber(row.differencePercent, 2)}%`}</td>
                       <td>{row.avizLineCount}</td>
                       <td>{row.monthlyRowCount}</td>
-                      <td><span className={`monthly-recon-badge ${displayStatus}`}>{approved ? 'Approved' : statusLabel(row.status)}</span></td>
+                      <td>
+                        <span className={`monthly-recon-badge ${displayStatus}`}>{approved ? 'Approved' : statusLabel(row.status)}</span>
+                        {approved && <small className="monthly-recon-approval-note">No journal · Aviz used for pricing</small>}
+                      </td>
                     </tr>
                     {expandedId === row.id && (
                       <tr key={`${row.id}-details`}>

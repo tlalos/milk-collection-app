@@ -229,7 +229,10 @@
 .review-excel-export button:focus-visible { outline: 3px solid rgba(31,122,73,.2); outline-offset: 2px; }
 .review-excel-export button:disabled { border-color: #c9d6ce; background: #eef3f0; color: #7d8a82; cursor: not-allowed; box-shadow: none; }
 .review-excel-export-top { margin-top: 8px; margin-bottom: 0; }
-.review-erp-export { display: grid; gap: 7px; margin: 8px 14px 0; padding: 8px 10px; border: 1px solid #d4dfd8; border-radius: 8px; background: #f5f8f6; color: #526158; font-size: .65rem; }
+.review-erp-export { flex: 0 0 auto; min-width: 0; margin: 8px 14px 0; padding: 8px 10px; border: 1px solid #d4dfd8; border-radius: 8px; background: #f5f8f6; color: #526158; font-size: .65rem; }
+.review-erp-export > summary { cursor: pointer; overflow-wrap: anywhere; }
+.review-erp-export > summary > span { display: block; margin-top: 3px; }
+.review-erp-export > summary:focus-visible, .review-erp-export .erp-results-scroll:focus-visible { outline: 2px solid #1a6b3c; outline-offset: 2px; }
 .review-erp-export > div { display: grid; gap: 2px; }
 .review-erp-export strong { color: #274a35; }
 .review-erp-export.erp-sent { border-color: #b8d9c4; background: #eff9f3; }
@@ -241,10 +244,10 @@
 .review-erp-export .erp-row-sent { background: #dff1e6; color: #17613a; }
 .review-erp-export .erp-row-failed { background: #f9d9d6; color: #94372f; }
 .review-erp-export .erp-row-ready { background: #edf2ef; color: #526158; }
-.review-erp-export .erp-results-scroll { display: block; overflow-x: auto; min-width: 0; }
+.review-erp-export .erp-results-scroll { display: block; overflow: auto; min-width: 0; max-height: min(280px, 30vh); margin-top: 7px; overscroll-behavior: contain; }
 .erp-results-table { width: 100%; min-width: 480px; border-collapse: collapse; table-layout: fixed; background: #fff; color: #263b32; text-align: left; }
 .erp-results-table th, .erp-results-table td { padding: 9px; border: 1px solid #d4dfd8; vertical-align: top; overflow-wrap: anywhere; }
-.erp-results-table thead th { background: #edf2ef; font-size: .7rem; }
+.erp-results-table thead th { position: sticky; top: 0; z-index: 1; background: #edf2ef; font-size: .7rem; }
 .erp-results-table td > *, .erp-results-table tbody th > * { display: block; margin-bottom: 4px; }
 .erp-results-table tbody th { font-weight: 400; }
 .erp-results-table time { color: #526158; }

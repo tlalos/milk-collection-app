@@ -1642,16 +1642,16 @@ export function OcrReviewScreen() {
                 </div>
 
                 {selected.erpExport?.status && selected.erpExport.status !== 'not_ready' && (
-                  <div className={`review-erp-export erp-${selected.erpExport.status}`}>
-                    <div>
+                  <details key={selected.id} className={`review-erp-export erp-${selected.erpExport.status}`}>
+                    <summary>
                       <strong>ERP</strong>
                       <span>{selected.erpExport.status === 'sent'
                         ? `${selected.erpExport.successCount ?? selected.erpExport.rowCount ?? 0} ${isRo ? 'avize trimise în ERP.' : 'aviz rows sent to ERP.'}`
                         : selected.erpExport.status === 'sending'
                           ? (isRo ? 'Trimiterea în ERP este în curs…' : 'Sending daily route rows to ERP…')
                           : selected.erpExport.error || (isRo ? 'Trimiterea în ERP a eșuat.' : 'ERP send failed.')}</span>
-                    </div>
-                    {selected.erpExport.rowLog?.length ? <div className="erp-results-scroll">
+                    </summary>
+                    {selected.erpExport.rowLog?.length ? <div className="erp-results-scroll" tabIndex={0} role="region" aria-label={isRo ? 'Rezultate trimitere ERP' : 'ERP send results'}>
                       <table className="erp-results-table">
                         <thead><tr>
                           <th>{isRo ? 'Rând / Centru' : 'Row / Center'}</th>
@@ -1682,7 +1682,7 @@ export function OcrReviewScreen() {
                         </tr>)}</tbody>
                       </table>
                     </div> : null}
-                  </div>
+                  </details>
                 )}
 
                 <div className="review-data-tabs" role="tablist" aria-label={isRo ? 'Secțiuni date' : 'Data sections'}>

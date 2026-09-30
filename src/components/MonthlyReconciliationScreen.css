@@ -606,6 +606,17 @@
   color: #0e5a35;
 }
 
+.monthly-recon-approval-note {
+  display: block;
+  max-width: 160px;
+  margin-top: 4px;
+  white-space: normal;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .monthly-recon-badge.difference,
 .monthly-recon-badge.missing_monthly,
 .monthly-recon-badge.missing_aviz {
