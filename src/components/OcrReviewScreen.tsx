@@ -7,6 +7,7 @@ import { dailyCenterSelectionError, failedDailyErpRecovery, sendDailyRouteDetail
 import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocrReferenceSuppliersStore'
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 import { ErpRowRecovery, type ErpManualChecks } from './ErpRowRecovery'
+import { nextOcrRowNumber } from '../ocrManualRows'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
   { value: 'MILK-COW', label: 'COW' },
@@ -16,6 +17,7 @@ const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }
 ]
 
 interface ExtractedRow {
+  manual?: boolean
   rowNumber: number
   collectionCenter: string | null
   milkType?: DailyMilkTypeCode | null
@@ -983,6 +985,7 @@ export function OcrReviewScreen() {
 
   function selectCenter(rowNumber: number, code: string) {
     const savedMatch = centerMatches.find((match) => match.rowNumber === rowNumber)
+      ?? centerMatchForRow(rowNumber, draft?.rows.find(row => row.rowNumber === rowNumber)?.collectionCenter || '', referenceCenters, false)
     const searchMatch = centerSearchMatches[rowNumber]
     const activeMatch = openCenterSuggestions === rowNumber && searchMatch ? searchMatch : savedMatch
     const selectedMatch = activeMatch?.suggestions.find((suggestion) => String(suggestion.code) === String(code))
@@ -1068,11 +1071,14 @@ export function OcrReviewScreen() {
   }
 
   function addManualRow() {
+    if (!draft) return
+    const nextRowNumber = nextOcrRowNumber(draft.rows, selected?.data?.rows, centerMatches, selected?.erpExport?.rowLog)
+    setCenterMatches(current => [...current, centerMatchForRow(nextRowNumber, '', referenceCenters, false)])
     setDraft((current) => {
       if (!current) return current
-      const nextRowNumber = current.rows.reduce((highest, row) => Math.max(highest, row.rowNumber), 0) + 1
       const row: ExtractedRow = {
         rowNumber: nextRowNumber,
+        manual: true,
         collectionCenter: '',
         milkType: 'MILK-COW',
         liters: null,
@@ -1226,7 +1232,7 @@ export function OcrReviewScreen() {
     return payload.job
   }
 
-  async function recoverErpRow(rowNumber: number, checks: ErpManualChecks) {
+  async function recoverErpRow(rowNumber: number, checks: ErpManualChecks, initial = false) {
     if (!selected) return
     const feedback = (message: string, failed = true) => setRecoveryFeedback({ jobId: selected.id, rowNumber, message, failed })
     if (!selected.erpExport || !selected.data) {
@@ -1254,9 +1260,18 @@ export function OcrReviewScreen() {
     setError('')
     setSuccess('')
     try {
-      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/erp-recovery`), {
+      const sourceRow = selected.data.rows.find(item => item.rowNumber === rowNumber)
+      const sourceMatch = selected.centerMatches?.find(item => item.rowNumber === rowNumber)
+      const expectedSource = {
+        date: selected.data.date, route: selected.data.route, vehicleRegistration: selected.data.vehicleRegistration,
+        centerCode: sourceMatch?.selectedCode, centerName: sourceRow?.collectionCenter,
+        liters: sourceRow?.liters, milkType: sourceRow?.milkType || 'MILK-COW', aviz: sourceRow?.noticeNumber,
+        fatPercent: sourceRow?.fatPercent, density: sourceRow?.density, water: sourceRow?.water,
+        temperature: sourceRow?.temperature, sampleId: sourceRow?.sampleId,
+      }
+      const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}/${initial ? 'erp-send-row' : 'erp-recovery'}`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rowNumber, checks, confirmedStopped: true, expectedExport: selected.erpExport, expectedData: selected.data }),
+        body: JSON.stringify(initial ? { rowNumber, expectedSource } : { rowNumber, checks, confirmedStopped: true, expectedExport: selected.erpExport, expectedData: selected.data }),
       })
       const payload = await response.json() as { job?: OcrJob; error?: string }
       if (!response.ok || !payload.job?.erpExport || !payload.job.data) throw new Error(payload.error || 'Could not start ERP recovery.')
@@ -1273,7 +1288,7 @@ export function OcrReviewScreen() {
             latestProgress = progress
             await saveErpExportState(progress, job)
           },
-          { state: job.erpExport!, rowNumber })
+          { state: job.erpExport!, rowNumber, initial })
         latestProgress = result
         await saveErpExportState(result, job)
         if (result.rowLog?.find(item => item.rowNumber === rowNumber)?.status !== 'sent') {
@@ -1737,7 +1752,9 @@ export function OcrReviewScreen() {
                         ? `${selected.erpExport.successCount ?? selected.erpExport.rowCount ?? 0} ${isRo ? 'avize trimise în ERP.' : 'aviz rows sent to ERP.'}`
                         : selected.erpExport.status === 'sending'
                           ? (isRo ? 'Trimiterea în ERP este în curs…' : 'Sending daily route rows to ERP…')
-                          : selected.erpExport.error || (isRo ? 'Trimiterea în ERP a eșuat.' : 'ERP send failed.')}</span>
+                          : selected.erpExport.status === 'partial' && selected.erpExport.rowLog?.some(row => row.neverAttempted)
+                            ? (isRo ? 'Trimis parțial. Există rânduri netrimise.' : 'Partially sent. Some rows have not been sent.')
+                            : selected.erpExport.error || (isRo ? 'Trimiterea în ERP a eșuat.' : 'ERP send failed.')}</span>
                     </summary>
                     {selected.erpExport.rowLog?.length ? <div className="erp-results-scroll" tabIndex={0} role="region" aria-label={isRo ? 'Rezultate trimitere ERP' : 'ERP send results'}>
                       <table className="erp-results-table">
@@ -1751,9 +1768,14 @@ export function OcrReviewScreen() {
                             <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber} · {row.center || '—'}</b>
                             <span>Aviz {row.aviz || '—'}</span>
                             {row.status === 'failed' && !row.documents?.some((doc) => doc.message) && <span className="erp-result-error">{row.message}</span>}
-                            <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo}
+                            {row.neverAttempted ? <button type="button" disabled={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'}
+                              onClick={() => {
+                                if (window.confirm(isRo ? `Trimiteți doar rândul ${row.rowNumber} în ERP?` : `Send only row ${row.rowNumber} (Aviz and NIR) to ERP?`)) {
+                                  void recoverErpRow(row.rowNumber, { aviz: { outcome: 'absent', erpId: '' }, nir: { outcome: 'absent', erpId: '' } }, true)
+                                }
+                              }}>{isRo ? 'Trimiteți în ERP' : 'Send to ERP'}</button> : <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo}
                               identity={`${selected.data?.date || '-'} | ${row.center || '-'} | Aviz ${row.aviz || '-'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.milkType || 'MILK-COW'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.liters ?? '-'} L`}
-                              onRecover={checks => recoverErpRow(row.rowNumber, checks)} />
+                              onRecover={checks => recoverErpRow(row.rowNumber, checks)} />}
                             {recoveryFeedback?.jobId === selected.id && recoveryFeedback.rowNumber === row.rowNumber && <p className={recoveryFeedback.failed ? 'erp-result-error' : 'erp-recovery-feedback'} role={recoveryFeedback.failed ? 'alert' : 'status'}>{recoveryFeedback.message}</p>}
                           </th>
                           {(['aviz', 'nir'] as const).map((kind) => {
@@ -1909,13 +1931,14 @@ export function OcrReviewScreen() {
                     <thead><tr><th>#</th><th>{isRo ? 'Centru' : 'Center'}</th><th>{isRo ? 'Tip lapte' : 'Milk type'}</th><th>{isRo ? 'Litri' : 'Liters'}</th><th>{isRo ? 'Grăsime %' : 'Fat %'}</th><th>Temp.</th><th>{isRo ? 'Apă' : 'Water'}</th><th>Aviz</th><th>{isRo ? 'ID probă' : 'Sample ID'}</th><th>{isRo ? 'Acțiuni' : 'Actions'}</th></tr></thead>
                     <tbody>{draft.rows.map((row, index) => (
                       <tr className={`${rowHasRequiredAttention(row, centerNameNeedsReview(row, centerMatches.find((item) => item.rowNumber === row.rowNumber))) ? 'uncertain' : ''} ${!row.collectionCenter?.trim() ? 'empty-center' : ''}`} key={row.rowNumber}>
-                        <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={isRo ? 'Încredere OCR' : 'OCR confidence'}>{Math.round(row.confidence * 100)}%</small>{(() => {
+                        <td><span className="review-row-number"><span>{row.rowNumber}</span><small title={row.manual ? 'Manual' : isRo ? 'Încredere OCR' : 'OCR confidence'}>{row.manual ? 'Manual' : `${Math.round(row.confidence * 100)}%`}</small>{(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
                           const hasReferenceMismatch = centerNameNeedsReview(row, match)
                           return hasReferenceMismatch ? <b className="review-row-attention" title={isRo ? 'Centrul nu se potrivește cu lista de referință' : 'Center does not match the reference list'}>!</b> : null
                         })()}</span></td>
                         {(() => {
                           const match = centerMatches.find((item) => item.rowNumber === row.rowNumber)
+                            ?? centerMatchForRow(row.rowNumber, row.collectionCenter, referenceCenters, false)
                           const searchMatch = centerSearchMatches[row.rowNumber]
                           const savedMatch = selected.centerMatches?.find((item) => item.rowNumber === row.rowNumber)
                           const savedRow = selected.data?.rows.find((item) => item.rowNumber === row.rowNumber)

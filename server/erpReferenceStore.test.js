@@ -33,6 +33,13 @@ test('an empty ERP response cannot replace the saved list', () => {
   assert.throws(() => normalizeErpReferenceSnapshot({ centers: erpReferences.centers, producers: [] }), /not changed/u)
 })
 
+test('payment terms survive snapshot normalization without defaulting missing values', () => {
+  for (const code of [3030, '3080', '0', undefined]) {
+    const snapshot = normalizeErpReferenceSnapshot({ ...erpReferences, producers: [{ ...erpReferences.producers[0], paymentTerms: code }] })
+    assert.equal(snapshot.producers[0].paymentTerms, code === undefined ? '' : String(code))
+  }
+})
+
 test('daily and monthly OCR matches use ERP C* and P* references', async () => {
   const snapshot = normalizeErpReferenceSnapshot(erpReferences)
   const [daily] = await matchCentersForRows([{ rowNumber: 1, collectionCenter: 'AGRIES 1' }], { centers: snapshot.centers })

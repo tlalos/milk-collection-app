@@ -297,6 +297,10 @@
 .monthly-recon-ocr-issue-table th:nth-child(1) { width: 82px; }
 .monthly-recon-ocr-issue-table th:nth-child(2) { width: 100px; }
 .monthly-recon-issue-document { display: block; width: 100px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monthly-recon-ocr-issue-table th.monthly-recon-issue-severity-heading { width: 90px; }
+.monthly-recon-issue-severity { display: inline-block; padding: 3px 7px; border-radius: 4px; }
+.monthly-recon-issue-severity.warning { color: #805000; background: #fff1c7; }
+.monthly-recon-issue-severity.error { color: #a02222; background: #fde8e8; }
 .monthly-recon-ocr-issue-table th:nth-child(3) { width: 64px; }
 .monthly-recon-ocr-issue-table th:nth-child(4) { width: 240px; }
 .monthly-recon-issue-problem { display: block; width: 240px; max-width: 240px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
@@ -316,6 +320,29 @@
 .monthly-recon-daily-issues th:nth-child(9),
 .monthly-recon-daily-issues th:nth-child(10),
 .monthly-recon-daily-issues th:nth-child(11) { width: 90px; }
+.monthly-recon-severity-issues th:nth-child(2) { width: 90px; }
+.monthly-recon-severity-issues th:nth-child(3) { width: 100px; }
+.monthly-recon-severity-issues th:nth-child(4) { width: 64px; }
+.monthly-recon-severity-issues th:nth-child(5) { width: 240px; }
+.monthly-recon-severity-issues th:nth-child(6) { width: 190px; }
+.monthly-recon-severity-issues th:nth-child(7) { width: 220px; }
+.monthly-recon-severity-issues th:nth-child(8),
+.monthly-recon-severity-issues th:nth-child(9),
+.monthly-recon-severity-issues th:nth-child(10) { width: 72px; }
+
+.monthly-recon-info-button { width: 42px; height: 42px; padding: 0; flex: 0 0 42px; }
+.monthly-recon-info-button span { font-family: Georgia, serif; font-size: 1.2rem; }
+.monthly-recon-info { padding: 16px 0; border-block: 1px solid #b9d6c8; color: #193226; }
+.monthly-recon-info-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.monthly-recon-info-heading h2 { margin: 0; font-size: 1.05rem; }
+.monthly-recon-info-switch { display: inline-flex; gap: 4px; padding: 4px; background: #e7f1ec; border-radius: 6px; }
+.monthly-recon-info-switch button { padding: 8px 12px; border: 1px solid transparent; border-radius: 4px; color: #193226; background: transparent; cursor: pointer; font-weight: 700; }
+.monthly-recon-info-switch button[aria-pressed="true"] { background: #fff; border-color: #b9d6c8; }
+.monthly-recon-info-body { max-width: 960px; line-height: 1.6; overflow-wrap: anywhere; }
+.monthly-recon-info-body h3 { margin: 16px 0 4px; font-size: 0.94rem; }
+.monthly-recon-info-body p { margin: 6px 0; }
+.monthly-recon-info-body ul { padding-left: 22px; }
+.monthly-recon-info-body code { font-size: 0.85em; }
 
 .monthly-recon-table-card {
   overflow: hidden;

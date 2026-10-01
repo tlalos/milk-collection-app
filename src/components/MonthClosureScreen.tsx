@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays } from 'lucide-react'
 import { appPath } from '../ocrPaths'
+import { monthlyInvoiceBlockReason, monthlyInvoiceSeries } from '../monthlyInvoiceEligibility'
+import { monthlyInvoiceAmounts, pricingSubtotal } from '../monthlyInvoiceAmounts'
 import {
   getCachedOcrReferenceSuppliers,
   loadOcrReferenceSuppliers,
@@ -184,6 +187,12 @@ function reconciliationLabel(status: ReconciliationStatus) {
   return 'OK'
 }
 
+function monthEndDate(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return ''
+  const [year, monthNumber] = month.split('-').map(Number)
+  return `${month}-${new Date(year, monthNumber, 0).getDate()}`
+}
+
 function pricingLabel(status: PricingStatus) {
   if (status === 'saved') return 'Saved'
   return status === 'blocked' ? 'Blocked' : 'Needs price'
@@ -201,6 +210,10 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [monthFilter, setMonthFilter] = useState(() => new URLSearchParams(window.location.search).get('month') || '')
+  const [invoiceDates, setInvoiceDates] = useState<Record<string, string>>({})
+  const [bulkInvoiceDates, setBulkInvoiceDates] = useState<Record<string, string>>({})
+  const invoiceDateDialogRef = useRef<HTMLDialogElement>(null)
+  const [bulkDateDraft, setBulkDateDraft] = useState('')
   const [centerFilter, setCenterFilter] = useState('')
   const [producerFilter, setProducerFilter] = useState('')
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
@@ -524,14 +537,17 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     const commission = commissionValue ?? 0
     const electricity = electricityValue ?? 0
     const erpProducer = erpProducerByCode.get(String(row.producerCode || '').trim().toLocaleLowerCase()) || null
-    const result = price === null ? null : row.liters * price
     const extraApplied = hasExtraVat(erpProducer?.extra)
     const vatStatus = erpProducer?.vatStatusName || ''
-    const vatStatusAmount = result === null || extraApplied || !hasRegularVat(vatStatus) ? 0 : result * 0.11
-    const extraAmount = result === null || !extraApplied ? 0 : result * 0.08
-    const hasFinalValue = result !== null || commissionValue !== null || electricityValue !== null
-    const finalResult = row.approvalReviewRequired || row.producerWarning ? null : hasFinalValue ? (result ?? 0) + commission + electricity + vatStatusAmount + extraAmount : null
-    return { row, erpProducer, price, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult }
+    const amounts = monthlyInvoiceAmounts(row.liters, price, commissionValue, electricityValue, extraApplied, hasRegularVat(vatStatus))
+    const { result, adjustedPrice, vatStatusAmount, extraAmount } = amounts
+    const finalResult = row.approvalReviewRequired || row.producerWarning ? null : amounts.finalResult
+    const series = monthlyInvoiceSeries(erpProducer?.bool2)
+    const sendBlockReason = amounts.blockReason || monthlyInvoiceBlockReason(row, finalResult, Boolean(erpProducer))
+      || (series === null ? 'Missing or invalid Bool2' : null)
+      || (erpReferenceLoading ? 'Loading ERP details' : erpReferenceError ? 'ERP details unavailable' : null)
+      || (pricingSaveStatus === 'saving' ? 'Saving prices' : pricingSaveStatus === 'error' ? 'Price save failed' : changedPricingRows.length ? 'Unsaved prices' : null)
+    return { row, erpProducer, price, adjustedPrice, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult, sendBlockReason, series }
   })
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
     qty: totals.qty + invoiceRow.row.liters,
@@ -816,6 +832,42 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 {monthFilter ? ` · ${displayMonth(monthFilter)}` : ''}
               </p>
             </div>
+            {view === 'erpInvoices' && (
+              <div className="month-closure-invoice-tools">
+                <dialog ref={invoiceDateDialogRef} className="month-closure-date-dialog" aria-labelledby="invoice-date-title">
+                  <form className="month-closure-bulk-editor" onSubmit={event => {
+                    event.preventDefault()
+                    if (!bulkDateDraft) return
+                    setBulkInvoiceDates(current => ({ ...current, [monthFilter]: bulkDateDraft }))
+                    setInvoiceDates(current => ({ ...current, ...Object.fromEntries(rows.filter(row => row.month === monthFilter).map(row => [row.id, bulkDateDraft])) }))
+                    invoiceDateDialogRef.current?.close()
+                  }}>
+                    <h2 id="invoice-date-title">Apply date to all</h2>
+                    <label><span>Invoice date</span>
+                      <input type="date" required value={bulkDateDraft} onChange={event => setBulkDateDraft(event.target.value)} />
+                    </label>
+                    <div className="month-closure-bulk-actions">
+                      <button type="button" className="month-closure-cancel-bulk" onClick={() => invoiceDateDialogRef.current?.close()}>Cancel</button>
+                      <button type="submit" className="month-closure-apply-bulk" disabled={!bulkDateDraft}>Apply</button>
+                    </div>
+                  </form>
+                </dialog>
+                <details className="month-closure-invoice-info">
+                  <summary aria-label="ERP invoice information" title="ERP invoice information">i</summary>
+                  <div className="month-closure-invoice-info-panel" role="note">
+                    <strong>ERP invoice information</strong>
+                    <p>Subtotal is original price x liters + commission + electricity. Adjusted price is subtotal / liters. Extra = 1 adds 8% to the subtotal; otherwise regular VAT adds 11%. Commission and electricity are already included, not added again. Collector invoices are pending a separate procedure.</p>
+                    <p>
+                      {erpReferenceProducers.length
+                        ? `${erpReferenceProducers.length} ERP suppliers available. ${matchedInvoiceRows} invoice rows matched${missingInvoiceMatches ? `, ${missingInvoiceMatches} missing ERP match` : ''}${matchedRowsMissingTaxFields ? `, ${matchedRowsMissingTaxFields} matched rows missing VAT/extra` : ''}.`
+                        : 'ERP supplier details not loaded. Use the OCR menu refresh button when the API is available.'}
+                    </p>
+                    <p>{`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}</p>
+                  </div>
+                </details>
+                <button type="button" disabled>Export to ERP</button>
+              </div>
+            )}
             {!bankNotePage && <div className="month-closure-tabs" aria-label="Month closure views">
               <button className={view === 'pricing' ? 'active' : ''} type="button" onClick={() => setView('pricing')}>Pricing</button>
               <button className={view === 'erpInvoices' ? 'active' : ''} type="button" onClick={() => setView('erpInvoices')}>ERP invoices</button>
@@ -842,25 +894,6 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   {`Save now${changedPricingRows.length ? ` (${changedPricingRows.length})` : ''}`}
                 </button>
               </div>
-            </div>
-          )}
-
-          {view === 'erpInvoices' && (
-            <div className="month-closure-invoice-tools">
-              <details className="month-closure-invoice-info">
-                <summary aria-label="ERP invoice information" title="ERP invoice information">i</summary>
-                <div className="month-closure-invoice-info-panel" role="note">
-                  <strong>ERP invoice information</strong>
-                  <p>Result is price x qty. Extra = 1 adds 8%; otherwise regular VAT adds 11%.</p>
-                  <p>
-                    {erpReferenceProducers.length
-                      ? `${erpReferenceProducers.length} ERP suppliers available. ${matchedInvoiceRows} invoice rows matched${missingInvoiceMatches ? `, ${missingInvoiceMatches} missing ERP match` : ''}${matchedRowsMissingTaxFields ? `, ${matchedRowsMissingTaxFields} matched rows missing VAT/extra` : ''}.`
-                      : 'ERP supplier details not loaded. Use the OCR menu refresh button when the API is available.'}
-                  </p>
-                  <p>{`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}</p>
-                </div>
-              </details>
-              <button type="button" disabled>Export to ERP</button>
             </div>
           )}
 
@@ -964,6 +997,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   <th>Price</th>
                   <th>Comm.</th>
                   <th>Electricity</th>
+                  <th>Subtotal</th>
                   <th>Prev price</th>
                   <th>Prev L</th>
                   <th>Journal rows</th>
@@ -973,8 +1007,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={14} className="month-closure-empty">Loading pricing rows...</td></tr>}
-                {!loading && filteredRows.length === 0 && <tr><td colSpan={14} className="month-closure-empty">No pricing rows found for this view.</td></tr>}
+                {loading && <tr><td colSpan={15} className="month-closure-empty">Loading pricing rows...</td></tr>}
+                {!loading && filteredRows.length === 0 && <tr><td colSpan={15} className="month-closure-empty">No pricing rows found for this view.</td></tr>}
                 {!loading && filteredRows.map((row) => (
                   <tr key={row.id} className={row.readyForPricing ? 'ready' : 'blocked'}>
                     <td>{displayMonth(row.month)}</td>
@@ -1059,6 +1093,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                         )}
                       </div>
                     </td>
+                    <td>{formatMoney(pricingSubtotal(row.liters, pricingValue(row, 'price'), pricingValue(row, 'commission'), pricingValue(row, 'electricity')))}</td>
                     <td>{formatNumber(row.previousMonthPrice, 3)}</td>
                     <td>{formatNumber(row.previousMonthLiters)}</td>
                     <td>{row.sourceRowCount}</td>
@@ -1073,36 +1108,55 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
             <table className="month-closure-table month-closure-invoice-table">
               <thead>
                 <tr>
-                  <th>Month</th>
+                  <th><div className="month-closure-date-heading">
+                    <span>Invoice<br />date</span>
+                    <button type="button" className="month-closure-date-all" disabled={loading || !monthFilter || !rows.length}
+                      aria-label="Apply invoice date to all" title="Apply invoice date to all"
+                      onClick={() => {
+                        setBulkDateDraft(bulkInvoiceDates[monthFilter] || monthEndDate(monthFilter))
+                        invoiceDateDialogRef.current?.showModal()
+                      }}><CalendarDays size={16} aria-hidden="true" /></button>
+                  </div></th>
                   <th>Producer name</th>
                   <th>Producer center</th>
                   <th>Milk type</th>
-                  <th>Price</th>
+                  <th>Adjusted price</th>
                   <th>Qty L</th>
-                  <th>Result</th>
-                  <th>Comm.</th>
-                  <th>Electricity</th>
+                  <th>Subtotal</th>
+                  <th title="Already included in subtotal">Comm. (incl.)</th>
+                  <th title="Already included in subtotal">Elec. (incl.)</th>
                   <th>VAT status</th>
                   <th>VAT amount</th>
                   <th>Extra</th>
                   <th>Extra amount</th>
                   <th>Final result</th>
+                  <th title="ERP producer sup_bool02">Bool2</th>
+                  <th>Series</th>
+                  <th>ERP</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={14} className="month-closure-empty">Loading invoice rows...</td></tr>}
-                {!loading && invoiceRows.length === 0 && <tr><td colSpan={14} className="month-closure-empty">No invoice rows found for this view.</td></tr>}
+                {loading && <tr><td colSpan={17} className="month-closure-empty">Loading invoice rows...</td></tr>}
+                {!loading && invoiceRows.length === 0 && <tr><td colSpan={17} className="month-closure-empty">No invoice rows found for this view.</td></tr>}
                 {!loading && invoiceRows.map((invoiceRow) => (
                   <tr key={invoiceRow.row.id} className={invoiceRow.row.readyForPricing ? 'ready' : 'blocked'}>
-                    <td>{displayMonth(invoiceRow.row.month)}</td>
-                    <td title={invoiceRow.erpProducer?.producerName || invoiceRow.row.producer}>{displayText(invoiceRow.erpProducer?.producerName || invoiceRow.row.producer)}<small className="month-closure-source">Source: {invoiceRow.row.source === 'aviz' ? 'Aviz' : 'Journal'}{invoiceRow.row.approvalReviewRequired ? ' · Needs approval review' : ''}</small></td>
+                    <td><div className="month-closure-compact-date">
+                      <span aria-hidden="true">{(invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)).replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$4/$3/$2')}</span>
+                      <input type="date" className="month-closure-invoice-date"
+                      aria-label={`Invoice date for ${invoiceRow.row.producer}`}
+                      value={invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)}
+                      onChange={event => setInvoiceDates(current => ({ ...current, [invoiceRow.row.id]: event.target.value }))} /></div></td>
+                    <td title={invoiceRow.erpProducer?.producerName || invoiceRow.row.producer}>{displayText(invoiceRow.erpProducer?.producerName || invoiceRow.row.producer)}
+                      {invoiceRow.price === null && <small className="month-closure-collector">Collector</small>}
+                      {invoiceRow.sendBlockReason && <small className="month-closure-invoice-warning">{invoiceRow.sendBlockReason}</small>}
+                      <small className="month-closure-source">Source: {invoiceRow.row.source === 'aviz' ? 'Aviz' : 'Journal'}{invoiceRow.row.approvalReviewRequired ? ' · Needs approval review' : ''}</small></td>
                     <td title={invoiceRow.erpProducer?.centerName || invoiceRow.row.center}>{displayText(invoiceRow.erpProducer?.centerName || invoiceRow.row.center)}</td>
                     <td>{displayMilkType(invoiceRow.row.milkType)}</td>
                     <td>
                       <div className="month-closure-invoice-value">
-                        <strong>{formatMoney(invoiceRow.price, 4)}</strong>
-                        {hasMeaningfulPreviousValue(invoiceRow.row.previousMonthPrice) && (
-                          <span>Prev {formatMoney(invoiceRow.row.previousMonthPrice, 4)}</span>
+                        <strong title={invoiceRow.adjustedPrice === null ? undefined : String(invoiceRow.adjustedPrice)}>{formatMoney(invoiceRow.adjustedPrice, 6)}</strong>
+                        {invoiceRow.price !== null && invoiceRow.adjustedPrice !== null && formatMoney(invoiceRow.price, 6) !== formatMoney(invoiceRow.adjustedPrice, 6) && (
+                          <span>Initial {formatMoney(invoiceRow.price, 4)}</span>
                         )}
                       </div>
                     </td>
@@ -1129,6 +1183,16 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <td>{displayText(invoiceRow.erpProducer?.extra)}</td>
                     <td>{formatMoney(invoiceRow.extraAmount)}</td>
                     <td>{formatMoney(invoiceRow.finalResult)}</td>
+                    <td>{displayText(invoiceRow.erpProducer?.bool2)}</td>
+                    <td>{invoiceRow.series ?? '-'}</td>
+                    <td className="month-closure-invoice-send">
+                      <button type="button" disabled={Boolean(invoiceRow.sendBlockReason)}
+                        title={invoiceRow.sendBlockReason || 'ERP sending is not connected yet'}
+                        onClick={() => window.alert('ERP invoice sending is not connected yet. Nothing was sent or marked as sent.')}>
+                        Send to ERP
+                      </button>
+                      {!invoiceRow.sendBlockReason && <small>ERP connection pending</small>}
+                    </td>
                   </tr>
                 ))}
                 {!loading && invoiceRows.length > 0 && (
@@ -1143,6 +1207,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <td>-</td>
                     <td>{formatMoney(invoiceTotals.extraAmount)}</td>
                     <td>{formatMoney(invoiceTotals.final)}</td>
+                    <td />
+                    <td />
+                    <td />
                   </tr>
                 )}
               </tbody>
@@ -1166,13 +1233,14 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   <th>Center</th>
                   <th>Comment</th>
                   <th>Connected account</th>
+                  <th>Payment terms</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={8} className="month-closure-empty">Loading bank rows...</td></tr>}
+                {loading && <tr><td colSpan={9} className="month-closure-empty">Loading bank rows...</td></tr>}
                 {!loading && preparedBankRows.length === 0 && (
-                  <tr><td colSpan={8} className="month-closure-empty">No bank rows found for this view.</td></tr>
+                  <tr><td colSpan={9} className="month-closure-empty">No bank rows found for this view.</td></tr>
                 )}
                 {!loading && preparedBankRows.map((bankRow) => {
                   const readyForBank = Boolean(bankRow.paymentProducer?.iban && bankRow.finalAmount !== null)
@@ -1217,6 +1285,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                           placeholder="No connected account"
                         />
                       </td>
+                      <td>{['3030', '3080'].includes(bankRow.erpProducer?.paymentTerms || '') ? bankRow.erpProducer?.paymentTerms : '-'}</td>
                       <td>
                         <select
                           className={`month-closure-bank-status ${bankRow.status}`}

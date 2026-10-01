@@ -32,7 +32,7 @@ export const MilkCollectionDocumentSchema = z.object({
 })
 
 export const MilkCollectionEditableDocumentSchema = MilkCollectionDocumentSchema.extend({
-  rows: z.array(CollectionRowSchema.extend({ sampleId: nullableText.optional().default(null) })),
+  rows: z.array(CollectionRowSchema.extend({ sampleId: nullableText.optional().default(null), manual: z.boolean().optional() })),
 })
 
 export const MonthlySettlementRowSchema = z.object({

@@ -24,6 +24,7 @@ export interface OcrReferenceProducer {
   iban?: string
   extra?: string
   bool2?: string
+  paymentTerms?: string
 }
 
 export interface OcrReferenceSuppliers {
@@ -121,6 +122,7 @@ function mapErpSuppliers(suppliers: Record<string, unknown>[]) {
       iban: valueFrom(supplier, 'sup_iban', 'iban', 'IBAN'),
       extra: flagFrom(supplier, 'sup_bool01', 'sup_bool1', 'supBool01', 'supBool1', 'extra'),
       bool2: flagFrom(supplier, 'sup_bool02', 'sup_bool2', 'supBool02', 'supBool2', 'bool2'),
+      paymentTerms: valueFrom(supplier, 'sup_payment'),
     }))
     .filter((producer) => producer.producerCode && producer.producerName)
   return { centers, producers }

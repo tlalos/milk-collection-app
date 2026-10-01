@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
+import { nextOcrRowNumber } from "../ocrManualRows";
 import {
   loadOcrReferenceSuppliers,
   type OcrReferenceCenter,
@@ -839,11 +840,7 @@ export function MonthlySettlementReviewScreen() {
   function addManualRow() {
     setDraft((current) => {
       if (!current) return current;
-      const nextRowNumber =
-        current.rows.reduce(
-          (highest, row) => Math.max(highest, row.rowNumber),
-          0,
-        ) + 1;
+      const nextRowNumber = nextOcrRowNumber(current.rows, selected?.data?.rows, selected?.producerMatches);
       const row: MonthlyRow = {
         rowNumber: nextRowNumber,
         producer: "",
@@ -1965,7 +1962,7 @@ export function MonthlySettlementReviewScreen() {
                               <td>
                                 {row.rowNumber}
                                 <small>
-                                  {Math.round(row.confidence * 100)}%
+                                  {row.manual ? "Manual" : `${Math.round(row.confidence * 100)}%`}
                                 </small>
                               </td>
                               {draft.layoutType === "detailed" ? (

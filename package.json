@@ -21,6 +21,7 @@
     "dexie": "^4.0.10",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "lucide-react": "^1.49.0",
     "mssql": "^12.7.0",
     "multer": "^2.2.0",
     "openai": "^7.3.0",

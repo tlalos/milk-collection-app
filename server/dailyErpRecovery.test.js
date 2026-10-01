@@ -1,6 +1,39 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend } from './dailyErpRecovery.js'
+import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend, registerAddedDailyErpRows } from './dailyErpRecovery.js'
+
+test('adding a row to a sent document preserves results and enables only the new row', () => {
+  const job = unsentJob()
+  job.data.rows = job.data.rows.slice(0, 1)
+  job.erpExport = { status: 'sent', rowLog: [{ rowNumber: 13, status: 'sent', documents: [
+    { kind: 'aviz', status: 'sent', newid: '10' }, { kind: 'nir', status: 'sent', newid: '11' },
+  ] }] }
+  const original = structuredClone(job.erpExport)
+  const data = { ...job.data, rows: [...job.data.rows, { rowNumber: 14, collectionCenter: 'OTHER', noticeNumber: '4000', liters: 50 }] }
+  const state = registerAddedDailyErpRows(job, data)
+  assert.deepEqual(state.rowLog[0], original.rowLog[0])
+  assert.deepEqual(job.erpExport, original)
+  assert.equal(state.status, 'partial')
+  assert.equal(state.rowLog[1].neverAttempted, true)
+  job.data = data
+  job.erpExport = state
+  assert.equal(dailyErpRowSendBlocker(job, 14), null)
+  assert.match(dailyErpRowSendBlocker(job, 13), /already attempted/)
+  const claimed = prepareDailyErpRowSend(job, 14, dailyErpSource(data, job.centerMatches, 14))
+  assert.deepEqual(claimed.rowLog[0], original.rowLog[0])
+  assert.equal(claimed.initialRowNumber, 14)
+})
+
+test('adding rows rejects active sends, reused history numbers and incomplete legacy history', () => {
+  const job = unsentJob()
+  const data = { ...job.data, rows: [...job.data.rows, { rowNumber: 15 }] }
+  job.erpExport = { status: 'sending' }
+  assert.throws(() => registerAddedDailyErpRows(job, data), /finish/)
+  job.erpExport = { status: 'sent' }
+  assert.throws(() => registerAddedDailyErpRows(job, data), /incomplete/)
+  job.erpExport = { status: 'partial', rowLog: [{ rowNumber: 15, status: 'failed' }] }
+  assert.throws(() => registerAddedDailyErpRows(job, data), /already exists/)
+})
 
 function fixture() {
   const job = {

@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
+import { MonthlyReconciliationInfo } from './MonthlyReconciliationInfo'
 import { appPath } from '../ocrPaths'
+import { isApprovedForAvizPricing, journalAvizIssueSeverity } from '../monthlyReconciliationApproval'
 import './MonthlyReconciliationScreen.css'
 
 type ReconciliationStatus = 'ok' | 'difference' | 'missing_monthly' | 'missing_aviz'
@@ -104,6 +106,7 @@ interface ReferenceCenterOption {
 type OcrIssueSource = 'monthly' | 'daily' | 'reconciliation'
 
 interface OcrIssue {
+  severity?: 'warning' | 'error'
   vehicleRegistration?: string | null
   route?: string | null
   id: string
@@ -197,7 +200,7 @@ function issueValue(issue: OcrIssue) {
     : issue.center || '-'
 }
 
-function OcrIssueSection({ title, issues, daily = false }: { title: string; issues: OcrIssue[]; daily?: boolean }) {
+function OcrIssueSection({ title, issues, daily = false, showSeverity = false }: { title: string; issues: OcrIssue[]; daily?: boolean; showSeverity?: boolean }) {
   const orderedIssues = useMemo(() => [...issues].sort((left, right) =>
     left.type.localeCompare(right.type) ||
     String(right.month || '').localeCompare(String(left.month || '')) ||
@@ -215,10 +218,11 @@ function OcrIssueSection({ title, issues, daily = false }: { title: string; issu
         <p className="monthly-recon-ocr-issue-empty">No possible mistakes found.</p>
       ) : (
         <div className="monthly-recon-ocr-issue-table-wrap">
-          <table className={`monthly-recon-ocr-issue-table${daily ? ' monthly-recon-daily-issues' : ''}`}>
+          <table className={`monthly-recon-ocr-issue-table${daily ? ' monthly-recon-daily-issues' : ''}${showSeverity ? ' monthly-recon-severity-issues' : ''}`}>
             <thead>
               <tr>
                 <th>{daily ? 'Date' : 'Month'}</th>
+                {showSeverity && <th className="monthly-recon-issue-severity-heading">Severity</th>}
                 {daily && <><th>Truck</th><th>Route</th></>}
                 <th>Document</th>
                 <th>Row</th>
@@ -234,6 +238,9 @@ function OcrIssueSection({ title, issues, daily = false }: { title: string; issu
               {orderedIssues.map((issue) => (
                 <tr key={issue.id}>
                   <td>{daily ? displayDate(issue.documentDate) : issue.month ? displayMonth(issue.month) : '-'}</td>
+                  {showSeverity && <td><span className={`monthly-recon-issue-severity ${issue.severity || 'error'}`}>
+                    {issue.severity === 'warning' ? 'Warning' : 'Error'}
+                  </span></td>}
                   {daily && <><td>{issue.vehicleRegistration || '-'}</td><td>{issue.route || '-'}</td></>}
                   <td title={issue.sourceFile || issue.jobId}><span className="monthly-recon-issue-document">{issue.sourceFile || issue.jobId}</span></td>
                   <td>{issue.rowNumber ?? '-'}</td>
@@ -256,6 +263,7 @@ function OcrIssueSection({ title, issues, daily = false }: { title: string; issu
 }
 
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
+  const [showInfo, setShowInfo] = useState(false)
   const [rows, setRows] = useState<MonthlyReconciliationRow[]>([])
   const [canApproveAviz, setCanApproveAviz] = useState(false)
   const [avizApprovals, setAvizApprovals] = useState<AvizPricingApproval[]>([])
@@ -411,7 +419,10 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   )
   const monthlyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'monthly')
   const dailyOcrIssues = visibleOcrIssues.filter((issue) => issue.source === 'daily')
-  const journalAvizWarnings = visibleOcrIssues.filter((issue) => issue.source === 'reconciliation')
+  const journalAvizWarnings = visibleOcrIssues.filter((issue) => issue.source === 'reconciliation').map(issue => {
+    const severity = journalAvizIssueSeverity(issue, rows, avizApprovals)
+    return { ...issue, severity, problem: severity === 'warning' ? `No journal · Approved for pricing. ${issue.problem}` : issue.problem }
+  })
   const journalCenters = useMemo(() => {
     const centers = new Map<string, { center: string; liters: number; rowCount: number; milkTypes: Set<string>; hasAvizMatch: boolean; hasDifference: boolean }>()
     for (const row of rows) {
@@ -544,6 +555,11 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
           <h1>Monthly Reconciliation</h1>
         </div>
         <div className="monthly-recon-actions">
+          <button className="monthly-recon-header-button monthly-recon-info-button" type="button"
+            aria-label="Page information" title="Page information" aria-expanded={showInfo}
+            aria-controls="monthly-recon-info" onClick={() => setShowInfo(current => !current)}>
+            <span aria-hidden="true">i</span>
+          </button>
           <button
             className="monthly-recon-header-button"
             type="button"
@@ -584,6 +600,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
       </header>
 
       <main className="monthly-recon-content">
+        {showInfo && <MonthlyReconciliationInfo />}
         <section className="monthly-recon-summary" aria-label="Monthly reconciliation summary">
           <div><span>Journals</span><strong>{receivedJournalCenters}</strong></div>
           <div><span>Centers in aviz</span><strong>{avizCenters}</strong></div>
@@ -672,7 +689,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               </div>
             )}
             <OcrIssueSection title="Monthly settlement OCR" issues={monthlyOcrIssues} />
-            <OcrIssueSection title="Journals vs aviz" issues={journalAvizWarnings} />
+            <OcrIssueSection title="Journals vs aviz" issues={journalAvizWarnings} showSeverity />
             <OcrIssueSection title="Daily aviz OCR" issues={dailyOcrIssues} daily />
           </section>
         )}
@@ -777,10 +794,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                   <tr><td colSpan={10} className="monthly-recon-empty">No aviz centers found for this view.</td></tr>
                 )}
                 {!loading && tableRows.map((row) => {
-                  const approved = row.monthlyRowCount === 0 && avizApprovals.some(approval =>
-                    approval.status === 'APPROVED' && approval.monthKey === row.month &&
-                    approval.centerCode.toLowerCase() === row.avizPricing?.centerCode?.toLowerCase() &&
-                    approval.milkType === row.milkType && !row.avizPricing?.reason && !row.avizPricing?.centerMatchWarning)
+                  const approved = isApprovedForAvizPricing(row, avizApprovals)
                   const displayStatus = approved ? 'ok' : row.status
                   return (
                   <Fragment key={row.id}>

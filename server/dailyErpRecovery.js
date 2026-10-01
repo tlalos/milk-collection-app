@@ -1,5 +1,36 @@
 import { randomUUID } from 'node:crypto'
 
+export function registerAddedDailyErpRows(job, data) {
+  const state = job.erpExport
+  if (!state || !['sent', 'partial', 'failed', 'sending'].includes(state.status)) return state
+  const added = data.rows.filter(row => !job.data?.rows?.some(old => old.rowNumber === row.rowNumber))
+  if (!added.length) {
+    return { ...state, rowLog: state.rowLog?.map(entry => {
+      const row = data.rows.find(row => row.rowNumber === entry.rowNumber)
+      return entry.neverAttempted && row ? { ...entry, center: row.collectionCenter, aviz: row.noticeNumber } : entry
+    }) }
+  }
+  if (state.status === 'sending') throw new Error('Wait for the current ERP send to finish before adding rows.')
+  if (state.status === 'sent' && job.data.rows.some(row => !state.rowLog?.some(entry => entry.rowNumber === row.rowNumber && entry.status === 'sent'))) {
+    throw new Error('This sent document has incomplete ERP row history. Verify its ERP records before adding rows.')
+  }
+  const next = structuredClone(state)
+  next.rowLog ??= []
+  for (const row of added) {
+    if (next.rowLog.some(entry => entry.rowNumber === row.rowNumber)) throw new Error('The new row number already exists in ERP history.')
+    next.rowLog.push({ rowNumber: row.rowNumber, center: row.collectionCenter, aviz: row.noticeNumber,
+      status: 'ready', neverAttempted: true,
+      documents: [{ kind: 'aviz', status: 'ready' }, { kind: 'nir', status: 'ready' }],
+    })
+  }
+  next.status = 'partial'
+  next.rowCount = data.rows.length
+  next.successCount = next.rowLog.filter(row => row.status === 'sent').length
+  next.failedCount = next.rowLog.filter(row => row.status === 'failed').length
+  delete next.completedAt
+  return next
+}
+
 export function dailyErpSource(data, centerMatches, rowNumber) {
   const row = data?.rows?.find(item => item.rowNumber === rowNumber)
   const match = centerMatches?.find(item => item.rowNumber === rowNumber)

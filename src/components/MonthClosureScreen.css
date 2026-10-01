@@ -310,18 +310,17 @@
 }
 
 .month-closure-invoice-tools {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #dce7e0;
-  background: #f7fbf8;
+  margin-right: auto;
 }
 
+.month-closure-card-title { position: relative; }
+
 .month-closure-invoice-info {
-  position: relative;
+  position: static;
 }
 
 .month-closure-invoice-info summary {
@@ -357,7 +356,7 @@
   position: absolute;
   z-index: 20;
   top: calc(100% + 8px);
-  left: 0;
+  left: 16px;
   width: min(520px, calc(100vw - 64px));
   padding: 14px 16px;
   border: 1px solid #bdd6c7;
@@ -623,9 +622,80 @@
   min-width: 1608px;
 }
 
-.month-closure-invoice-table th:nth-child(1) { width: 86px; }
+.month-closure-invoice-table th:nth-child(1) { width: 98px; white-space: normal; }
+.month-closure-date-heading { display: flex; align-items: center; gap: 5px; }
+.month-closure-date-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 28px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 1px solid #b4cfc0;
+  border-radius: 4px;
+  background: #fff;
+  color: #176c40;
+  cursor: pointer;
+}
+.month-closure-date-all:disabled { opacity: 0.5; cursor: default; }
+.month-closure-compact-date { position: relative; width: 86px; }
+.month-closure-compact-date > span {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.month-closure-compact-date .month-closure-invoice-date {
+  width: 86px;
+  color: transparent;
+  font-size: 12px;
+}
+.month-closure-compact-date input::-webkit-datetime-edit { opacity: 0; }
+.month-closure-compact-date input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 4px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+}
+.month-closure-compact-date:focus-within { outline: 2px solid #1f7a49; border-radius: 4px; }
+.month-closure-invoice-table td:first-child { padding-left: 5px; padding-right: 13px; }
+.month-closure-date-dialog { position: fixed; inset: 0; margin: auto; padding: 0; border: 0; border-radius: 8px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); }
+.month-closure-date-dialog::backdrop { background: rgba(9, 34, 22, 0.35); }
+.month-closure-date-dialog .month-closure-bulk-editor { width: 320px; max-width: 100%; }
+.month-closure-date-dialog h2 { font-size: 18px; margin: 0; }
+.month-closure-invoice-date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.month-closure-invoice-date,
+.month-closure-invoice-date-label input {
+  box-sizing: border-box;
+  width: 122px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px;
+  border: 1px solid #cddbd3;
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
 .month-closure-invoice-table th:nth-child(2) { width: 240px; }
-.month-closure-invoice-table th:nth-child(3) { width: 220px; }
+.month-closure-invoice-table th:nth-child(3) { width: 140px; }
+.month-closure-invoice-table th:nth-child(3),
+.month-closure-invoice-table td:nth-child(3) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
 .month-closure-invoice-table th:nth-child(4),
 .month-closure-invoice-table th:nth-child(5),
 .month-closure-invoice-table th:nth-child(6),
@@ -637,6 +707,17 @@
 .month-closure-invoice-table th:nth-child(14) { width: 104px; }
 .month-closure-invoice-table th:nth-child(10) { width: 112px; }
 .month-closure-invoice-table th:nth-child(12) { width: 72px; }
+.month-closure-invoice-table th:nth-child(15) { width: 60px; }
+.month-closure-invoice-table th:nth-child(16) { width: 76px; }
+.month-closure-invoice-table th:nth-child(17) { width: 170px; }
+.month-closure-invoice-table th:nth-child(5) { width: 120px; white-space: normal; }
+.month-closure-table:not(.month-closure-invoice-table):not(.month-closure-bank-table) th:nth-child(9),
+.month-closure-table:not(.month-closure-invoice-table):not(.month-closure-bank-table) th:nth-child(15) { width: 112px; }
+.month-closure-collector { display: block; color: #536572; font-weight: 600; }
+.month-closure-invoice-warning { display: block; white-space: normal; overflow-wrap: anywhere; margin-top: 5px; color: #805000; }
+.month-closure-invoice-send small { display: block; max-width: 170px; white-space: normal; margin-top: 5px; color: #805000; }
+.month-closure-invoice-send button { padding: 7px 10px; border: 1px solid #176345; border-radius: 5px; background: #176345; color: #fff; cursor: pointer; white-space: nowrap; }
+.month-closure-invoice-send button:disabled { background: #edf1ef; color: #68746d; border-color: #cdd7d1; cursor: not-allowed; }
 
 .month-closure-bank-table {
   min-width: 1320px;
@@ -649,7 +730,8 @@
 .month-closure-bank-table th:nth-child(5) { width: 180px; }
 .month-closure-bank-table th:nth-child(6) { width: 195px; }
 .month-closure-bank-table th:nth-child(7) { width: 250px; }
-.month-closure-bank-table th:nth-child(8) { width: 125px; }
+.month-closure-bank-table th:nth-child(8) { width: 110px; white-space: normal; }
+.month-closure-bank-table th:nth-child(9) { width: 125px; }
 
 .month-closure-bank-center {
   white-space: normal;

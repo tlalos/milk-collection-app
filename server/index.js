@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
-import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend } from './dailyErpRecovery.js'
+import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend, registerAddedDailyErpRows } from './dailyErpRecovery.js'
 import multer from 'multer'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -2363,7 +2363,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     }
     const erpExport = request.body.erpExport && typeof request.body.erpExport === 'object'
       ? request.body.erpExport
-      : current.erpExport
+      : registerAddedDailyErpRows(current, data)
     if (request.body.erpExport?.rowLog) {
       for (const row of erpExport.rowLog) {
         const previous = current.erpExport?.rowLog?.find(item => item.rowNumber === row.rowNumber)
