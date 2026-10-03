@@ -176,9 +176,8 @@ export function dailyCenterSelectionError(rows: DailyRouteExtractedRow[], matche
   for (const row of rows) {
     const match = matches.find(item => item.rowNumber === row.rowNumber)
     if (!match?.selectedCode) return `Row ${row.rowNumber}: select an ERP center code before sending.`
-    const option = match.suggestions.find(item => item.code === match.selectedCode)
-    if (!name(row.collectionCenter) || name(row.collectionCenter) !== name(match.selectedName) ||
-      (option && name(option.name) !== name(row.collectionCenter))) {
+    // Suggestions are historical OCR matches; matchSupplier validates against live ERP data.
+    if (!name(row.collectionCenter) || name(row.collectionCenter) !== name(match.selectedName)) {
       return `Row ${row.rowNumber}: the center name and ERP selection do not agree. Select the correct ERP center again.`
     }
   }

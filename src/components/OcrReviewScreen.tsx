@@ -988,15 +988,17 @@ export function OcrReviewScreen() {
       ?? centerMatchForRow(rowNumber, draft?.rows.find(row => row.rowNumber === rowNumber)?.collectionCenter || '', referenceCenters, false)
     const searchMatch = centerSearchMatches[rowNumber]
     const activeMatch = openCenterSuggestions === rowNumber && searchMatch ? searchMatch : savedMatch
-    const selectedMatch = activeMatch?.suggestions.find((suggestion) => String(suggestion.code) === String(code))
+    const suggestion = activeMatch?.suggestions.find((item) => String(item.code) === String(code))
+    const currentCenter = referenceCenters.find(center => String(center.code) === String(code))
+    const selectedMatch = currentCenter ? { ...suggestion, code: currentCenter.code, name: currentCenter.name, score: suggestion?.score ?? 1 } : suggestion
     setCenterMatches((current) => {
       const existing = current.find((match) => match.rowNumber === rowNumber)
       if (!existing && !activeMatch) return current
       const matchToUpdate = existing ?? activeMatch!
       const existingSuggestions = matchToUpdate.suggestions
       const selected = selectedMatch
-      const suggestions = selected && !existingSuggestions.some((suggestion) => String(suggestion.code) === String(selected.code))
-        ? [selected, ...existingSuggestions]
+      const suggestions = selected
+        ? [selected, ...existingSuggestions.filter(suggestion => String(suggestion.code) !== String(selected.code))]
         : existingSuggestions
       const updated: CenterMatch = !selected
         ? { ...matchToUpdate, suggestions, selectedCode: null, selectedName: null, status: suggestions.length ? 'suggested' : 'unmatched' }
@@ -1951,7 +1953,7 @@ export function OcrReviewScreen() {
                               <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
                                 <option value="">{isRo ? 'Selectați centrul ERP' : 'Select ERP center'}</option>
                                 {match.selectedCode && !match.suggestions.some((item) => item.code === match.selectedCode) && <option value={match.selectedCode}>{match.selectedName} · {match.selectedCode}</option>}
-                                {match.suggestions.map((suggestion) => <option className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-option' : ''} key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{suggestion.source === 'ocr_original' ? `${suggestion.name} · ${isRo ? 'OCR original' : 'OCR original'}` : `${Math.round(suggestion.score * 100)}% · ${suggestion.name} · ${suggestion.code}`}</option>)}
+                                {match.suggestions.map((suggestion) => <option className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-option' : ''} key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{suggestion.source === 'ocr_original' ? `${suggestion.name} · ${isRo ? 'OCR original' : 'OCR original'}` : `${Math.round(suggestion.score * 100)}% · ${referenceCenters.find(center => center.code === suggestion.code)?.name || (suggestion.code === match.selectedCode ? match.selectedName : null) || suggestion.name} · ${suggestion.code}`}</option>)}
                               </select>
                               {openCenterSuggestions === row.rowNumber && searchMatch?.suggestions.length ? (
                                 <div className="review-center-suggestion-menu" role="listbox" aria-label={isRo ? `Sugestii pentru rândul ${row.rowNumber}` : `Suggestions for row ${row.rowNumber}`}>

@@ -22,7 +22,7 @@ const { dailyCenterSelectionError, failedDailyErpRecovery, sendDailyRouteDetails
 const data = { date: '2026-09-30', rows: [{ rowNumber: 13, collectionCenter: 'BATIN', liters: 100, noticeNumber: '3852' }] }
 const matches = [{ rowNumber: 13, selectedCode: 'c1', selectedName: 'BATIN', suggestions: [] }]
 test('center mismatch blocks repeated attempts without modifying the selection', () => {
-  const wrong = [{ ...matches[0], suggestions: [{ code: 'c1', name: 'OTHER CENTER' }] }]
+  const wrong = [{ ...matches[0], selectedName: 'OTHER CENTER', suggestions: [{ code: 'c1', name: 'OTHER CENTER' }] }]
   const before = structuredClone(wrong)
   for (let attempt = 0; attempt < 2; attempt++) {
     assert.match(dailyCenterSelectionError(data.rows, wrong), /Row 13:.*do not agree/)
@@ -33,6 +33,28 @@ test('center mismatch blocks repeated attempts without modifying the selection',
   assert.match(dailyCenterSelectionError(data.rows, []), /select an ERP center/)
 })
 const ready = kind => ({ kind, status: 'ready', manualVerification: { outcome: 'absent' }, attempts: [{ status: 'failed' }] })
+
+test('stale suggestions do not block a corrected name that agrees with live ERP', async () => {
+  const stale = [{ ...matches[0], suggestions: [{ code: 'c1', name: 'OLD BATIN NAME' }] }]
+  assert.equal(dailyCenterSelectionError(data.rows, stale), null)
+  const calls = []
+  globalThis.__fakeErp = async orders => { calls.push(orders[0]); return { status: true, newid: String(300 + calls.length) } }
+  const result = await sendDailyRouteDetailsToErp(data, stale, undefined, async () => {}, { state: state([ready('aviz'), ready('nir')]), rowNumber: 13 })
+  assert.equal(result.status, 'sent')
+  assert.equal(calls.length, 2)
+})
+
+test('matching row and selection still cannot send if the live ERP name disagrees', async () => {
+  let sends = 0
+  globalThis.__fakeErp = async () => { sends++; return { status: true, newid: '999' } }
+  const wrongData = { ...data, rows: [{ ...data.rows[0], collectionCenter: 'OTHER CENTER' }] }
+  const wrongMatches = [{ ...matches[0], selectedName: 'OTHER CENTER' }]
+  const result = await sendDailyRouteDetailsToErp(wrongData, wrongMatches, undefined, async () => {}, { state: state([ready('aviz'), ready('nir')]), rowNumber: 13 })
+  const failed = result.rowLog.find(row => row.rowNumber === 13)
+  assert.equal(failed.status, 'failed')
+  assert.match(failed.message, /do not agree/)
+  assert.equal(sends, 0)
+})
 const state = documents => ({ status: 'sending', recoveryId: 'test-recovery', rowLog: [
   { rowNumber: 12, status: 'sent', documents: [{ kind: 'aviz', status: 'sent', newid: '10' }, { kind: 'nir', status: 'sent', newid: '11' }] },
   { rowNumber: 13, status: 'ready', documents },
