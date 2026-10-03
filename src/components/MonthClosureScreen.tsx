@@ -288,7 +288,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       const response = await fetch(appPath('/api/month-closure/invoice-preview'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: row.month, producerCode: row.producerCode, milkType: row.milkType,
-          invoiceDate: invoiceDates[row.id] || monthEndDate(row.month), connection: ocrConnectionSettingsStore.get() }),
+          invoiceDate: invoiceDates[row.id] || monthEndDate(row.month), connection: await ocrConnectionSettingsStore.resolve() }),
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not preview invoice.')
@@ -308,7 +308,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       const response = await fetch(appPath('/api/month-closure/invoice-send'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: snapshot.month, producerCode: snapshot.producerCode, milkType: snapshot.milkType,
-          invoiceDate: snapshot.invoiceDate, fingerprint, confirmed: true, connection: ocrConnectionSettingsStore.get() }),
+          invoiceDate: snapshot.invoiceDate, fingerprint, confirmed: true, connection: await ocrConnectionSettingsStore.resolve() }),
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'Could not confirm invoice. Check ERP before retrying.')

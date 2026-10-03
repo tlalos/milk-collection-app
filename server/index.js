@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
+import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
 import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend, registerAddedDailyErpRows } from './dailyErpRecovery.js'
 import multer from 'multer'
 import path from 'node:path'
@@ -1668,6 +1669,29 @@ app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
 })
 
 app.use('/api/ocr', requireOcrPermission)
+
+app.get('/api/erp/connection', async (request, response, next) => {
+  try {
+    if (!await getSessionUser(sessionToken(request))) return response.status(401).json({ error: 'Authentication required.' })
+    response.set('Cache-Control', 'no-store').json(await erpConnectionStore.get())
+  } catch (error) { next(error) }
+})
+
+app.put('/api/erp/connection', async (request, response, next) => {
+  let serverUrl
+  try { serverUrl = normalizeErpUrl(request.body?.serverUrl) }
+  catch { return response.status(400).json({ error: 'Enter a valid HTTP(S) ERP base URL without credentials, query or fragment.' }) }
+  try {
+    const user = await getSessionUser(sessionToken(request))
+    if (!user) return response.status(401).json({ error: 'Authentication required.' })
+    const current = await erpConnectionStore.get()
+    if (serverUrl !== current.serverUrl && !userHasPermission(user, 'ocr_settings')) {
+      return response.status(403).json({ error: 'OCR settings permission is required to change the shared ERP URL.' })
+    }
+    response.json(await erpConnectionStore.save(serverUrl))
+  }
+  catch (error) { next(error) }
+})
 
 app.get('/api/ocr/settings', async (_request, response, next) => {
   try { response.json({ settings: publicOcrSettings(await getOcrSettings()) }) } catch (error) { next(error) }

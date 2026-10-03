@@ -14,7 +14,7 @@ const built = await build({
       export const getRomOfflineSuppliers = async () => [{sup_code:'c1',sup_name:'BATIN',sup_id:1}];
       export const getRomZgParam = async () => [];
       export const saveZGParalavesSuppliesOrder = async orders => globalThis.__fakeErp(orders);
-      export const ocrConnectionSettingsStore = {get:()=>({serverUrl:'fake',apiUsername:'test',apiPassword:'test'})};
+      export const ocrConnectionSettingsStore = {resolve:async()=>({serverUrl:'fake',apiUsername:'test',apiPassword:'test'})};
     ` }))
   } }],
 })

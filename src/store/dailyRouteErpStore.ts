@@ -297,7 +297,7 @@ export async function sendDailyRouteDetailsToErp(
   recovery?: { state: DailyRouteErpExport; rowNumber: number; initial?: boolean },
 ): Promise<DailyRouteErpExport> {
   const startedAt = new Date().toISOString()
-  const settings = ocrConnectionSettingsStore.get()
+  const settings = await ocrConnectionSettingsStore.resolve()
   if (!settings.serverUrl || !settings.apiUsername || !settings.apiPassword) {
     throw new Error('OCR ERP connection is not configured. Open OCR connection settings and save the API URL, username, and password.')
   }

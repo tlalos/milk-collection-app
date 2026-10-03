@@ -221,8 +221,19 @@ function HomeOcrSignInPanel({
 function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings>(() => ocrConnectionSettingsStore.get())
   const [saved, setSaved] = useState(false)
+  const [connectionBusy, setConnectionBusy] = useState(true)
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testMessage, setTestMessage] = useState('')
+
+  useEffect(() => {
+    let active = true
+    void ocrConnectionSettingsStore.getSharedUrl().then(serverUrl => {
+      if (active && serverUrl) setSettings(current => ({ ...current, serverUrl }))
+    }).catch(error => {
+      if (active) { setTestStatus('fail'); setTestMessage((error as Error).message) }
+    }).finally(() => { if (active) setConnectionBusy(false) })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (!saved) return
@@ -237,9 +248,19 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
     setTestMessage('')
   }
 
-  function handleSave() {
-    ocrConnectionSettingsStore.set(settings)
-    setSaved(true)
+  async function handleSave() {
+    if (connectionBusy) return
+    setConnectionBusy(true)
+    setSaved(false)
+    try {
+      await ocrConnectionSettingsStore.saveShared(settings)
+      setSaved(true)
+      setTestStatus('idle')
+      setTestMessage('')
+    } catch (error) {
+      setTestStatus('fail')
+      setTestMessage((error as Error).message)
+    } finally { setConnectionBusy(false) }
   }
 
   async function handleTest() {
@@ -262,7 +283,7 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
           <button className="home-access-session" type="button" onClick={onClose}>
             Hide
           </button>
-          <button className={`home-access-session ${saved ? 'saved' : ''}`} type="button" onClick={handleSave}>
+          <button className={`home-access-session ${saved ? 'saved' : ''}`} type="button" disabled={connectionBusy} onClick={() => void handleSave()}>
             {saved ? 'Saved' : 'Save settings'}
           </button>
         </div>
@@ -278,6 +299,7 @@ function HomeOcrConnectionPanel({ onClose }: { onClose: () => void }) {
               autoCapitalize="none"
               spellCheck={false}
               placeholder="https://your-api-host/api"
+              disabled={connectionBusy}
               value={settings.serverUrl}
               onChange={(event) => handleChange('serverUrl', event.target.value)}
             />

@@ -69,7 +69,7 @@ test('ERP HTTP error details are retained in the locked attempt', async () => {
 })
 
 test('unapproved ERP destinations make no network requests', async () => {
-  await assert.rejects(connectInvoiceErp({ serverUrl: 'http://unapproved.invalid' }, async () => { throw new Error('Must not fetch') }), /destination|MONTHLY_INVOICE_ERP_URL/)
+  await assert.rejects(connectInvoiceErp({ serverUrl: 'http://unapproved.invalid' }, async () => { throw new Error('Must not fetch') }, { get: async () => ({ serverUrl: 'https://erp.example/api' }) }), /destination/)
 })
 
 test('branch lookup and invoice payload use the same ZG user, not login username', async () => {
@@ -83,7 +83,7 @@ test('branch lookup and invoice payload use the same ZG user, not login username
         : url.includes('ERP_RomSuppliersList') ? [supplier]
         : url.endsWith('username=zg1') ? [{ par_from_branch: 1 }] : []
       return { ok: true, json: async () => JSON.stringify(data) }
-    })
+    }, { get: async () => ({ serverUrl: 'https://erp.example/api' }) })
     assert.equal(client.params.par_from_branch, 1)
     assert.equal(client.username, 'zg1')
     const invoice = buildInvoicePreview(row, supplier, '2026-08-31', client.username, client.params)

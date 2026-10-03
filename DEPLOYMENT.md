@@ -54,7 +54,9 @@ The Milk Deliveries API also creates `dbo.MilkDeliveryWeightEvents` and adds nul
 
 ## Monthly Invoice Sending
 
-Set `MONTHLY_INVOICE_ERP_URL` to the exact API base URL used in OCR connection settings. Invoice requests only use this approved destination; redirects are refused. The browser supplies the current OCR credentials for each preview/send, but they are not saved in invoice history. Use HTTPS for production access.
+Save the ERP base URL once in the app's OCR connection settings. Aviz/NIR, supplier refresh and monthly invoices all resolve this shared URL from `data/settings/erp-connection.json`. Changing the URL requires the `ocr_settings` permission; users can save their own browser credentials without changing the shared URL. Preserve `data/settings` during upgrades. Credentials stay in the browser and are supplied for invoice preview/send, never saved in invoice history. Use HTTPS for production access.
+
+For existing installations, `MONTHLY_INVOICE_ERP_URL` is only a compatibility fallback until the connection settings are saved once. The saved shared URL takes precedence; the old environment entry can then be removed. New installations do not need this environment variable. Invoice requests reject a destination that differs from the saved configuration, and ERP redirects are refused.
 
 The row button opens a server-generated preview. Confirming revalidates saved pricing, producer references and invoice date, then claims the invoice in SQL before making one ERP request. Sent, in-flight and unconfirmed invoices cannot be submitted again. Unconfirmed results require ERP investigation; automatic retry and manual recovery are not enabled. SQL tables are created on backend startup. No invoice is sent by deployment or startup.
 

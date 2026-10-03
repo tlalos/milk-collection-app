@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
 
 const items = { 'MILK-COW': [16551, 'MF0010'], 'MILK-SHEEP': [17119, 'mff0000000000038'], 'MILK-BUFF': [17155, 'mff0000000000042'] }
 const normalized = value => String(value ?? '').trim().toLowerCase()
@@ -48,10 +49,10 @@ export function buildInvoicePreview(row, supplier, date, username, params = {}) 
   return { snapshot, payload, fingerprint }
 }
 
-export async function connectInvoiceErp(connection, fetchImpl = fetch) {
-  const configured = String(process.env.MONTHLY_INVOICE_ERP_URL || '').replace(/\/+$/, '')
-  if (!configured) throw new Error('Set MONTHLY_INVOICE_ERP_URL on the server to enable invoice sending.')
-  if (String(connection?.serverUrl || '').replace(/\/+$/, '') !== configured) throw new Error('OCR ERP URL does not match the server invoice destination.')
+export async function connectInvoiceErp(connection, fetchImpl = fetch, connectionStore = erpConnectionStore) {
+  const { serverUrl: configured } = await connectionStore.get()
+  if (!configured) throw new Error('Save the shared ERP URL in OCR connection settings before sending.')
+  if (normalizeErpUrl(connection?.serverUrl) !== configured) throw new Error('ERP destination changed. Refresh the connection settings before retrying.')
   if (!connection.apiUsername || !connection.apiPassword) throw new Error('Configure the OCR ERP credentials first.')
   async function call(path, body, token) {
     const response = await fetchImpl(`${configured}/${path}`, {

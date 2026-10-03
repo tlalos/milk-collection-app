@@ -166,7 +166,7 @@ export async function loadOcrReferenceSuppliers(options: { force?: boolean } = {
       }
     }
 
-    const settings = ocrConnectionSettingsStore.get()
+    const settings = await ocrConnectionSettingsStore.resolve()
     const login = await loginToErp(settings)
     const suppliers = await fetchErpSupplierList(settings, login.access_token)
     const mapped = mapErpSuppliers(suppliers)
