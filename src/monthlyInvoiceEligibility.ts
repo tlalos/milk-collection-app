@@ -28,7 +28,7 @@ export function monthlyInvoiceBlockReason(row: InvoiceSource, finalAmount: numbe
     if (row.reconciliationStatus === 'missing_aviz') return 'Missing aviz'
     if (row.reconciliationStatus === 'missing_monthly') return 'No journal'
     if (row.reconciliationDifferenceLiters === null || !Number.isFinite(row.reconciliationDifferenceLiters)) return 'Comparison unavailable'
-    if (Math.abs(row.reconciliationDifferenceLiters) > 5) return 'Difference exceeds 5 L'
+    if (Math.abs(row.reconciliationDifferenceLiters) > 10) return 'Difference exceeds 10 L'
     if (!row.readyForPricing) return 'Unresolved reconciliation problem'
   }
   if (finalAmount === null || !Number.isFinite(finalAmount)) return 'No final result'

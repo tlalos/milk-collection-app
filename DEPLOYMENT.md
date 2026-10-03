@@ -52,6 +52,12 @@ The importer inserts missing deliveries in one transaction. It skips identical I
 
 The Milk Deliveries API also creates `dbo.MilkDeliveryWeightEvents` and adds nullable weight-source fields to `dbo.MilkDeliveries`. New manual and scale changes are logged with the user and save time. Existing rows are not backfilled with a guessed source or event history.
 
+## Monthly Invoice Sending
+
+Set `MONTHLY_INVOICE_ERP_URL` to the exact API base URL used in OCR connection settings. Invoice requests only use this approved destination; redirects are refused. The browser supplies the current OCR credentials for each preview/send, but they are not saved in invoice history. Use HTTPS for production access.
+
+The row button opens a server-generated preview. Confirming revalidates saved pricing, producer references and invoice date, then claims the invoice in SQL before making one ERP request. Sent, in-flight and unconfirmed invoices cannot be submitted again. Unconfirmed results require ERP investigation; automatic retry and manual recovery are not enabled. SQL tables are created on backend startup. No invoice is sent by deployment or startup.
+
 ## Persistent data
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.

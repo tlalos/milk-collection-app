@@ -22,9 +22,21 @@ test('collectors retain pricing subtotal but have no invoice calculation', () =>
   assert.equal(result.finalResult, null)
   assert.equal(pricingSubtotal(1000, null, null, null), null)
 })
-test('invalid quantities are blocked and adjusted prices are not rounded internally', () => {
+test('invalid quantities are blocked and invoice prices use two decimals', () => {
   for (const qty of [0, -1, NaN]) assert.equal(calculate(qty, 1.5, 100, 100, false, false).adjustedPrice, null)
   const result = calculate(3, 1, 1, 0, false, false)
-  assert.equal(result.adjustedPrice, 4 / 3)
-  assert.equal(result.finalResult, 4)
+  assert.equal(result.adjustedPrice, 1.33)
+  assert.equal(result.finalResult, 3.99)
+  assert.equal(result.roundingDifference, -0.01)
+})
+
+test('tax follows the rounded invoice subtotal while pricing remains unchanged', () => {
+  const result = calculate(963, 0, 1700, 0, true, false)
+  assert.equal(pricingSubtotal(963, 0, 1700, 0), 1700)
+  assert.equal(result.adjustedPrice, 1.77)
+  assert.equal(result.result, 1704.51)
+  assert.equal(result.roundingDifference, 4.51)
+  assert.equal(result.extraAmount, 136.36)
+  assert.equal(result.finalResult, 1840.87)
+  assert.equal(calculate(1, 1.005, 0, 0, false, false).adjustedPrice, 1.01)
 })

@@ -969,6 +969,8 @@
 .monthly-recon-producer-count button[aria-expanded="true"] .monthly-recon-producer-chevron { transform: rotate(45deg); }
 .monthly-recon-producers ul { margin: 6px 0; padding-left: 24px; overflow-wrap: anywhere; }
 .monthly-recon-producers li { margin: 4px 0; }
+.monthly-recon-detail-warning { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: #805000; font-size: 12px; font-weight: 600; white-space: normal; }
+.monthly-recon-detail-warning svg { flex-shrink: 0; }
 .monthly-recon-producer-warning { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; color: #925700; font-size: 12px; font-weight: 600; white-space: normal; }
 .monthly-recon-producer-warning > span { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 16px; width: 16px; height: 16px; border-radius: 50%; background: #e39a24; color: #fff; font-weight: 800; }
 .monthly-aviz-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; }

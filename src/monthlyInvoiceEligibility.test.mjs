@@ -19,9 +19,9 @@ test('final amount is required, but a milk price is not', () => {
   assert.equal(reason(row, null, true), 'No final result')
   assert.equal(reason(row, NaN, true), 'No final result')
 })
-test('five liter tolerance is inclusive and symmetric', () => {
-  for (const diff of [-5, 0, 5]) assert.equal(reason({ ...row, reconciliationDifferenceLiters: diff }, 100, true), null)
-  for (const diff of [-5.001, 5.001, 10]) assert.equal(reason({ ...row, reconciliationDifferenceLiters: diff }, 100, true), 'Difference exceeds 5 L')
+test('ten liter tolerance is inclusive and symmetric', () => {
+  for (const diff of [-10, -6, 0, 6, 10]) assert.equal(reason({ ...row, reconciliationDifferenceLiters: diff }, 100, true), null)
+  for (const diff of [-10.001, 10.001, 11]) assert.equal(reason({ ...row, reconciliationDifferenceLiters: diff }, 100, true), 'Difference exceeds 10 L')
 })
 test('producer and document problems block sending', () => {
   for (const change of [{ producerWarning: 'Wrong center' }, { producerCode: '' }, { duplicateProducer: true }, { missingLiters: true }, { approvalReviewRequired: true }, { reconciliationStatus: 'missing_aviz' }, { reconciliationDifferenceLiters: null }, { readyForPricing: false }]) {

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { CircleAlert } from 'lucide-react'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { MonthlyReconciliationInfo } from './MonthlyReconciliationInfo'
 import { appPath } from '../ocrPaths'
@@ -796,6 +797,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                 {!loading && tableRows.map((row) => {
                   const approved = isApprovedForAvizPricing(row, avizApprovals)
                   const displayStatus = approved ? 'ok' : row.status
+                  const hasDetailIssues = row.monthlyRows.some(detail => Boolean(detail.producerWarning))
                   return (
                   <Fragment key={row.id}>
                     <tr className={`monthly-recon-row ${displayStatus}`}>
@@ -812,6 +814,9 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       <td className={`monthly-recon-center-cell ${displayStatus}`} title={row.center}>
                         {row.monthlyRowCount === 0 && !approved && <span className="monthly-recon-center-alert">!</span>}
                         <span>{row.center}</span>
+                        {hasDetailIssues && <small className="monthly-recon-detail-warning" title="One or more journal rows have warnings. Expand this row to review them.">
+                          <CircleAlert size={14} aria-hidden="true" /> Check details
+                        </small>}
                         {row.monthlyRowCount === 0 && row.avizPricing && (
                           <div className="monthly-aviz-pricing-action">
                             {row.avizPricing.linkedProducers == null ? <p>ERP producer count unavailable until the center is resolved.</p> : (

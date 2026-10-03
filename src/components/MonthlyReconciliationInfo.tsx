@@ -18,7 +18,7 @@ export function MonthlyReconciliationInfo() {
           <h3>Reading the results</h3>
           <ul>
             <li><strong>Difference:</strong> monthly journal liters minus aviz liters. A negative value means the journal has fewer liters.</li>
-            <li><strong>OK:</strong> both sources exist and their totals differ by no more than 5 liters.</li>
+            <li><strong>OK:</strong> both sources exist and their totals differ by no more than 10 liters.</li>
             <li><strong>No journal / Missing aviz:</strong> one side of the comparison is absent. The main table shows centers with aviz; Journals also includes journal-only centers.</li>
           </ul>
           <h3>Checking an issue</h3>
@@ -33,7 +33,7 @@ export function MonthlyReconciliationInfo() {
           <p><code>GET /api/ocr/monthly-reconciliation/rows</code> loads the comparison and approval context. <code>monthlyReconciliationFromJobs</code> in <code>server/index.js</code> aggregates saved OCR jobs in categories <code>daily_routes</code> and <code>journal_monthly_settlement</code>, grouped by month, normalized center, and milk type.</p>
           <p>Daily rows provide aviz liters. Monthly rows provide journal liters; a document total is used as a fallback when no journal rows exist. Journal centers resolve from the header name, saved header selection, then row center. Producer selections are checked against the current row name before being used.</p>
           <h3>Status calculation</h3>
-          <p><code>differenceLiters = monthlyLiters - avizLiters</code>. Missing-side checks take precedence; otherwise an absolute difference greater than 5 liters is Difference. Percentage uses aviz liters as the denominator and is unavailable when that total is zero.</p>
+          <p><code>differenceLiters = monthlyLiters - avizLiters</code>. Missing-side checks take precedence; otherwise an absolute difference greater than 10 liters is Difference. Percentage uses aviz liters as the denominator and is unavailable when that total is zero.</p>
           <h3>Issues and approval state</h3>
           <p><code>GET /api/ocr/issues</code> supplies the issue list. <code>server/journalAvizIssues.js</code> identifies missing month/center/milk-type counterparts and journal header conflicts.</p>
           <p><code>src/monthlyReconciliationApproval.ts</code> applies the UI severity rule: only a missing-journal issue with a matching active APPROVED record for month, ERP center code, and milk type becomes Warning. The group must still have no journal and no approval eligibility or center-match warning. Other issues remain Error; the original reconciliation status is unchanged.</p>
