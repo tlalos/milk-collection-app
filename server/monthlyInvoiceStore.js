@@ -63,6 +63,20 @@ IF COL_LENGTH('dbo.MonthlyInvoiceAttempts','verifiedAbsentAt') IS NULL
   ALTER TABLE dbo.MonthlyInvoiceAttempts ADD verifiedAbsentAt DATETIMEOFFSET NULL, verifiedAbsentBy NVARCHAR(120) NULL;
 IF COL_LENGTH('dbo.MonthlyInvoiceAttempts','snapshotJson') IS NULL
   ALTER TABLE dbo.MonthlyInvoiceAttempts ADD snapshotJson NVARCHAR(MAX) NULL;
+IF OBJECT_ID(N'dbo.MonthlyInvoiceResolutions', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.MonthlyInvoiceResolutions (
+    resolutionId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+    invoiceId UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.MonthlyInvoices(invoiceId),
+    attemptId UNIQUEIDENTIFIER NOT NULL UNIQUE REFERENCES dbo.MonthlyInvoiceAttempts(attemptId),
+    outcome VARCHAR(10) NOT NULL CHECK (outcome IN ('FOUND','ABSENT')),
+    reason NVARCHAR(1000) NOT NULL,
+    erpId NVARCHAR(120) NULL,
+    erpNumber NVARCHAR(120) NULL,
+    resolvedBy NVARCHAR(120) NOT NULL,
+    resolvedAt DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET()
+  );
+END;
 `)
   })().catch(error => { initialization = undefined; throw error })
   return initialization
@@ -113,17 +127,53 @@ FROM dbo.MonthlyInvoices WHERE monthKey=@month AND producerCode=@producer AND mi
   })
 }
 
+export async function saveMonthlyInvoiceDates({ month, rows, invoiceDate, user }) {
+  invoiceIdentity(month, 'p-validation', invoiceDate)
+  const username = actor(user)
+  const unique = new Map()
+  for (const row of rows) {
+    const identity = invoiceIdentity(month, row.producerCode, invoiceDate)
+    if (!['MILK-COW', 'MILK-BUFF', 'MILK-SHEEP', 'MILK-GOAT'].includes(row.milkType)) throw new Error('Invalid invoice milk type.')
+    unique.set(`${identity.producerCode}:${row.milkType}`, { producerCode: identity.producerCode, milkType: row.milkType })
+  }
+  return transaction(async tx => {
+    const result = await new sql.Request(tx)
+      .input('month', sql.Char(7), month).input('date', sql.Date, invoiceDate)
+      .input('user', sql.NVarChar(120), username)
+      .input('rows', sql.NVarChar(sql.MAX), JSON.stringify([...unique.values()]))
+      .query(`
+DECLARE @targets TABLE(producerCode NVARCHAR(80), milkType NVARCHAR(40), PRIMARY KEY(producerCode,milkType));
+INSERT INTO @targets SELECT producerCode,milkType FROM OPENJSON(@rows)
+WITH(producerCode NVARCHAR(80),milkType NVARCHAR(40));
+DELETE t FROM @targets t WHERE EXISTS (
+  SELECT 1 FROM dbo.MonthlyInvoices i WITH (UPDLOCK,HOLDLOCK)
+  WHERE i.monthKey=@month AND i.producerCode=t.producerCode AND i.milkType IN (t.milkType,'') AND i.status<>'DRAFT'
+);
+UPDATE i SET invoiceDate=@date,updatedAt=SYSDATETIMEOFFSET()
+FROM dbo.MonthlyInvoices i JOIN @targets t ON i.producerCode=t.producerCode AND i.milkType=t.milkType
+WHERE i.monthKey=@month AND i.status='DRAFT';
+INSERT INTO dbo.MonthlyInvoices(invoiceId,monthKey,producerCode,milkType,invoiceDate,createdBy)
+SELECT NEWID(),@month,t.producerCode,t.milkType,@date,@user FROM @targets t
+WHERE NOT EXISTS (SELECT 1 FROM dbo.MonthlyInvoices i WITH (UPDLOCK,HOLDLOCK)
+  WHERE i.monthKey=@month AND i.producerCode=t.producerCode AND i.milkType=t.milkType);
+SELECT i.producerCode,i.milkType,CONVERT(VARCHAR(10),i.invoiceDate,23) AS invoiceDate
+FROM dbo.MonthlyInvoices i JOIN @targets t ON i.producerCode=t.producerCode AND i.milkType=t.milkType
+WHERE i.monthKey=@month;`)
+    return result.recordset
+  })
+}
+
 export async function listMonthlyInvoices(month) {
   invoiceIdentity(month, 'p-validation', `${month}-01`)
   await initializeMonthlyInvoices()
   const pool = await getMilkReceptionPool()
   return (await pool.request().input('month', sql.Char(7), month).query(`
-SELECT invoiceId,monthKey,producerCode,milkType,CONVERT(VARCHAR(10),invoiceDate,23) AS invoiceDate,status,series,erpId,erpNumber
-FROM dbo.MonthlyInvoices WHERE monthKey=@month ORDER BY producerCode`)).recordset
+SELECT invoiceId,monthKey,producerCode,milkType,CONVERT(VARCHAR(10),invoiceDate,23) AS invoiceDate,status,series,erpId,erpNumber,
+  (SELECT COUNT(*) FROM dbo.MonthlyInvoiceAttempts a WHERE a.invoiceId=i.invoiceId) AS attemptCount
+FROM dbo.MonthlyInvoices i WHERE monthKey=@month ORDER BY producerCode`)).recordset
 }
 
-// Internal only: a future sender must build and validate this snapshot from server data.
-// No HTTP endpoint accepts client-supplied payloads or marks invoices as sent.
+// Sending always uses a validated server-built snapshot, never a client payload.
 export async function claimMonthlyInvoice({ invoiceId, invoiceDate, series, lines, payload, user }) {
   if (![5105, 5106].includes(series) || !Array.isArray(lines) || lines.length !== 1 || !Array.isArray(payload) || payload.length !== 1) throw new Error('A single validated invoice line is required.')
   const username = actor(user)
@@ -178,20 +228,65 @@ WHERE invoiceId=(SELECT invoiceId FROM dbo.MonthlyInvoiceAttempts WHERE attemptI
   })
 }
 
-export async function unlockVerifiedAbsentInvoice({ invoiceId, attemptId, user }) {
-  const verifiedBy = actor(user)
+export async function getMonthlyInvoiceHistory(invoiceId) {
+  validateInvoiceId(invoiceId)
+  await initializeMonthlyInvoices()
+  const result = await (await getMilkReceptionPool()).request().input('id', sql.UniqueIdentifier, invoiceId).query(`
+SELECT invoiceId,monthKey,producerCode,milkType,CONVERT(VARCHAR(10),invoiceDate,23) AS invoiceDate,status,series,erpId,erpNumber
+FROM dbo.MonthlyInvoices WHERE invoiceId=@id;
+SELECT a.attemptId,a.status,a.startedAt,a.finishedAt,a.attemptedBy,a.error,a.verifiedAbsentAt,a.verifiedAbsentBy,
+  r.outcome,r.reason,r.erpId,r.erpNumber,r.resolvedBy,r.resolvedAt
+FROM dbo.MonthlyInvoiceAttempts a LEFT JOIN dbo.MonthlyInvoiceResolutions r ON r.attemptId=a.attemptId
+WHERE a.invoiceId=@id ORDER BY a.startedAt DESC,a.attemptId DESC;`)
+  return result.recordsets[0][0] ? { invoice: result.recordsets[0][0], attempts: result.recordsets[1] } : null
+}
+
+function validateInvoiceId(id) {
+  if (typeof id !== 'string' || !/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id)) throw new Error('Invalid invoice or attempt ID.')
+}
+
+export function validateInvoiceResolution({ invoiceId, attemptId, outcome, reason, erpId, erpNumber, confirmed, user }) {
+  validateInvoiceId(invoiceId)
+  validateInvoiceId(attemptId)
+  if (!['FOUND', 'ABSENT'].includes(outcome)) throw new Error('Choose found or not found in ERP.')
+  if (confirmed !== true) throw new Error('Confirm that you checked ERP for this invoice.')
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 1000) throw new Error('A verification reason of up to 1000 characters is required.')
+  if (outcome === 'FOUND' && (typeof erpId !== 'string' || !erpId.trim() || erpId.trim().length > 120)) throw new Error('An ERP document ID of up to 120 characters is required.')
+  if (erpNumber != null && (typeof erpNumber !== 'string' || erpNumber.trim().length > 120)) throw new Error('Invalid ERP document number.')
+  return { invoiceId, attemptId, outcome, reason: reason.trim(), erpId: outcome === 'FOUND' ? erpId.trim() : null,
+    erpNumber: outcome === 'FOUND' ? erpNumber?.trim() || null : null, user: actor(user) }
+}
+
+export async function resolveMonthlyInvoice(input) {
+  const { invoiceId, attemptId, outcome, reason, erpId, erpNumber, user } = validateInvoiceResolution(input)
   return transaction(async tx => {
     const request = new sql.Request(tx).input('id', sql.UniqueIdentifier, invoiceId)
-      .input('attempt', sql.UniqueIdentifier, attemptId).input('user', sql.NVarChar(120), verifiedBy)
+      .input('attempt', sql.UniqueIdentifier, attemptId).input('user', sql.NVarChar(120), user)
+      .input('resolution', sql.UniqueIdentifier, randomUUID()).input('outcome', sql.VarChar(10), outcome)
+      .input('reason', sql.NVarChar(1000), reason).input('erpId', sql.NVarChar(120), erpId)
+      .input('number', sql.NVarChar(120), erpNumber)
     await request.query(`
 IF NOT EXISTS (SELECT 1 FROM dbo.MonthlyInvoices WITH (UPDLOCK,HOLDLOCK) WHERE invoiceId=@id AND status='UNCONFIRMED' AND erpId IS NULL)
-  THROW 50001, 'Only unconfirmed invoices without an ERP ID can be unlocked.', 1;
-IF NOT EXISTS (SELECT 1 FROM dbo.MonthlyInvoiceAttempts WITH (UPDLOCK,HOLDLOCK) WHERE invoiceId=@id AND attemptId=@attempt AND status='UNCONFIRMED' AND finishedAt IS NOT NULL)
-  THROW 50001, 'Attempt is not an unconfirmed completed request.', 1;
+  THROW 50001, 'Only unconfirmed invoices without an ERP ID can be resolved. Refresh the status.', 1;
+IF NOT EXISTS (SELECT 1 FROM dbo.MonthlyInvoiceAttempts WITH (UPDLOCK,HOLDLOCK) WHERE invoiceId=@id AND attemptId=@attempt AND status='UNCONFIRMED' AND finishedAt IS NOT NULL AND verifiedAbsentAt IS NULL)
+  THROW 50001, 'Attempt is no longer awaiting verification. Refresh the status.', 1;
 IF EXISTS (SELECT 1 FROM dbo.MonthlyInvoiceAttempts WHERE invoiceId=@id AND attemptId<>@attempt AND (status<>'UNCONFIRMED' OR verifiedAbsentAt IS NULL))
   THROW 50001, 'Other attempts require verification.', 1;
-UPDATE dbo.MonthlyInvoiceAttempts SET verifiedAbsentAt=SYSDATETIMEOFFSET(),verifiedAbsentBy=@user WHERE attemptId=@attempt;
-UPDATE dbo.MonthlyInvoices SET status='DRAFT',updatedAt=SYSDATETIMEOFFSET() WHERE invoiceId=@id;
+IF EXISTS (SELECT 1 FROM dbo.MonthlyInvoiceResolutions WHERE attemptId=@attempt)
+  THROW 50001, 'Attempt has already been resolved.', 1;
+IF @outcome='FOUND' AND EXISTS (SELECT 1 FROM dbo.MonthlyInvoices WITH (UPDLOCK,HOLDLOCK) WHERE erpId=@erpId AND invoiceId<>@id)
+  THROW 50001, 'This ERP document ID is already linked to another invoice.', 1;
+INSERT dbo.MonthlyInvoiceResolutions(resolutionId,invoiceId,attemptId,outcome,reason,erpId,erpNumber,resolvedBy)
+VALUES(@resolution,@id,@attempt,@outcome,@reason,@erpId,@number,@user);
+IF @outcome='ABSENT'
+  UPDATE dbo.MonthlyInvoiceAttempts SET verifiedAbsentAt=SYSDATETIMEOFFSET(),verifiedAbsentBy=@user WHERE attemptId=@attempt;
+UPDATE dbo.MonthlyInvoices SET status=CASE WHEN @outcome='FOUND' THEN 'SENT' ELSE 'DRAFT' END,
+  erpId=@erpId,erpNumber=@number,updatedAt=SYSDATETIMEOFFSET() WHERE invoiceId=@id;
 `)
+    return { status: outcome === 'FOUND' ? 'SENT' : 'DRAFT', erpId }
   })
+}
+
+export async function unlockVerifiedAbsentInvoice(input) {
+  return resolveMonthlyInvoice({ ...input, outcome: 'ABSENT' })
 }

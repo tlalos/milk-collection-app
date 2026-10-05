@@ -99,8 +99,9 @@ import {
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getMilkDensitySettings, initializeMilkDensitySettingsStore } from './milkDensitySettingsStore.js'
 import { initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
-import { initializeMonthlyInvoices, listMonthlyInvoices, saveMonthlyInvoiceDate, invoiceIdentity, claimMonthlyInvoice, finishMonthlyInvoiceAttempt } from './monthlyInvoiceStore.js'
-import { buildInvoicePreview, connectInvoiceErp, executeInvoiceSend } from './monthlyInvoiceSend.js'
+import { initializeMonthlyInvoices, listMonthlyInvoices, saveMonthlyInvoiceDate, saveMonthlyInvoiceDates, invoiceIdentity, claimMonthlyInvoice, finishMonthlyInvoiceAttempt, getMonthlyInvoiceHistory, resolveMonthlyInvoice, validateInvoiceResolution } from './monthlyInvoiceStore.js'
+import { connectInvoiceErp, executeInvoiceSend } from './monthlyInvoiceSend.js'
+import { validateInvoiceBatch, prepareInvoiceFromContext, previewInvoiceBatch } from './monthlyInvoiceBatch.js'
 import { monthlyAvizApprovalContext } from './monthlyAvizPricingService.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
@@ -2028,30 +2029,58 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
 app.get('/api/month-closure/invoices', requirePermission('month_closure'), async (request, response, next) => {
   try {
     if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
-    response.json({ invoices: await listMonthlyInvoices(String(request.query.month || '')) })
+    response.json({ invoices: await listMonthlyInvoices(String(request.query.month || '')), canResolve: userHasPermission(request.authUser, 'invoice_resolution') })
   } catch (error) { next(error) }
 })
 
-async function prepareInvoiceRequest(request) {
+app.get('/api/month-closure/invoices/:invoiceId/history', requirePermission('month_closure'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
+    const history = await getMonthlyInvoiceHistory(request.params.invoiceId)
+    if (!history) return response.status(404).json({ error: 'Invoice not found.' })
+    response.json({ ...history, canResolve: userHasPermission(request.authUser, 'invoice_resolution') })
+  } catch (error) { next(error) }
+})
+
+app.post('/api/month-closure/invoices/:invoiceId/resolve', requirePermission('month_closure'), requirePermission('invoice_resolution'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
+    const input = { ...request.body, invoiceId: request.params.invoiceId, user: request.authUser?.username }
+    try { validateInvoiceResolution(input) }
+    catch (error) { return response.status(400).json({ error: error.message }) }
+    const result = await resolveMonthlyInvoice(input)
+    response.json(result)
+  } catch (error) {
+    if (error.number === 50001) return response.status(409).json({ error: error.message })
+    next(error)
+  }
+})
+
+async function loadInvoiceContext(month, connection) {
   if (!isSqlOcrStoreEnabled()) throw new Error('SQL invoice storage is not enabled.')
-  const { month, producerCode, milkType, invoiceDate, connection } = request.body || {}
-  const identity = invoiceIdentity(month, producerCode, invoiceDate)
   const erp = await connectInvoiceErp(connection)
-  const suppliers = erp.suppliers.filter(supplier => String(supplier.sup_code || '').trim().toLowerCase() === identity.producerCode)
-  if (suppliers.length !== 1) throw new Error('Expected one exact ERP supplier match.')
   const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
   const pricing = await listMonthlyProducerPricingRows([month])
   const rows = monthClosurePricingFromJobs(context.jobs, { month }, pricing, context.approvals, context.references).rows
-  const row = rows.find(row => row.producerCode.trim().toLowerCase() === identity.producerCode && row.milkType === milkType)
   const invoices = await listMonthlyInvoices(month)
-  if (invoices.some(invoice => invoice.producerCode === identity.producerCode && (!invoice.milkType || invoice.milkType === milkType) && invoice.status !== 'DRAFT')) throw new Error('Invoice already submitted. Check its ERP status before retrying.')
-  const saved = invoices.find(invoice => invoice.producerCode === identity.producerCode && invoice.milkType === milkType)
-  const legacy = invoices.find(invoice => invoice.producerCode === identity.producerCode && !invoice.milkType)
-  const [year, monthNumber] = month.split('-').map(Number)
-  const expectedDate = saved?.invoiceDate || legacy?.invoiceDate || `${month}-${new Date(year, monthNumber, 0).getDate()}`
-  if (expectedDate !== invoiceDate) throw new Error('Invoice date changed. Refresh and preview again.')
-  return { erp, saved, preview: buildInvoicePreview(row, suppliers[0], invoiceDate, erp.username, erp.params) }
+  return { erp, rows, invoices }
 }
+
+async function prepareInvoiceRequest(request) {
+  const { month, producerCode, invoiceDate, connection } = request.body || {}
+  invoiceIdentity(month, producerCode, invoiceDate)
+  return prepareInvoiceFromContext(request.body, await loadInvoiceContext(month, connection))
+}
+
+app.post('/api/month-closure/invoice-batch-preview', requirePermission('month_closure'), async (request, response, next) => {
+  try {
+    const { month, invoices, connection } = request.body || {}
+    let selections
+    try { selections = validateInvoiceBatch(month, invoices) }
+    catch (error) { return response.status(400).json({ error: error.message }) }
+    response.json({ invoices: previewInvoiceBatch(selections, await loadInvoiceContext(month, connection)) })
+  } catch (error) { next(error) }
+})
 
 app.post('/api/month-closure/invoice-preview', requirePermission('month_closure'), async (request, response, next) => {
   try { response.json((await prepareInvoiceRequest(request)).preview) }
@@ -2070,6 +2099,19 @@ app.post('/api/month-closure/invoice-send', requirePermission('month_closure'), 
       return claimMonthlyInvoice({ invoiceId: invoice.invoiceId, invoiceDate, series: preview.snapshot.series, lines: [preview.snapshot], payload: preview.payload, user })
     }, finishMonthlyInvoiceAttempt, erp.send)
     response.json(result)
+  } catch (error) { next(error) }
+})
+
+app.post('/api/month-closure/invoice-dates', requirePermission('month_closure'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
+    const { month, invoiceDate } = request.body || {}
+    invoiceIdentity(month, 'p-validation', invoiceDate)
+    const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
+    const rows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references).rows
+      .filter(row => /^p\S+$/i.test(row.producerCode.trim()))
+    const invoices = await saveMonthlyInvoiceDates({ month, rows, invoiceDate, user: request.authUser?.username })
+    response.json({ invoices })
   } catch (error) { next(error) }
 })
 

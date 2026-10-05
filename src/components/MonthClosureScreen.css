@@ -579,6 +579,60 @@
   color: #fff;
 }
 
+.month-closure-bulk-actions .month-closure-apply-bulk:disabled {
+  background: #e4e8e5;
+  border-color: #d2d9d4;
+  color: #7b847e;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.month-closure-date-error { margin: 0; color: #b42318; font-size: 13px; }
+.month-closure-bulk-date-field input[aria-invalid="true"] { border-color: #b42318; }
+.month-closure-locked-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 86px;
+  min-height: 34px;
+  padding: 4px;
+  border: 1px solid #cddbd3;
+  border-radius: 4px;
+  background: #f1f4f2;
+  color: #526158;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.month-closure-locked-date svg { flex-shrink: 0; }
+.invoice-resolution-dialog { width: 540px; }
+.invoice-resolution-dialog > form { display: grid; gap: 12px; padding: 20px; }
+.invoice-resolution-dialog p { margin: 0; overflow-wrap: anywhere; }
+.invoice-resolution-history { border-top: 1px solid #cddbd3; padding-top: 10px; }
+.invoice-resolution-history ol { max-height: 200px; overflow: auto; margin: 8px 0; padding-left: 22px; }
+.invoice-resolution-history li { margin-bottom: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.invoice-resolution-fields { display: grid; gap: 10px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.invoice-resolution-fields label { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.invoice-resolution-fields input:not([type="radio"]):not([type="checkbox"]), .invoice-resolution-fields textarea {
+  width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #bdcbc3; border-radius: 4px; padding: 8px; font: inherit;
+}
+.invoice-resolution-fields input[type="checkbox"], .invoice-resolution-fields input[type="radio"] { flex: 0 0 auto; }
+.month-closure-invoice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.month-closure-invoice-select-all { display: inline-flex; align-items: center; gap: 6px; }
+.month-closure-invoice-actions input[type="checkbox"], .month-closure-invoice-select-all input { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
+.invoice-batch-dialog { width: 1080px; }
+.invoice-batch-content { display: grid; gap: 12px; padding: 20px; }
+.invoice-batch-content > p { margin: 0; }
+.invoice-batch-table-wrap { max-height: 55vh; overflow: auto; }
+.invoice-batch-table-wrap table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.invoice-batch-table-wrap th, .invoice-batch-table-wrap td { padding: 8px; text-align: left; border-bottom: 1px solid #dce5df; vertical-align: top; }
+.invoice-batch-table-wrap th { background: #e8f0ec; position: sticky; top: 0; white-space: nowrap; }
+.invoice-batch-table-wrap small { display: block; overflow-wrap: anywhere; }
+.invoice-batch-status { min-width: 115px; max-width: 240px; }
+.invoice-batch-status.sent { color: #176c40; }
+.invoice-batch-status.failed, .invoice-batch-status.blocked { color: #9c3a13; }
+
 .month-closure-cancel-bulk {
   border: 1px solid #bdcbc3;
   background: #fff;
@@ -679,6 +733,7 @@
 }
 .month-closure-compact-date input::-webkit-datetime-edit { opacity: 0; }
 .month-closure-compact-date input::-webkit-calendar-picker-indicator {
+  opacity: 0;
   position: absolute;
   right: 4px;
   width: 14px;
@@ -686,12 +741,26 @@
   margin: 0;
   padding: 0;
 }
+.month-closure-row-calendar {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #215c38;
+}
 .month-closure-compact-date:focus-within { outline: 2px solid #1f7a49; border-radius: 4px; }
 .month-closure-invoice-table td:first-child { padding-left: 5px; padding-right: 13px; }
 .month-closure-date-dialog { position: fixed; inset: 0; margin: auto; padding: 0; border: 0; border-radius: 8px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); }
 .month-closure-date-dialog::backdrop { background: rgba(9, 34, 22, 0.35); }
 .month-closure-date-dialog .month-closure-bulk-editor { width: 320px; max-width: 100%; }
 .month-closure-date-dialog h2 { font-size: 18px; margin: 0; }
+.month-closure-bulk-date-field { display: flex; align-items: center; gap: 8px; }
+.month-closure-bulk-date-field > input { min-width: 0; flex: 1; }
+.month-closure-bulk-date-picker { position: relative; display: grid; place-items: center; flex: 0 0 36px; height: 36px; color: #215c38; border: 1px solid #cddbd3; border-radius: 4px; }
+.month-closure-bulk-date-picker input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; padding: 0; opacity: 0; cursor: pointer; }
+.month-closure-bulk-date-picker input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; }
+.month-closure-bulk-date-picker:focus-within { outline: 2px solid #1f7a49; }
 .month-closure-invoice-date-label {
   display: flex;
   flex-direction: column;
@@ -738,6 +807,8 @@
 .month-closure-invoice-send small { display: block; max-width: 170px; white-space: normal; margin-top: 5px; color: #805000; }
 .month-closure-invoice-send button { padding: 7px 10px; border: 1px solid #176345; border-radius: 5px; background: #176345; color: #fff; cursor: pointer; white-space: nowrap; }
 .month-closure-invoice-send button:disabled { background: #edf1ef; color: #68746d; border-color: #cdd7d1; cursor: not-allowed; }
+.month-closure-invoice-actions button { max-width: 100%; white-space: normal; text-align: left; }
+.month-closure-invoice-send .month-closure-invoice-history { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; background: #fff; color: #176345; border-color: #cdd7d1; }
 
 .month-closure-bank-table {
   min-width: 1320px;
@@ -783,8 +854,7 @@
 }
 
 .month-closure-bank-input,
-.month-closure-bank-account,
-.month-closure-bank-status {
+.month-closure-bank-account {
   width: 100%;
   min-width: 0;
   min-height: 34px;
@@ -800,8 +870,7 @@
 }
 
 .month-closure-bank-input:focus,
-.month-closure-bank-account:focus,
-.month-closure-bank-status:focus {
+.month-closure-bank-account:focus {
   border-color: #1f7a49;
   box-shadow: 0 0 0 2px rgba(31, 122, 73, 0.14);
 }
@@ -822,14 +891,21 @@
   font-weight: 950 !important;
 }
 
+.month-closure-bank-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .month-closure-bank-status.pending {
-  border-color: #e5c775;
   background: #fff8df;
   color: #765200;
 }
 
 .month-closure-bank-status.sent {
-  border-color: #9bc9ae;
   background: #e7f5ec;
   color: #075c34;
 }
@@ -1064,3 +1140,51 @@
   }
 }
 .month-closure-source { display: block; margin-top: 4px; color: #53685e; font-size: 11px; white-space: normal; }
+
+.bank-note-summary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #aacbbd;
+  border-radius: 6px;
+  background: #fff;
+  color: #14543b;
+  font-weight: 700;
+}
+.bank-note-summary-dialog { width: 640px; }
+.bank-export-dialog { width: 1160px; }
+.bank-export-content { padding: 20px; display: grid; gap: 12px; }
+.bank-export-content p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.bank-export-content [role="alert"], .bank-export-issue { color: #a23028; }
+.bank-export-table-wrap { overflow: auto; max-height: 55vh; }
+.bank-export-table-wrap table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.bank-export-table-wrap th, .bank-export-table-wrap td { padding: 8px; border-bottom: 1px solid #dce5df; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.bank-export-table-wrap th { position: sticky; top: 0; background: #e8f0ec; }
+.bank-export-table-wrap th:nth-child(1) { width: 17%; }
+.bank-export-table-wrap th:nth-child(2) { width: 19%; }
+.bank-export-table-wrap th:nth-child(3) { width: 10%; }
+.bank-export-table-wrap th:nth-child(4) { width: 24%; }
+.bank-export-table-wrap th:nth-child(5) { width: 30%; }
+.bank-export-table-wrap input, .bank-export-table-wrap textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #aacbbd; border-radius: 4px; background: white; color: #163e2d; font: inherit; }
+.bank-export-table-wrap [aria-invalid="true"] { border-color: #b9443c; }
+.bank-export-table-wrap small { display: block; margin-top: 4px; }
+.bank-note-summary-content { padding: 22px; display: grid; gap: 14px; }
+.bank-note-summary-content p { margin: 0; font-size: 13px; line-height: 1.5; color: #526158; }
+.bank-note-summary-table-wrap { overflow-x: auto; }
+.bank-note-summary-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bank-note-summary-table th, .bank-note-summary-table td { padding: 12px 8px; border-bottom: 1px solid #dce5df; text-align: right; }
+.bank-note-summary-table th:first-child { text-align: left; }
+.bank-note-summary-table thead { background: #e8f0ec; }
+.bank-note-summary-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bank-note-summary-table tfoot { font-weight: 700; }
+.bank-note-summary-blocked { padding-top: 4px; font-size: 15px; }
+.bank-note-summary-blocked strong { font-size: 22px; color: #8a550e; }
+@media (max-width: 480px) {
+  .bank-note-summary-content { padding: 14px; }
+  .bank-note-summary-table { font-size: 12px; }
+  .bank-note-summary-table th, .bank-note-summary-table td { padding: 10px 4px; }
+}

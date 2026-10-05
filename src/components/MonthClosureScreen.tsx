@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays } from 'lucide-react'
+import { CalendarDays, History, LockKeyhole } from 'lucide-react'
+import { BankNoteSummary } from './BankNoteSummary'
+import { BankExportDialog, type BankExportDialogHandle } from './BankExportDialog'
+import { prepareBankExport, type BankExportRow } from '../bankNoteExport'
 import { appPath } from '../ocrPaths'
 import { monthlyInvoiceBlockReason, monthlyInvoiceSeries } from '../monthlyInvoiceEligibility'
 import { monthlyInvoiceAmounts, pricingSubtotal } from '../monthlyInvoiceAmounts'
 import { ocrConnectionSettingsStore } from '../store/ocrConnectionSettingsStore'
+import { displayInvoiceDate, parseInvoiceDate } from '../invoiceDateFormat'
+import { InvoiceDateDialog, type InvoiceDateDialogHandle } from './InvoiceDateDialog'
+import { InvoiceResolutionDialog, type InvoiceResolutionDialogHandle } from './InvoiceResolutionDialog'
+import { InvoiceBatchDialog, type InvoiceBatchDialogHandle } from './InvoiceBatchDialog'
 import {
   getCachedOcrReferenceSuppliers,
   loadOcrReferenceSuppliers,
@@ -156,14 +163,6 @@ function saveStoredBankNoteDrafts(month: string, drafts: BankNoteDrafts) {
   }
 }
 
-function excelXmlText(value: unknown) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 function normalizedFlag(value: unknown) {
   return String(value ?? '').trim().toLocaleLowerCase()
 }
@@ -208,12 +207,19 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [pricingSaveMessage, setPricingSaveMessage] = useState('')
   const [bankNoteDrafts, setBankNoteDrafts] = useState<BankNoteDrafts>({})
   const [selectedBankRowIds, setSelectedBankRowIds] = useState<string[]>([])
+  const bankExportDialogRef = useRef<BankExportDialogHandle>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [monthFilter, setMonthFilter] = useState(() => new URLSearchParams(window.location.search).get('month') || '')
   const [invoiceDates, setInvoiceDates] = useState<Record<string, string>>({})
   const [invoiceStatuses, setInvoiceStatuses] = useState<Record<string, string>>({})
+  const [invoiceRecords, setInvoiceRecords] = useState<Record<string, { invoiceId: string; attemptCount: number }>>({})
+  const [canResolveInvoices, setCanResolveInvoices] = useState(false)
+  const invoiceResolutionRef = useRef<InvoiceResolutionDialogHandle>(null)
+  const invoiceBatchRef = useRef<InvoiceBatchDialogHandle>(null)
+  const [selectedInvoiceRowIds, setSelectedInvoiceRowIds] = useState<string[]>([])
   const [invoiceDateSaving, setInvoiceDateSaving] = useState(false)
+  const [invoiceDateMessage, setInvoiceDateMessage] = useState('')
   const [invoiceSendBusy, setInvoiceSendBusy] = useState(false)
   const invoiceSendBusyRef = useRef(false)
   const [invoiceSendMessage, setInvoiceSendMessage] = useState<{ tone: 'info' | 'success' | 'error'; text: string } | null>(null)
@@ -224,8 +230,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const invoicePreviewRef = useRef<HTMLDialogElement>(null)
   const invoiceDateSavingRef = useRef(false)
   const [bulkInvoiceDates, setBulkInvoiceDates] = useState<Record<string, string>>({})
-  const invoiceDateDialogRef = useRef<HTMLDialogElement>(null)
-  const [bulkDateDraft, setBulkDateDraft] = useState('')
+  const invoiceDateDialogRef = useRef<InvoiceDateDialogHandle>(null)
+  const invoiceDateLockedDialogRef = useRef<HTMLDialogElement>(null)
+  const [invoiceDateLockStatus, setInvoiceDateLockStatus] = useState('')
   const [centerFilter, setCenterFilter] = useState('')
   const [producerFilter, setProducerFilter] = useState('')
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
@@ -246,6 +253,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
 
   async function loadRows(month = monthFilter) {
     setLoading(true)
+    setSelectedInvoiceRowIds([])
     setError('')
     try {
       const query = month ? `?month=${encodeURIComponent(month)}` : ''
@@ -260,17 +268,20 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       const selectedMonth = payload.selectedMonth || month
       if (selectedMonth) {
         const invoiceResponse = await fetch(appPath(`/api/month-closure/invoices?month=${encodeURIComponent(selectedMonth)}`))
-        const invoicePayload = await invoiceResponse.json() as { invoices?: Array<{ producerCode: string; milkType: string; invoiceDate: string; status: string }>; error?: string }
+        const invoicePayload = await invoiceResponse.json() as { invoices?: Array<{ invoiceId: string; attemptCount: number; producerCode: string; milkType: string; invoiceDate: string; status: string }>; canResolve?: boolean; error?: string }
         if (!invoiceResponse.ok) throw new Error(invoicePayload.error || 'Could not load invoice dates.')
         const dates: Record<string, string> = {}
         const statuses: Record<string, string> = {}
+        const records: Record<string, { invoiceId: string; attemptCount: number }> = {}
         for (const row of payload.rows || []) {
           const saved = invoicePayload.invoices?.find(invoice => invoice.producerCode === row.producerCode.trim().toLowerCase() && invoice.milkType === row.milkType)
             ?? invoicePayload.invoices?.find(invoice => invoice.producerCode === row.producerCode.trim().toLowerCase() && !invoice.milkType)
-          if (saved) { dates[row.id] = saved.invoiceDate; statuses[row.id] = saved.status }
+          if (saved) { dates[row.id] = saved.invoiceDate; statuses[row.id] = saved.status; records[row.id] = saved }
         }
         setInvoiceDates(dates)
         setInvoiceStatuses(statuses)
+        setInvoiceRecords(records)
+        setCanResolveInvoices(Boolean(invoicePayload.canResolve))
       }
     } catch (loadError) {
       setError((loadError as Error).message)
@@ -325,24 +336,65 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
 
   async function saveInvoiceDates(date: string, rowId?: string) {
     if (invoiceDateSavingRef.current || !date) return
+    if (!parseInvoiceDate(displayInvoiceDate(date))) {
+      setError('Enter a valid invoice date in dd/mm/yyyy format.')
+      return
+    }
+    if (rowId && invoiceStatuses[rowId] && invoiceStatuses[rowId] !== 'DRAFT') {
+      setInvoiceDateLockStatus(invoiceStatuses[rowId])
+      invoiceDateLockedDialogRef.current?.showModal()
+      return
+    }
     invoiceDateSavingRef.current = true
     setInvoiceDateSaving(true)
+    setInvoiceDateMessage('')
     setError('')
     try {
+      if (!rowId) {
+        const response = await fetch(appPath('/api/month-closure/invoice-dates'), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month: monthFilter, invoiceDate: date }),
+          signal: AbortSignal.timeout(90000),
+        })
+        const payload = await response.json() as { error?: string; invoices?: Array<{ producerCode: string; milkType: string; invoiceDate: string }> }
+        if (!response.ok || !payload.invoices) throw new Error(payload.error || 'Could not save invoice dates.')
+        const saved = new Map(payload.invoices.map(invoice => [`${invoice.producerCode.toLowerCase()}:${invoice.milkType}`, invoice.invoiceDate]))
+        setInvoiceDates(current => {
+          const next = { ...current }
+          for (const row of rows) {
+            const savedDate = saved.get(`${row.producerCode.trim().toLowerCase()}:${row.milkType}`)
+            if (row.month === monthFilter && savedDate) next[row.id] = savedDate
+          }
+          return next
+        })
+        setBulkInvoiceDates(current => ({ ...current, [monthFilter]: date }))
+        setInvoiceDateMessage(`${payload.invoices.length} invoice dates saved as ${displayInvoiceDate(date)}. Sent and unconfirmed invoices were not changed.`)
+        invoiceDateDialogRef.current?.close()
+        return
+      }
       const targets = rows.filter(row => row.month === monthFilter && (!rowId || row.id === rowId) &&
         (!invoiceStatuses[row.id] || invoiceStatuses[row.id] === 'DRAFT') && /^p\S+$/i.test(row.producerCode.trim()))
       for (const row of targets) {
-        const response = await fetch(appPath('/api/month-closure/invoice-date'), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ month: monthFilter, producerCode: row.producerCode, milkType: row.milkType, invoiceDate: date }),
-        })
-        const payload = await response.json() as { error?: string }
-        if (!response.ok) throw new Error(`${row.producerCode}: ${payload.error || 'Date save failed'}. Earlier successful date changes are saved.`)
+        const previousDate = invoiceDates[row.id] || monthEndDate(row.month)
         setInvoiceDates(current => ({ ...current, [row.id]: date }))
+        try {
+          const response = await fetch(appPath('/api/month-closure/invoice-date'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ month: monthFilter, producerCode: row.producerCode, milkType: row.milkType, invoiceDate: date }),
+          })
+          const payload = await response.json() as { error?: string }
+          if (!response.ok) throw new Error(`${row.producerCode}: ${payload.error || 'Date save failed'}. Earlier successful date changes are saved.`)
+        } catch (error) {
+          setInvoiceDates(current => ({ ...current, [row.id]: previousDate }))
+          throw error
+        }
       }
       if (!rowId) setBulkInvoiceDates(current => ({ ...current, [monthFilter]: date }))
       invoiceDateDialogRef.current?.close()
-    } catch (saveError) { setError((saveError as Error).message); invoiceDateDialogRef.current?.close() }
+    } catch (saveError) {
+      setError(`${(saveError as Error).message} Refresh to check saved dates before retrying.`)
+      invoiceDateDialogRef.current?.close()
+    }
     finally { invoiceDateSavingRef.current = false; setInvoiceDateSaving(false) }
   }
 
@@ -656,6 +708,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     extraAmount: totals.extraAmount + invoiceRow.extraAmount,
     final: totals.final + (invoiceRow.finalResult ?? 0),
   }), { qty: 0, result: 0, commission: 0, electricity: 0, vatStatusAmount: 0, extraAmount: 0, final: 0 })
+  const eligibleInvoiceRows = invoiceRows.filter(invoice => !invoice.sendBlockReason)
+  const selectedInvoiceRows = eligibleInvoiceRows.filter(invoice => selectedInvoiceRowIds.includes(invoice.row.id))
+  const allEligibleInvoicesSelected = eligibleInvoiceRows.length > 0 && selectedInvoiceRows.length === eligibleInvoiceRows.length
   const matchedInvoiceRows = invoiceRows.filter((invoiceRow) => invoiceRow.erpProducer).length
   const missingInvoiceMatches = invoiceRows.length - matchedInvoiceRows
   const matchedRowsMissingTaxFields = invoiceRows.filter((invoiceRow) =>
@@ -720,68 +775,29 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     setSelectedBankRowIds(checked ? eligibleBankRows.map((row) => row.id) : [])
   }
 
-  function updateBankRowStatus(rowId: string, status: BankTransferStatus) {
-    const row = preparedBankRows.find((candidate) => candidate.id === rowId)
-    setBankNoteDrafts((current) => {
-      const nextDraft = { ...current[rowId], status }
-      if (status === 'sent' && row) {
-        nextDraft.exportedAmount = row.finalAmount ?? undefined
-        nextDraft.exportedLiters = row.totalLiters
-        nextDraft.exportedAt = new Date().toISOString()
-      } else {
-        delete nextDraft.exportedAmount
-        delete nextDraft.exportedLiters
-        delete nextDraft.exportedAt
-      }
-      const next = { ...current, [rowId]: nextDraft }
-      saveStoredBankNoteDrafts(monthFilter, next)
-      return next
-    })
-    setSelectedBankRowIds((current) => current.filter((id) => id !== rowId))
-  }
-
   function exportSelectedBankRows() {
     if (!selectedBankRows.length) return
-    const headers = ['Month', 'IBAN', 'Final Amount', 'Name', 'Comment', 'Connected Account', 'Liters', 'Status']
-    const rowsForExcel = selectedBankRows.map((row) => [
-      displayMonth(monthFilter),
-      row.paymentProducer?.iban || '',
-      row.finalAmount ?? 0,
-      row.paymentProducer?.producerName || row.producerName,
-      row.comment,
-      row.connectedAccount,
-      row.totalLiters,
-      'Sent to bank',
-    ])
-    const xmlCell = (value: unknown, numeric = false) => `<Cell><Data ss:Type="${numeric ? 'Number' : 'String'}">${excelXmlText(value)}</Data></Cell>`
-    const worksheetRows = [
-      `<Row>${headers.map((header) => xmlCell(header)).join('')}</Row>`,
-      ...rowsForExcel.map((row) => `<Row>${row.map((value, index) => xmlCell(value, index === 2 || index === 6)).join('')}</Row>`),
-    ].join('')
-    const workbook = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Bank note"><Table>${worksheetRows}</Table></Worksheet></Workbook>`
-    const blob = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `bank-note-${monthFilter || 'month'}.xls`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    try {
+      bankExportDialogRef.current?.open(monthFilter, prepareBankExport(monthFilter, selectedBankRows, rows))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare bank export.')
+    }
+  }
 
+  function markBankRowsExported(month: string, exportedRows: BankExportRow[]) {
     const exportedAt = new Date().toISOString()
     setBankNoteDrafts((current) => {
       const next = { ...current }
-      for (const row of selectedBankRows) {
+      for (const row of exportedRows) {
         next[row.id] = {
           ...next[row.id],
           status: 'sent',
-          exportedAmount: row.finalAmount ?? undefined,
+          exportedAmount: row.amount ?? undefined,
           exportedLiters: row.totalLiters,
           exportedAt,
         }
       }
-      saveStoredBankNoteDrafts(monthFilter, next)
+      saveStoredBankNoteDrafts(month, next)
       return next
     })
     setSelectedBankRowIds([])
@@ -844,7 +860,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               <div><span>Liters pending</span><strong>{formatNumber(bankPendingLiters)}</strong></div>
               <div><span>Liters exported</span><strong>{formatNumber(bankExportedLiters)}</strong></div>
               <div><span>Amount pending</span><strong>{formatMoney(bankPendingAmount)}</strong></div>
-              <div><span>Amount sent</span><strong>{formatMoney(bankSentAmount)}</strong></div>
+              <div><span>Amount exported</span><strong>{formatMoney(bankSentAmount)}</strong></div>
             </>
           ) : (
             <>
@@ -929,6 +945,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
         </section>
 
         {error && <div className="month-closure-error" role="alert">{error}</div>}
+        {invoiceDateMessage && <div className="month-closure-notice month-closure-success" role="status">{invoiceDateMessage}</div>}
 
         <section className="month-closure-card">
           <div className="month-closure-card-title">
@@ -939,27 +956,27 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   ? `${filteredRows.length} rows shown · ${formatNumber(filteredLiters)} L · ${filteredReady} ready · ${filteredBlocked} blocked`
                   : view === 'erpInvoices'
                     ? `${invoiceRows.length} invoice lines · ${formatNumber(invoiceTotals.qty)} L · ${formatMoney(invoiceTotals.final)} final preview`
-                    : `${preparedBankRows.length} transfers · ${pendingBankRows.length} pending · ${sentBankRows.length} sent · ${formatMoney(bankTotal)} total`}
+                    : `${preparedBankRows.length} transfers · ${pendingBankRows.length} pending · ${sentBankRows.length} exported · ${formatMoney(bankTotal)} total`}
                 {monthFilter ? ` · ${displayMonth(monthFilter)}` : ''}
               </p>
             </div>
+            {view === 'bankNote' && <BankNoteSummary month={monthFilter} volumes={rows} payments={preparedBankRows} filtered={hasActiveFilters} loading={loading} />}
             {view === 'erpInvoices' && (
               <div className="month-closure-invoice-tools">
-                <dialog ref={invoiceDateDialogRef} className="month-closure-date-dialog" aria-labelledby="invoice-date-title">
-                  <form className="month-closure-bulk-editor" onSubmit={event => {
-                    event.preventDefault()
-                    if (!bulkDateDraft) return
-                    void saveInvoiceDates(bulkDateDraft)
-                  }}>
-                    <h2 id="invoice-date-title">Apply date to all</h2>
-                    <label><span>Invoice date</span>
-                      <input type="date" required value={bulkDateDraft} onChange={event => setBulkDateDraft(event.target.value)} />
-                    </label>
-                    <div className="month-closure-bulk-actions">
-                      <button type="button" className="month-closure-cancel-bulk" onClick={() => invoiceDateDialogRef.current?.close()}>Cancel</button>
-                      <button type="submit" className="month-closure-apply-bulk" disabled={!bulkDateDraft || invoiceDateSaving}>{invoiceDateSaving ? 'Saving...' : 'Apply'}</button>
-                    </div>
-                  </form>
+                <InvoiceDateDialog ref={invoiceDateDialogRef} saving={invoiceDateSaving} onApply={date => void saveInvoiceDates(date)} />
+                <InvoiceBatchDialog ref={invoiceBatchRef} onFinished={async month => { await loadRows(month) }} />
+                <InvoiceResolutionDialog ref={invoiceResolutionRef} onResolved={async (month, message) => {
+                  setInvoiceSendMessage({ tone: 'success', text: message })
+                  await loadRows(month)
+                }} />
+                <dialog ref={invoiceDateLockedDialogRef} className="month-closure-date-dialog" aria-labelledby="invoice-date-locked-title">
+                  <div className="month-closure-bulk-editor">
+                    <h2 id="invoice-date-locked-title">Invoice locked</h2>
+                    <p>{invoiceDateLockStatus === 'SENT'
+                      ? 'This invoice has already been sent to ERP. Its date cannot be changed.'
+                      : 'This invoice is locked for ERP verification. Its date cannot be changed until its ERP status has been resolved.'}</p>
+                    <div className="month-closure-bulk-actions"><button type="button" className="month-closure-cancel-bulk" onClick={() => invoiceDateLockedDialogRef.current?.close()}>Close</button></div>
+                  </div>
                 </dialog>
                 <details className="month-closure-invoice-info">
                   <summary aria-label="ERP invoice information" title="ERP invoice information">i</summary>
@@ -974,7 +991,14 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <p>{`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}</p>
                   </div>
                 </details>
-                <button type="button" disabled>Export to ERP</button>
+                <button type="button" disabled={loading || invoiceSendBusy || invoiceDateSaving || !selectedInvoiceRows.length || selectedInvoiceRows.length > 500}
+                  onClick={() => invoiceBatchRef.current?.open(selectedInvoiceRows.map(({ row }) => ({
+                    month: row.month, producerCode: row.producerCode, milkType: row.milkType, invoiceDate: invoiceDates[row.id] || monthEndDate(row.month),
+                  })))}>
+                  Send selected ({selectedInvoiceRows.length})
+                </button>
+                {selectedInvoiceRows.length > 0 && <button type="button" onClick={() => setSelectedInvoiceRowIds([])}>Clear selection</button>}
+                {selectedInvoiceRows.length > 500 && <span role="alert">Select up to 500 invoices per batch.</span>}
               </div>
             )}
             {!bankNotePage && <div className="month-closure-tabs" aria-label="Month closure views">
@@ -1008,6 +1032,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
 
           {view === 'bankNote' && (
             <>
+              <BankExportDialog ref={bankExportDialogRef} onExported={markBankRowsExported} />
               <div className="month-closure-bank-tools">
                 <div>
                   <strong>{readyBankRows} ready for bank</strong>
@@ -1222,8 +1247,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <button type="button" className="month-closure-date-all" disabled={loading || !monthFilter || !rows.length}
                       aria-label="Apply invoice date to all" title="Apply invoice date to all"
                       onClick={() => {
-                        setBulkDateDraft(bulkInvoiceDates[monthFilter] || monthEndDate(monthFilter))
-                        invoiceDateDialogRef.current?.showModal()
+                        invoiceDateDialogRef.current?.open(bulkInvoiceDates[monthFilter] || monthEndDate(monthFilter))
                       }}><CalendarDays size={16} aria-hidden="true" /></button>
                   </div></th>
                   <th>Producer name</th>
@@ -1237,7 +1261,14 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   <th>VAT status</th>
                   <th>Extra</th>
                   <th>Final result</th>
-                  <th>ERP</th>
+                  <th><label className="month-closure-invoice-select-all">
+                    <input type="checkbox" aria-label="Select all eligible invoices shown" title="Select all eligible invoices shown"
+                      checked={allEligibleInvoicesSelected}
+                      ref={input => { if (input) input.indeterminate = selectedInvoiceRows.length > 0 && !allEligibleInvoicesSelected }}
+                      disabled={loading || invoiceSendBusy || invoiceDateSaving || !eligibleInvoiceRows.length}
+                      onChange={event => setSelectedInvoiceRowIds(event.target.checked ? eligibleInvoiceRows.map(invoice => invoice.row.id) : [])} />
+                    ERP
+                  </label></th>
                 </tr>
               </thead>
               <tbody>
@@ -1246,12 +1277,24 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 {!loading && invoiceRows.map((invoiceRow) => (
                   <tr key={invoiceRow.row.id} className={invoiceRow.row.readyForPricing ? 'ready' : 'blocked'}>
                     <td><div className="month-closure-compact-date">
+                      {invoiceStatuses[invoiceRow.row.id] && invoiceStatuses[invoiceRow.row.id] !== 'DRAFT' ?
+                        <button type="button" className="month-closure-locked-date" aria-label={`Locked invoice date for ${invoiceRow.row.producer}`} title="Invoice locked - date cannot be changed"
+                          onClick={() => {
+                            setInvoiceDateLockStatus(invoiceStatuses[invoiceRow.row.id])
+                            invoiceDateLockedDialogRef.current?.showModal()
+                          }}>
+                          {(invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)).replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$4/$3/$2')}
+                          <LockKeyhole size={12} aria-hidden="true" />
+                        </button> : <>
                       <span aria-hidden="true">{(invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)).replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$4/$3/$2')}</span>
                       <input type="date" className="month-closure-invoice-date"
                       disabled={loading || invoiceDateSaving || !/^p\S+/i.test(invoiceRow.row.producerCode) || Boolean(invoiceStatuses[invoiceRow.row.id] && invoiceStatuses[invoiceRow.row.id] !== 'DRAFT')}
                       aria-label={`Invoice date for ${invoiceRow.row.producer}`}
                       value={invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)}
-                      onChange={event => void saveInvoiceDates(event.target.value, invoiceRow.row.id)} /></div></td>
+                      onChange={event => void saveInvoiceDates(event.target.value, invoiceRow.row.id)} />
+                      <CalendarDays className="month-closure-row-calendar" size={14} aria-hidden="true" />
+                      </>}
+                    </div></td>
                     <td title={invoiceRow.erpProducer?.producerName || invoiceRow.row.producer}>{displayText(invoiceRow.erpProducer?.producerName || invoiceRow.row.producer)}
                       {invoiceRow.price === null && <small className="month-closure-collector">Collector</small>}
                       {invoiceRow.sendBlockReason && <small className={invoiceRow.sendBlockReason === 'ERP: SENT' ? 'month-closure-invoice-sent' : 'month-closure-invoice-warning'}>{invoiceRow.sendBlockReason}</small>}
@@ -1293,11 +1336,26 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <td>{displayText(invoiceRow.erpProducer?.extra)}</td>
                     <td>{formatMoney(invoiceRow.finalResult)}</td>
                     <td className="month-closure-invoice-send">
+                      <div className="month-closure-invoice-actions">
+                      <input type="checkbox" aria-label={`Select invoice for ${invoiceRow.row.producer} (${displayMilkType(invoiceRow.row.milkType)})`}
+                        title={invoiceRow.sendBlockReason || 'Select invoice'}
+                        disabled={loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason)}
+                        checked={!invoiceRow.sendBlockReason && selectedInvoiceRowIds.includes(invoiceRow.row.id)}
+                        onChange={event => setSelectedInvoiceRowIds(current => event.target.checked ? [...current.filter(id => id !== invoiceRow.row.id), invoiceRow.row.id] : current.filter(id => id !== invoiceRow.row.id))} />
                       <button type="button" disabled={loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason)}
                         title={invoiceRow.sendBlockReason || 'Preview this invoice before sending'}
                         onClick={() => void previewInvoice(invoiceRow.row)}>
-                        Send to ERP
+                        {invoiceStatuses[invoiceRow.row.id] === 'DRAFT' && invoiceRecords[invoiceRow.row.id]?.attemptCount > 0 ? 'Resend' : 'Send'}
                       </button>
+                      {invoiceRecords[invoiceRow.row.id]?.attemptCount > 0 && <button type="button"
+                        className={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? '' : 'month-closure-invoice-history'}
+                        title={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve ERP status' : 'History'}
+                        aria-label={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve ERP status' : 'History'}
+                        disabled={loading || invoiceSendBusy || invoiceDateSaving}
+                        onClick={() => invoiceResolutionRef.current?.open(invoiceRecords[invoiceRow.row.id].invoiceId, invoiceRow.row.producer)}>
+                        {canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve' : <History size={16} aria-hidden="true" />}
+                      </button>}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1391,15 +1449,11 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       </td>
                       <td>{['3030', '3080'].includes(bankRow.erpProducer?.paymentTerms || '') ? bankRow.erpProducer?.paymentTerms : '-'}</td>
                       <td>
-                        <select
+                        <span
                           className={`month-closure-bank-status ${bankRow.status}`}
-                          value={bankRow.status}
-                          onChange={(event) => updateBankRowStatus(bankRow.id, event.currentTarget.value as BankTransferStatus)}
-                          aria-label={`Bank status for ${bankRow.producerName}`}
                         >
-                          <option value="pending">Pending</option>
-                          <option value="sent">Sent to bank</option>
-                        </select>
+                          {bankRow.status === 'sent' ? 'Exported' : 'Pending'}
+                        </span>
                       </td>
                     </tr>
                   )

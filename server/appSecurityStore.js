@@ -25,6 +25,7 @@ export const APP_PERMISSIONS = [
   { key: 'daily_reconciliation', label: 'Daily reconciliation' },
   { key: 'monthly_reconciliation', label: 'Monthly reconciliation' },
   { key: 'month_closure', label: 'Month closure and payments' },
+  { key: 'invoice_resolution', label: 'Resolve unconfirmed ERP invoices' },
   { key: 'ocr_settings', label: 'OCR settings' },
   { key: 'app_admin', label: 'Application administration' },
   { key: 'audit_log', label: 'Audit log' },

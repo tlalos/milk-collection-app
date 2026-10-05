@@ -20,7 +20,9 @@
     "@zxing/library": "^0.21.3",
     "dexie": "^4.0.10",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.49.0",
     "mssql": "^12.7.0",
     "multer": "^2.2.0",
@@ -30,6 +32,11 @@
     "sharp": "^0.34.5",
     "undici": "^7.29.0",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
