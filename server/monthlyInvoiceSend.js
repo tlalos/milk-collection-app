@@ -4,6 +4,7 @@ import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
 const items = { 'MILK-COW': [16551, 'MF0010'], 'MILK-SHEEP': [17119, 'mff0000000000038'], 'MILK-BUFF': [17155, 'mff0000000000042'] }
 const normalized = value => String(value ?? '').trim().toLowerCase()
 const money = value => Math.round((value + Number.EPSILON * Math.abs(value)) * 100) / 100
+const unitPrice = value => Math.round((value + Number.EPSILON * Math.abs(value)) * 1e6) / 1e6
 
 export function buildInvoicePreview(row, supplier, date, username, params = {}) {
   if (!row || row.producerWarning || row.duplicateProducer || row.approvalReviewRequired || row.missingLiters || !row.readyForPricing) throw new Error(row?.producerWarning || 'Resolve this row\'s pricing or producer warnings first.')
@@ -25,7 +26,7 @@ export function buildInvoicePreview(row, supplier, date, username, params = {}) 
   if (vatName == null && !extra) throw new Error('ERP VAT status is missing.')
   const vatid = extra ? '8' : normalized(vatName) === 'regular' ? '11' : '99'
   const originalSubtotal = row.price * row.liters + (row.commission ?? 0) + (row.electricity ?? 0)
-  const price = money(originalSubtotal / row.liters)
+  const price = unitPrice(originalSubtotal / row.liters)
   if (price <= 0) throw new Error('Invoice price rounds to zero.')
   const subtotal = money(price * row.liters)
   const tax = money(subtotal * (vatid === '8' ? 0.08 : vatid === '11' ? 0.11 : 0))

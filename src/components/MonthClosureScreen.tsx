@@ -995,7 +995,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                   <summary aria-label="ERP invoice information" title="ERP invoice information">i</summary>
                   <div className="month-closure-invoice-info-panel" role="note">
                     <strong>ERP invoice information</strong>
-                    <p>Pricing subtotal is original price x liters + commission + electricity. Adjusted price is that subtotal / liters, rounded to two decimals. Invoice subtotal is adjusted price x liters; any rounding difference is shown before tax. Extra = 1 adds 8%; otherwise regular VAT adds 11%. Invoice amounts are rounded to two decimals. Commission and electricity are already included, not added again. Collector invoices are pending a separate procedure.</p>
+                    <p>Pricing subtotal is original price x liters + commission + electricity. Adjusted price is that subtotal / liters, kept to six decimals for calculation and ERP sending, and displayed to two decimals. Invoice subtotal is adjusted price x liters; any rounding difference is shown before tax. Extra = 1 adds 8%; otherwise regular VAT adds 11%. Invoice amounts are rounded to two decimals. Commission and electricity are already included, not added again. Collector invoices are pending a separate procedure.</p>
                     <p>
                       {erpReferenceProducers.length
                         ? `${erpReferenceProducers.length} ERP suppliers available. ${matchedInvoiceRows} invoice rows matched${missingInvoiceMatches ? `, ${missingInvoiceMatches} missing ERP match` : ''}${matchedRowsMissingTaxFields ? `, ${matchedRowsMissingTaxFields} matched rows missing VAT/extra` : ''}.`
