@@ -3,8 +3,17 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 
 const built = await build({ entryPoints: ['src/monthlyInvoiceEligibility.ts'], bundle: true, write: false, platform: 'node', format: 'esm' })
-const { monthlyInvoiceBlockReason: reason, monthlyInvoiceSeries } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
+const { monthlyInvoiceBlockReason: reason, monthlyInvoiceSeries, matchesInvoiceSendFilter } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
 const row = { producerCode: 'p0001', readyForPricing: true, reconciliationStatus: 'ok', reconciliationDifferenceLiters: 0 }
+
+test('ERP filters separate unsent invoices from uncertain and active sends', () => {
+  const statuses = [undefined, 'DRAFT', 'SENT', 'UNCONFIRMED', 'SENDING', 'UNKNOWN']
+  assert.deepEqual(statuses.filter(status => matchesInvoiceSendFilter(status, 'all')), statuses)
+  assert.deepEqual(statuses.filter(status => matchesInvoiceSendFilter(status, 'not_sent')), [undefined, 'DRAFT'])
+  assert.deepEqual(statuses.filter(status => matchesInvoiceSendFilter(status, 'sent')), ['SENT'])
+  assert.deepEqual(statuses.filter(status => matchesInvoiceSendFilter(status, 'verification')), ['UNCONFIRMED'])
+  assert.deepEqual(statuses.filter(status => matchesInvoiceSendFilter(status, 'sending')), ['SENDING'])
+})
 
 test('Bool2 selects invoice series without defaulting unknown values', () => {
   assert.equal(monthlyInvoiceSeries('0'), 5106)

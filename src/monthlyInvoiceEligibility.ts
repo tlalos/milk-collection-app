@@ -10,6 +10,16 @@ interface InvoiceSource {
   reconciliationDifferenceLiters: number | null
 }
 
+export type InvoiceSendFilter = 'all' | 'not_sent' | 'sent' | 'verification' | 'sending'
+
+export function matchesInvoiceSendFilter(status: string | undefined, filter: InvoiceSendFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'not_sent') return status === undefined || status === 'DRAFT'
+  if (filter === 'sent') return status === 'SENT'
+  if (filter === 'verification') return status === 'UNCONFIRMED'
+  return status === 'SENDING'
+}
+
 export function monthlyInvoiceSeries(bool2: string | null | undefined): number | null {
   if (bool2?.trim() === '0') return 5106
   if (bool2?.trim() === '1') return 5105

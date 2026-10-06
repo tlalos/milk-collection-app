@@ -4,7 +4,7 @@ import { BankNoteSummary } from './BankNoteSummary'
 import { BankExportDialog, type BankExportDialogHandle } from './BankExportDialog'
 import { prepareBankExport, type BankExportRow } from '../bankNoteExport'
 import { appPath } from '../ocrPaths'
-import { monthlyInvoiceBlockReason, monthlyInvoiceSeries } from '../monthlyInvoiceEligibility'
+import { matchesInvoiceSendFilter, monthlyInvoiceBlockReason, monthlyInvoiceSeries, type InvoiceSendFilter } from '../monthlyInvoiceEligibility'
 import { monthlyInvoiceAmounts, pricingSubtotal } from '../monthlyInvoiceAmounts'
 import { ocrConnectionSettingsStore } from '../store/ocrConnectionSettingsStore'
 import { displayInvoiceDate, parseInvoiceDate } from '../invoiceDateFormat'
@@ -238,6 +238,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [seriesFilter, setSeriesFilter] = useState('')
+  const [invoiceSendFilter, setInvoiceSendFilter] = useState<InvoiceSendFilter>('all')
   const [view, setView] = useState<ClosureView>(bankNotePage ? 'bankNote' : 'pricing')
   const [bulkCenter, setBulkCenter] = useState('')
   const [bulkPrice, setBulkPrice] = useState('')
@@ -608,7 +609,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const bankProducerByOption = useMemo(() => new Map(
     bankProducerOptions.map((producer) => [bankProducerOption(producer), producer]),
   ), [bankProducerOptions])
-  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || statusFilter !== 'all' || (view === 'erpInvoices' && seriesFilter))
+  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || statusFilter !== 'all' || (view === 'erpInvoices' && (seriesFilter || invoiceSendFilter !== 'all')))
 
   const filteredRows = useMemo(() => {
     const centerNeedle = normalizedSearch(centerFilter)
@@ -699,6 +700,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     return { row, erpProducer, price, adjustedPrice, roundingDifference, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult, sendBlockReason, series }
   }).filter(invoiceRow => view !== 'erpInvoices' || !seriesFilter
     || (seriesFilter === 'missing' ? invoiceRow.series === null : String(invoiceRow.series) === seriesFilter))
+    .filter(invoiceRow => view !== 'erpInvoices' || matchesInvoiceSendFilter(invoiceStatuses[invoiceRow.row.id], invoiceSendFilter))
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
     qty: totals.qty + invoiceRow.row.liters,
     result: totals.result + (invoiceRow.result ?? 0),
@@ -920,6 +922,16 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
             </select>
           </label>
           {view === 'erpInvoices' && <label>
+            <span>ERP status</span>
+            <select value={invoiceSendFilter} onChange={(event) => setInvoiceSendFilter(event.target.value as InvoiceSendFilter)}>
+              <option value="all">All invoices</option>
+              <option value="not_sent">Not sent</option>
+              <option value="sent">Sent</option>
+              <option value="verification">Needs verification</option>
+              <option value="sending">Sending</option>
+            </select>
+          </label>}
+          {view === 'erpInvoices' && <label>
             <span>Series</span>
             <select value={seriesFilter} onChange={(event) => setSeriesFilter(event.target.value)}>
               <option value="">All series</option>
@@ -937,6 +949,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               setMilkTypeFilter('')
               setStatusFilter('all')
               setSeriesFilter('')
+              setInvoiceSendFilter('all')
             }}
             disabled={!hasActiveFilters}
           >
