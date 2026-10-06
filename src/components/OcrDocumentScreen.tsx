@@ -1,8 +1,11 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import './OcrDocumentScreen.css'
-import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
+import { useOcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
+import { OcrUploadHelp } from './OcrUploadHelp'
 
 interface OcrDocumentScreenProps {
   onBack: () => void
@@ -37,7 +40,7 @@ function formatFileSize(bytes: number) {
 }
 
 export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
-  const { language, setLanguage, isRo } = useOcrLanguage()
+  const { isRo } = useOcrLanguage()
   const [documents, setDocuments] = useState<QueuedDocument[]>([])
   const [notice, setNotice] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -46,6 +49,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   const documentsRef = useRef<QueuedDocument[]>([])
   const documentInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
+  const screenRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     documentsRef.current = documents
@@ -142,33 +146,26 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   }
 
   return (
-    <div className="ocr-screen">
+    <div className="ocr-screen" ref={screenRef}>
       <header className="ocr-header">
-        <button
-          className="ocr-back ocr-home"
+        <BackButton className="ocr-back ocr-home"
           type="button"
           onClick={onBack}
           aria-label={isRo ? 'Înapoi' : 'Back'}
-          title={isRo ? 'Înapoi' : 'Back'}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5" />
-            <path d="M12 19l-7-7 7-7" />
-          </svg>
-          <span>{isRo ? 'Înapoi' : 'Back'}</span>
-        </button>
+          title={isRo ? 'Înapoi' : 'Back'} />
+        <OcrNavigation />
         <div>
           <h1>{isRo ? 'Document OCR' : 'OCR Document'} <small>v{APP_VERSION}</small></h1>
           <p>{isRo ? 'Fotografiați sau selectați documente pentru extragerea datelor' : 'Capture or select documents to extract their data'}</p>
         </div>
         <div className="ocr-header-actions">
+          <OcrUploadHelp screenRef={screenRef} isRo={isRo} disabled={isProcessing} />
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/compare') }}>
             {isRo ? 'Comparare OCR' : 'OCR Compare'}
           </button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/settings?from=upload') }}>
             {isRo ? 'Setări OCR' : 'OCR Settings'}
           </button>
-          <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </div>
       </header>
 

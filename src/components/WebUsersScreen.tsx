@@ -1,3 +1,4 @@
+import { BackButton } from './BackButton'
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
@@ -172,7 +173,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="web-users-screen">
       <header className="web-users-header">
-        <button type="button" onClick={onBack}>Back</button>
+        <BackButton type="button" onClick={onBack} />
         <div>
           <span>Administration</span>
           <h1>Web Users</h1>

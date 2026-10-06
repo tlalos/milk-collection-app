@@ -1,0 +1,6 @@
+.web-sign-in-help { margin: 0 0 16px; }
+.web-sign-in-help-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 10px; border: 1px solid #b8d5c6; border-radius: 6px; background: #f7fbf8; color: #17613a; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; letter-spacing: 0; }
+.web-sign-in-help-trigger:hover { background: #e8f5ee; }
+.web-sign-in-help-trigger:focus-visible { outline: 3px solid #d59416; outline-offset: 3px; }
+.web-sign-in-help-message { margin: 8px 0 0; color: #52645a; font-size: 13px; line-height: 1.4; }
+.home-access-panel > .web-sign-in-help { margin: 0; }

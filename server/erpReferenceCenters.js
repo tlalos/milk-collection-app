@@ -184,6 +184,7 @@ export async function fetchErpReferenceSuppliers(settings, accessToken = '') {
       primaryAddress: valueFrom(supplier, 'sup_address', 'Primary_Address', 'primary_address', 'address'),
       zip: valueFrom(supplier, 'sup_zip', 'Zip', 'zip'),
       city: valueFrom(supplier, 'sup_district', 'City', 'city', 'sup_city'),
+      county: valueFrom(supplier, 'sup_district'),
       primaryPhone: valueFrom(supplier, 'sup_phone01', 'Primary_Phone', 'primary_phone', 'phone'),
       exploitationCode: valueFrom(supplier, 'sup_elogak', 'Cod Exploatatie', 'cod_exploatatie', 'exploitation_code'),
       active: valueFrom(supplier, 'sup_isactive', 'Active', 'active'),

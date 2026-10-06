@@ -12,6 +12,13 @@ interface InvoiceSource {
 
 export type InvoiceSendFilter = 'all' | 'not_sent' | 'sent' | 'verification' | 'sending'
 
+export function invoicePricingLockReason(status: string | undefined): string | null {
+  if (!status || status === 'DRAFT') return null
+  if (status === 'SENT') return 'Sent to ERP - pricing locked'
+  if (status === 'SENDING') return 'Sending to ERP - pricing locked'
+  return 'ERP verification required - pricing locked'
+}
+
 export function matchesInvoiceSendFilter(status: string | undefined, filter: InvoiceSendFilter): boolean {
   if (filter === 'all') return true
   if (filter === 'not_sent') return status === undefined || status === 'DRAFT'

@@ -3,8 +3,17 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 
 const built = await build({ entryPoints: ['src/monthlyInvoiceEligibility.ts'], bundle: true, write: false, platform: 'node', format: 'esm' })
-const { monthlyInvoiceBlockReason: reason, monthlyInvoiceSeries, matchesInvoiceSendFilter } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
+const { monthlyInvoiceBlockReason: reason, monthlyInvoiceSeries, matchesInvoiceSendFilter, invoicePricingLockReason } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
 const row = { producerCode: 'p0001', readyForPricing: true, reconciliationStatus: 'ok', reconciliationDifferenceLiters: 0 }
+
+test('pricing remains editable only before an ERP send or after verified absence', () => {
+  assert.equal(invoicePricingLockReason(undefined), null)
+  assert.equal(invoicePricingLockReason('DRAFT'), null)
+  assert.equal(invoicePricingLockReason('SENT'), 'Sent to ERP - pricing locked')
+  assert.ok(invoicePricingLockReason('SENDING'))
+  assert.ok(invoicePricingLockReason('UNCONFIRMED'))
+  assert.ok(invoicePricingLockReason('UNKNOWN'))
+})
 
 test('ERP filters separate unsent invoices from uncertain and active sends', () => {
   const statuses = [undefined, 'DRAFT', 'SENT', 'UNCONFIRMED', 'SENDING', 'UNKNOWN']

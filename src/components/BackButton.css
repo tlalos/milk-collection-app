@@ -1,0 +1,21 @@
+/* Keep the navigation control compact even in headers with wide text buttons. */
+.app-back-button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  border: 1px solid currentColor;
+  border-radius: 8px !important;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.app-back-button > svg { width: 20px !important; height: 20px !important; flex-shrink: 0; }
+.app-back-button:focus-visible { outline: 3px solid #dfa62c; outline-offset: 3px; }
+.app-back-button:disabled { cursor: default; opacity: .45; }

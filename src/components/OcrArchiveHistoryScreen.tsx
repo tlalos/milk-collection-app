@@ -1,6 +1,8 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
-import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
+import { useOcrLanguage } from './OcrLanguage'
 import { APP_VERSION } from '../appVersion'
 import './OcrArchiveHistoryScreen.css'
 
@@ -123,7 +125,7 @@ async function fetchHistoryPayload() {
 }
 
 export function OcrArchiveHistoryScreen() {
-  const { language, setLanguage, isRo } = useOcrLanguage()
+  const { isRo } = useOcrLanguage()
   const [records, setRecords] = useState<ArchiveHistoryRecord[]>([])
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
@@ -168,18 +170,13 @@ export function OcrArchiveHistoryScreen() {
   return (
     <div className="archive-history-screen">
       <header className="archive-history-header">
-        <button className="archive-history-back" type="button" onClick={() => { window.location.href = appPath('/ocr') }} aria-label={isRo ? 'Inapoi' : 'Back'}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5" />
-            <path d="M12 19l-7-7 7-7" />
-          </svg>
-        </button>
+        <BackButton className="archive-history-back" type="button" onClick={() => { window.location.href = appPath('/ocr') }} aria-label={isRo ? 'Inapoi' : 'Back'} />
+        <OcrNavigation />
         <div>
           <h1>{isRo ? 'Istoric backup OCR' : 'OCR Backup History'} <small>v{APP_VERSION}</small></h1>
           <p>{isRo ? 'Documente arhivate in SharePoint' : 'Archived OCR documents and SharePoint backup details'}</p>
         </div>
         <div className="archive-history-actions">
-          <OcrLanguageSwitch language={language} onChange={setLanguage} />
           <button type="button" onClick={() => void loadHistory()} disabled={loading}>
             {loading ? (isRo ? 'Se incarca...' : 'Loading...') : (isRo ? 'Reincarcare' : 'Refresh')}
           </button>

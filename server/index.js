@@ -3,6 +3,7 @@ import express from 'express'
 import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
 import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend, registerAddedDailyErpRows } from './dailyErpRecovery.js'
 import multer from 'multer'
+import { ocrUpload as upload } from './ocrUpload.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -108,7 +109,6 @@ import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridg
 const app = express()
 const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
 const appVersion = process.env.APP_VERSION || '2026.08.19.1'
 const localDevOrigins = new Set([
@@ -1038,15 +1038,6 @@ app.use((request, _response, next) => {
   next()
 })
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { files: 10, fileSize: 15 * 1024 * 1024 },
-  fileFilter: (_request, file, callback) => {
-    const supported = supportedTypes.has(file.mimetype)
-    callback(supported ? null : new Error(`Unsupported file type: ${file.mimetype}`), supported)
-  },
-})
-
 app.use(express.json({ limit: '1mb' }))
 
 const cookieName = 'milk_session'
@@ -1890,6 +1881,15 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
   }
 })
 
+app.get('/api/ocr/exports/reception-factors', requirePermission('monthly_reconciliation'), async (_request, response, next) => {
+  try {
+    const settings = await getMilkDensitySettings()
+    response.set('Cache-Control', 'no-store').json({ factors: settings.RECEPTION })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
   try {
     if (!isSqlOcrStoreEnabled()) return response.json(monthlyReconciliationFromJobs(await listJobs()))
@@ -2191,6 +2191,9 @@ app.post('/api/month-closure/pricing-rows', requirePermission('month_closure'), 
     })
     response.json({ month, ...result })
   } catch (error) {
+    if (error.code === 'INVOICE_PRICING_LOCKED') {
+      return response.status(409).json({ error: error.message })
+    }
     if (/^Row \d+:/u.test(String(error?.message || ''))) {
       return response.status(400).json({ error: error.message })
     }

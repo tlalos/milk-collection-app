@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { db } from '../db/database'
@@ -204,13 +206,9 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
   return (
     <div className="data-sync-screen">
       <header className="data-sync-header">
-        <button className="data-sync-back" onClick={onBack} type="button" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-            strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <BackButton className="data-sync-back" onClick={onBack} type="button" aria-label="Back" />
         <h1>Data sync</h1>
+        <PageLanguageSwitch />
       </header>
 
       <main className="data-sync-body">

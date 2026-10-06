@@ -1,3 +1,4 @@
+import { BackButton } from './BackButton'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
@@ -132,7 +133,7 @@ export function WebUserHistoryScreen() {
 
   return <div className="web-users-screen">
     <header className="web-users-header">
-      <button type="button" onClick={() => { window.location.href = appPath('/web-users') }}>Back to users</button>
+      <BackButton type="button" onClick={() => { window.location.href = appPath('/web-users') }} aria-label="Back to users" />
       <div><span>Administration</span><h1>User Log History</h1></div>
     </header>
     <main className="web-users-main user-log-main">

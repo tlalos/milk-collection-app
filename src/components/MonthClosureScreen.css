@@ -5,6 +5,7 @@
 }
 
 .app-topbar.month-closure-topbar {
+  position: relative;
   justify-content: flex-start;
   gap: 14px;
   flex-wrap: wrap;
@@ -89,6 +90,20 @@
     min-width: 0;
     padding: 0 10px;
     font-size: 0.78rem;
+  }
+}
+
+.month-closure-actions .month-closure-refresh {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--app-header-button-height, 38px);
+  width: var(--app-header-button-height, 38px);
+  padding: 0;
+}
+
+@media (max-width: 760px) {
+  .month-closure-actions-compact {
+    grid-template-columns: minmax(0, 1fr) var(--app-header-button-height, 38px);
   }
 }
 
@@ -218,7 +233,8 @@
 }
 
 .month-closure-card {
-  overflow: hidden;
+  min-width: 0;
+  overflow: visible;
   border: 1px solid #cddbd3;
   border-radius: 8px;
   background: #fff;
@@ -277,26 +293,15 @@
   opacity: 0.52;
 }
 
-.month-closure-pricing-tools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  padding: 8px 14px;
-  border-bottom: 1px solid #dce7e0;
-  background: #f7fbf8;
-}
-
 .month-closure-save-actions {
   flex: 0 0 auto;
-  display: flex !important;
-  grid-template-columns: none !important;
+  display: flex;
   align-items: center;
-  gap: 10px !important;
+  gap: 8px;
 }
 
 .month-closure-save-indicator {
-  min-width: 68px;
+  min-width: 76px;
   color: #637168 !important;
   text-align: right;
   white-space: nowrap;
@@ -314,18 +319,21 @@
   color: #9d342d !important;
 }
 
-.month-closure-pricing-tools button {
-  min-height: 36px;
+.month-closure-save-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   border: 1px solid #167847;
-  border-radius: 8px;
-  padding: 0 14px;
+  border-radius: 4px;
+  padding: 0;
   background: #167847;
   color: #fff;
   font-weight: 900;
   white-space: nowrap;
 }
 
-.month-closure-pricing-tools button:disabled {
+.month-closure-save-icon:disabled {
   border-color: #cddbd3;
   background: #e8eeea;
   color: #78867e;
@@ -652,6 +660,25 @@
 
 .month-closure-table-wrap {
   overflow: auto;
+  position: relative;
+  scroll-padding-top: 64px;
+}
+
+.month-closure-table-wrap:focus-visible { outline: 2px solid #1f7a49; outline-offset: -2px; }
+.month-closure-table-wrap > table > thead { position: relative; z-index: 2; background: #e6f0eb; box-shadow: 0 1px 0 #cddbd3; }
+.month-closure-pagination-sticky { position: sticky; top: 0; z-index: 3; }
+.month-closure-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 14px; border-block: 1px solid #dce7e0; background: #f6faf7; color: #526158; font-size: 12px; }
+.month-closure-pagination > span { margin-right: auto; font-variant-numeric: tabular-nums; }
+.month-closure-pagination label { display: flex; align-items: center; gap: 8px; }
+.month-closure-pagination select { height: 32px; border: 1px solid #cddbd3; border-radius: 4px; padding: 0 6px; background: white; color: #003c24; font: inherit; }
+.month-closure-page-controls { display: flex; align-items: center; gap: 6px; }
+.month-closure-page-controls span { min-width: 100px; text-align: center; font-variant-numeric: tabular-nums; }
+.month-closure-page-controls button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid #cddbd3; border-radius: 4px; background: white; color: #176345; cursor: pointer; }
+.month-closure-page-controls button:disabled { opacity: .4; cursor: default; }
+.month-closure-page-controls button:hover:not(:disabled) { background: #e1f2e8; }
+@media (max-width: 600px) {
+  .month-closure-pagination { gap: 8px; }
+  .month-closure-page-controls { margin-left: auto; }
 }
 
 .month-closure-table {
@@ -792,16 +819,36 @@
 .month-closure-invoice-table th:nth-child(5),
 .month-closure-invoice-table th:nth-child(6),
 .month-closure-invoice-table th:nth-child(7),
-.month-closure-invoice-table th:nth-child(8),
-.month-closure-invoice-table th:nth-child(9),
 .month-closure-invoice-table th:nth-child(12) { width: 104px; }
+.month-closure-invoice-table th:nth-child(8),
+.month-closure-invoice-table th:nth-child(9) { width: 68px; white-space: normal; line-height: 1.35; }
 .month-closure-invoice-table th:nth-child(10) { width: 112px; }
 .month-closure-invoice-table th:nth-child(11) { width: 72px; }
 .month-closure-invoice-table th:nth-child(13) { width: 170px; }
-.month-closure-invoice-table th:nth-child(5) { width: 120px; white-space: normal; }
-.month-closure-table:not(.month-closure-invoice-table):not(.month-closure-bank-table) th:nth-child(9),
-.month-closure-table:not(.month-closure-invoice-table):not(.month-closure-bank-table) th:nth-child(15) { width: 112px; }
+.month-closure-invoice-table th:nth-child(5) { width: 96px; white-space: normal; }
+.month-closure-pricing-table { min-width: 1386px; }
+.month-closure-pricing-table th, .month-closure-pricing-table td { box-sizing: border-box; padding-inline: 7px; }
+.month-closure-pricing-table th { white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
+.month-closure-pricing-table th:nth-child(1) { width: 72px; }
+.month-closure-pricing-table th:nth-child(2) { width: 166px; }
+.month-closure-pricing-table th:nth-child(3) { width: 214px; }
+.month-closure-pricing-table th:nth-child(4) { width: 68px; }
+.month-closure-pricing-table th:nth-child(5) { width: 72px; }
+.month-closure-pricing-table th:nth-child(6),
+.month-closure-pricing-table th:nth-child(7),
+.month-closure-pricing-table th:nth-child(8) { width: 80px; }
+.month-closure-pricing-table th:nth-child(9) { width: 94px; }
+.month-closure-pricing-table th:nth-child(10) { width: 66px; }
+.month-closure-pricing-table th:nth-child(11) { width: 68px; }
+.month-closure-pricing-table th:nth-child(12) { width: 80px; }
+.month-closure-pricing-table th:nth-child(13) { width: 90px; }
+.month-closure-pricing-table th:nth-child(14) { width: 68px; }
+.month-closure-pricing-table th:nth-child(15) { width: 88px; }
+.month-closure-pricing-heading { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.month-closure-pricing-heading svg { flex: 0 0 14px; }
 .month-closure-collector { display: block; color: #536572; font-weight: 600; }
+.month-closure-pricing-lock { display: inline-flex; margin-left: 6px; vertical-align: middle; color: #52685b; }
+.month-closure-price-input:disabled { opacity: 1; color: #52685b; background: #edf2ef; cursor: not-allowed; }
 .month-closure-invoice-warning { display: block; white-space: normal; overflow-wrap: anywhere; margin-top: 5px; color: #805000; }
 .month-closure-invoice-sent { display: block; white-space: normal; overflow-wrap: anywhere; margin-top: 5px; color: #215c38; }
 .month-closure-invoice-send small { display: block; max-width: 170px; white-space: normal; margin-top: 5px; color: #805000; }
@@ -975,6 +1022,9 @@
   font-weight: 850;
   line-height: 1.1;
 }
+
+.month-closure-invoice-price { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 3px 6px; }
+.month-closure-invoice-price span { font-size: 10px; font-weight: 400; white-space: normal; overflow-wrap: anywhere; }
 
 .month-closure-erp-match {
   display: inline-flex;

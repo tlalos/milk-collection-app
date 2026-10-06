@@ -60,6 +60,16 @@ For existing installations, `MONTHLY_INVOICE_ERP_URL` is only a compatibility fa
 
 The row button opens a server-generated preview. Confirming revalidates saved pricing, producer references and invoice date, then claims the invoice in SQL before making one ERP request. Sent, in-flight and unconfirmed invoices cannot be submitted again. Unconfirmed results require ERP investigation; automatic retry and manual recovery are not enabled. SQL tables are created on backend startup. No invoice is sent by deployment or startup.
 
+If the ERP API is on the app server but its public address is unreachable from that
+server, verify the local API first, then set
+`MONTHLY_INVOICE_ERP_INTERNAL_URL=http://127.0.0.1:8102/wmsapi/api` in the server's
+`.env` and restart the app pool. This optional override routes only monthly invoice
+login, lookup, preview and send requests internally. It does not change the shared
+public ERP URL used by browsers or other workflows. Browser requests must still
+match the approved shared URL; clients cannot supply the internal override.
+There is no automatic retry or fallback between addresses. Keep the override unset
+unless its target is the same trusted ERP installation as the shared public URL.
+
 ## Persistent data
 
 The current filesystem store uses `data/ocr/files` for uploaded documents and `data/ocr/jobs` for job metadata. The release package does not include either directory. Configure the deployment so `data/ocr` survives application upgrades and is backed up. If releases are replaced atomically, mount or link a persistent data directory at `data/ocr`.

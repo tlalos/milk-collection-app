@@ -72,6 +72,54 @@ test('unapproved ERP destinations make no network requests', async () => {
   await assert.rejects(connectInvoiceErp({ serverUrl: 'http://unapproved.invalid' }, async () => { throw new Error('Must not fetch') }, { get: async () => ({ serverUrl: 'https://erp.example/api' }) }), /destination/)
 })
 
+test('server-only internal route handles invoice lookups and explicit sending without changing the shared URL', async () => {
+  const configured = 'https://erp.example/api'
+  const calls = []
+  const connection = { serverUrl: configured, apiUsername: 'test', apiPassword: 'test-only', defaultFiscalYear: '2026' }
+  const store = { get: async () => ({ serverUrl: configured }) }
+  const client = await connectInvoiceErp(connection, async (url, options) => {
+    calls.push({ url, options })
+    const data = url.includes('Accounts/Login') ? { access_token: 'test-token' }
+      : url.includes('ERP_RomSuppliersList') ? [supplier]
+      : url.includes('ERP_RomZgParam') ? [{ par_from_branch: 1 }] : { status: true, newid: 'test-id' }
+    return { ok: true, json: async () => data }
+  }, store, 'http://127.0.0.1:8102/wmsapi/api/')
+  assert.equal(calls.length, 3, 'connecting does not send an invoice')
+  assert.ok(calls.every(call => call.url.startsWith('http://127.0.0.1:8102/wmsapi/api/')))
+  assert.ok(calls.every(call => call.options.redirect === 'error'))
+  assert.equal(JSON.parse(calls[0].options.body).Username, 'test')
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer test-token')
+  assert.equal((await store.get()).serverUrl, configured)
+  assert.equal(connection.serverUrl, configured)
+  const result = await client.send(preview().payload)
+  assert.equal(result.newid, 'test-id')
+  assert.equal(calls.length, 4)
+  assert.ok(calls[3].url.endsWith('/WMS/ERP_SaveRomZGParalavesSuppliesOrder'))
+  assert.deepEqual(JSON.parse(calls[3].options.body), preview().payload)
+})
+
+test('internal route never bypasses the approved browser destination or URL validation', async () => {
+  const store = { get: async () => ({ serverUrl: 'https://erp.example/api' }) }
+  let requests = 0
+  const fetchImpl = async () => { requests++; throw new Error('Unexpected request') }
+  const connection = { serverUrl: 'https://erp.example/api', apiUsername: 'test', apiPassword: 'test-only' }
+  await assert.rejects(connectInvoiceErp({ ...connection, serverUrl: 'http://other.invalid' }, fetchImpl, store, 'http://127.0.0.1:8102/wmsapi/api'), /destination changed/)
+  for (const url of ['file:///etc/passwd', 'http://user:password@localhost/api', 'http://localhost/api?redirect=other', 'not a URL']) {
+    await assert.rejects(connectInvoiceErp(connection, fetchImpl, store, url))
+  }
+  assert.equal(requests, 0)
+})
+
+test('without a server override the shared URL remains in use; client override fields are ignored', async () => {
+  const configured = 'https://erp.example/api'
+  const calls = []
+  await assert.rejects(connectInvoiceErp({ serverUrl: configured, apiUsername: 'test', apiPassword: 'test-only', internalUrl: 'http://other.invalid' }, async url => {
+    calls.push(url)
+    throw new Error('Test connection failure')
+  }, { get: async () => ({ serverUrl: configured }) }, ''), /Test connection failure/)
+  assert.deepEqual(calls, [`${configured}/Accounts/Login`], 'no retry or fallback to a second destination')
+})
+
 test('branch lookup and invoice payload use the same ZG user, not login username', async () => {
   const previous = process.env.MONTHLY_INVOICE_ERP_URL
   process.env.MONTHLY_INVOICE_ERP_URL = 'https://erp.example/api'

@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useEffect, useMemo, useState } from 'react'
 import {
   deleteJournalCollection,
@@ -247,12 +249,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   return (
     <div className="journal-screen">
       <header className="journal-header">
-        <button className="journal-back" onClick={onBack} type="button" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-            strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <BackButton className="journal-back" onClick={onBack} type="button" aria-label="Back" />
         <h1>Journal</h1>
         <button
           className={`journal-clear-button ${confirmClearAll ? 'confirm' : ''}`}
@@ -262,6 +259,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
         >
           {clearingAll ? 'Clearing...' : confirmClearAll ? 'Confirm clear' : 'Clear all'}
         </button>
+        <PageLanguageSwitch />
       </header>
 
       <main className="journal-body">

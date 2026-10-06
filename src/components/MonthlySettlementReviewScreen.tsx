@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { appPath } from "../ocrPaths";
 import { APP_VERSION } from "../appVersion";
 import { nextOcrRowNumber } from "../ocrManualRows";
@@ -7,7 +9,8 @@ import {
   type OcrReferenceCenter,
   type OcrReferenceProducer,
 } from "../store/ocrReferenceSuppliersStore";
-import { OcrLanguageSwitch, useOcrLanguage } from "./OcrLanguage";
+import { useOcrLanguage } from "./OcrLanguage";
+import { ReviewHelp } from "./ReviewHelp";
 import { centerImagePreview, getImageRotationTransform } from "./ocrImageRotation";
 import "./MonthlySettlementReviewScreen.css";
 import "./MonthlySettlementBadges.css";
@@ -390,7 +393,7 @@ function archiveApiUrls(pathname: string) {
 }
 
 export function MonthlySettlementReviewScreen() {
-  const { language, setLanguage, isRo } = useOcrLanguage();
+  const { language, isRo } = useOcrLanguage();
   const [view, setView] = useState<"pending" | "reviewed" | "failed">("pending");
   const [listCollapsed, setListCollapsed] = useState(false);
   const [centerSearch, setCenterSearch] = useState("");
@@ -1329,6 +1332,8 @@ export function MonthlySettlementReviewScreen() {
   return (
     <div className="monthly-review">
       <header>
+        <BackButton onClick={() => { window.location.href = appPath('/ocr') }} />
+        <OcrNavigation />
         <div>
           <h1>
             {isRo ? "Verificare decont lunar" : "Monthly Settlement Review"}{" "}
@@ -1341,6 +1346,7 @@ export function MonthlySettlementReviewScreen() {
           </p>
         </div>
         <nav>
+          <ReviewHelp kind="monthly" onStart={() => setListCollapsed(false)} />
           <button
             onClick={() => {
               window.location.href = appPath("/ocr/upload");
@@ -1355,14 +1361,6 @@ export function MonthlySettlementReviewScreen() {
           >
             {isRo ? "Rute zilnice" : "Daily Routes"}
           </button>
-          <button
-            onClick={() => {
-              window.location.href = appPath("/ocr/archive-history");
-            }}
-          >
-            {isRo ? "Istoric backup" : "Backup history"}
-          </button>
-          <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </nav>
       </header>
       {notice && (

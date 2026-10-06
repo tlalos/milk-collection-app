@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useState, useEffect } from 'react'
 import { settingsStore } from '../store/settingsStore'
 import { testConnection } from '../api/client'
@@ -60,17 +62,14 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
     <div className="settings-screen">
       {/* Header */}
       <header className="settings-header">
-        <button className="settings-back" onClick={onBack} type="button" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <BackButton className="settings-back" onClick={onBack} type="button" aria-label="Back" />
         <h1>Settings</h1>
         <div className="settings-header-actions">
           <span className="settings-offline-badge">Offline ready</span>
           <button className="settings-session-btn" onClick={user ? onErpSignOut : onErpSignIn} type="button">
             {user ? 'ERP sign out' : 'ERP sign in'}
           </button>
+          <PageLanguageSwitch />
         </div>
       </header>
 

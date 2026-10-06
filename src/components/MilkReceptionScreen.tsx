@@ -1,3 +1,5 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './MilkReceptionScreen.css'
 import { appPath } from '../ocrPaths'
@@ -1237,7 +1239,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     <div className="app-shell reception-screen">
       <header className="app-topbar workflow-topbar reception-topbar">
         <div className="reception-topbar-left">
-          <button className="back-button" type="button" onClick={handleBack}>Back</button>
+          <BackButton className="back-button" type="button" onClick={handleBack} />
+          <OcrNavigation />
           <div>
             <p className="topbar-label">Factory workflow</p>
             <h1>Milk Reception</h1>

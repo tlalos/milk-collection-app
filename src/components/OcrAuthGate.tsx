@@ -1,4 +1,8 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { BackButton } from './BackButton'
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { WebSignInHelp } from './WebSignInHelp'
+import { WebAccountMenu } from './WebAccountMenu'
+import { OcrNavigationContext, hasOcrNavigation } from './OcrNavigation'
 import { appPath } from '../ocrPaths'
 import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
 import './OcrAuthGate.css'
@@ -45,6 +49,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
   const [error, setError] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const signInForm = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     void fetch(appPath('/api/auth/session')).then(async (response) => {
@@ -65,8 +70,8 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
       })
       const payload = await response.json() as { user?: User; error?: string }
       if (!response.ok || !payload.user) throw new Error(payload.error || 'Login failed.')
-      setUser(payload.user)
       setPassword('')
+      window.location.replace(appPath('/ocr'))
     } catch (loginError) {
       setError(loginErrorMessage(loginError, isRo))
     } finally {
@@ -87,15 +92,14 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
         <div className="ocr-auth-mark">M</div>
         <h1>{title || (isRo ? 'Autentificare utilizator web' : 'Web user sign in')}</h1>
         <p>{description || (isRo ? 'Autentificați-vă ca utilizator web pentru acces la această pagină.' : 'Sign in as a Web user to access this page.')}</p>
-        <form onSubmit={submit}>
+        <WebSignInHelp formRef={signInForm} isRo={isRo} />
+        <form ref={signInForm} onSubmit={submit}>
           <label>{isRo ? 'Utilizator' : 'Username'}<input autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} /></label>
           <label>{isRo ? 'Parolă' : 'Password'}<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           {error && <div className="ocr-auth-error" role="alert">{error}</div>}
           <button type="submit" disabled={submitting}>{submitting ? (isRo ? 'Se autentifică…' : 'Signing in…') : (isRo ? 'Autentificare web' : 'Web sign in')}</button>
         </form>
-        <button className="ocr-auth-menu-link" type="button" onClick={() => { window.location.href = appPath('/ocr') }}>
-          {isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'}
-        </button>
+        <BackButton className="ocr-auth-menu-link" type="button" onClick={() => { window.location.href = appPath('/ocr') }} aria-label={isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'} />
       </section>
     </main>
   )
@@ -107,9 +111,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
         <div className="ocr-auth-mark">M</div>
         <h1>{isRo ? 'Acces restricționat' : 'No access'}</h1>
         <p>{isRo ? 'Acest utilizator nu are permisiune pentru această pagină.' : 'This user does not have permission for this page.'}</p>
-        <button type="button" onClick={() => { window.location.href = appPath('/ocr') }}>
-          {isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'}
-        </button>
+        <BackButton type="button" onClick={() => { window.location.href = appPath('/ocr') }} aria-label={isRo ? 'Înapoi la meniul OCR' : 'Back to OCR menu'} />
         <button className="ocr-auth-menu-link" type="button" onClick={() => void signOut()}>
           {user.username} · {isRo ? 'Ieșire web' : 'Web sign out'}
         </button>
@@ -118,12 +120,14 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
   )
 
   return (
-    <div className="ocr-auth-content">
+    <OcrNavigationContext.Provider value={{ user, isRo }}>
+    <div className={`ocr-auth-content${hasOcrNavigation() ? ' ocr-has-navigation' : ''}`}>
       {children}
       <div className="ocr-auth-session">
-        <span>{user.username}</span>
-        <button type="button" onClick={() => void signOut()}>{isRo ? 'Ieșire web' : 'Web sign out'}</button>
+        <OcrLanguageSwitch language={language} onChange={setLanguage} />
+        <WebAccountMenu username={user.username} onSignOut={signOut} isRo={isRo} />
       </div>
     </div>
+    </OcrNavigationContext.Provider>
   )
 }

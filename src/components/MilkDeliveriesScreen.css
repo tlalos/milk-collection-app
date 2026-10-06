@@ -400,11 +400,18 @@
 }
 
 .delivery-row-actions button.send {
-  width: auto;
-  flex-basis: auto;
-  padding: 0 8px;
-  white-space: nowrap;
+  height: 32px;
 }
+
+.delivery-departure-icon {
+  display: grid;
+  grid-template-rows: 18px 10px;
+  place-items: center;
+  width: 24px;
+  height: 28px;
+}
+.delivery-departure-icon svg:first-child { width: 20px; height: 18px; }
+.delivery-departure-icon svg:last-child { width: 20px; height: 10px; }
 
 .delivery-row-actions button.danger {
   border-color: #efb8b4;

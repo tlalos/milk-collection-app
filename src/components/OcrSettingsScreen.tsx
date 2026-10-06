@@ -1,13 +1,15 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
-import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
+import { useOcrLanguage } from './OcrLanguage'
 import './OcrSettingsScreen.css'
 
 interface Provider { id: string; label: string; models: string[]; configured: boolean; supportsDocuments: boolean; compatibilityNote: string | null }
 interface Settings { provider: string; model: string; updatedAt: string | null; providers: Provider[] }
 
 export function OcrSettingsScreen() {
-  const { language, setLanguage, isRo } = useOcrLanguage()
+  const { isRo } = useOcrLanguage()
   const [settings, setSettings] = useState<Settings | null>(null)
   const [provider, setProvider] = useState('openai')
   const [model, setModel] = useState('')
@@ -45,7 +47,7 @@ export function OcrSettingsScreen() {
   }
 
   return <div className="ocr-settings-screen">
-    <header><button type="button" onClick={() => { window.location.href = appPath(`/ocr/${from}`) }}>←</button><div><h1>{isRo ? 'Setări OCR' : 'OCR Settings'}</h1><p>{isRo ? 'Alegeți furnizorul și modelul pentru documentele noi' : 'Choose the provider and model for new documents'}</p></div><OcrLanguageSwitch language={language} onChange={setLanguage} /></header>
+    <header><BackButton type="button" onClick={() => { window.location.href = appPath(`/ocr/${from}`) }} aria-label={isRo ? 'Înapoi' : 'Back'} /><OcrNavigation /><div><h1>{isRo ? 'Setări OCR' : 'OCR Settings'}</h1><p>{isRo ? 'Alegeți furnizorul și modelul pentru documentele noi' : 'Choose the provider and model for new documents'}</p></div></header>
     <main><section>
       <h2>{isRo ? 'Model de extragere' : 'Extraction model'}</h2>
       <p>{isRo ? 'Cheile API rămân în variabilele de mediu ale serverului și nu sunt salvate în browser.' : 'API keys remain in server environment variables and are never stored in the browser.'}</p>

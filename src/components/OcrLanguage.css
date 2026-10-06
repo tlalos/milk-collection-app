@@ -1,3 +1,63 @@
-.ocr-language-switch { display: flex; gap: 3px; margin-left: auto; padding: 3px; border: 1px solid rgba(255,255,255,.28); border-radius: 9px; background: rgba(255,255,255,.1); }
-.ocr-language-switch button { min-width: 34px; height: 29px; padding: 0 7px; border: 0; border-radius: 6px; background: transparent; color: rgba(255,255,255,.72); font-size: .68rem; font-weight: 850; }
-.ocr-language-switch button.active { background: white; color: #175633; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+/* Isolate the segmented control from legacy page-wide button styles. */
+.ocr-language-switch {
+  display: inline-flex !important;
+  align-items: center;
+  flex: 0 0 84px !important;
+  width: 84px !important;
+  min-width: 84px !important;
+  max-width: 84px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  box-sizing: border-box;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid #b7cbbf;
+  border-radius: 8px;
+  background: #edf3ef;
+  align-self: center;
+  justify-self: start;
+}
+
+.ocr-language-switch > button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0 !important;
+  width: 37px !important;
+  min-width: 0 !important;
+  max-width: 37px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  box-sizing: border-box;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: #42594b !important;
+  font-family: inherit;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  letter-spacing: 0;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.ocr-language-switch > button.active {
+  background: #175c3b !important;
+  color: #fff !important;
+}
+
+.ocr-language-switch > button:hover:not(.active) { background: #dce8e0 !important; }
+.ocr-language-switch > button:focus-visible { outline: 2px solid #bd7517; outline-offset: -2px; }
+
+header:has(> .ocr-language-switch) { flex-wrap: wrap; }
+header > .ocr-language-switch { margin-left: auto; }
+.login-navigation { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.login-navigation .login-back { margin: 0; }
+
+@media (max-width: 760px) {
+  .ocr-settings-screen header .ocr-language-switch { grid-column: 1 / -1; }
+}

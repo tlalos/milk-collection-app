@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import './OcrReviewScreen.css'
-import { OcrLanguageSwitch, useOcrLanguage, type OcrLanguage } from './OcrLanguage'
+import { useOcrLanguage, type OcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { APP_VERSION } from '../appVersion'
 import { dailyCenterSelectionError, failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyMilkTypeCode, type DailyRouteErpExport } from '../store/dailyRouteErpStore'
@@ -8,6 +10,8 @@ import { loadOcrReferenceSuppliers, type OcrReferenceCenter } from '../store/ocr
 import { centerImagePreview, getImageRotationTransform } from './ocrImageRotation'
 import { ErpRowRecovery, type ErpManualChecks } from './ErpRowRecovery'
 import { nextOcrRowNumber } from '../ocrManualRows'
+import { ReviewHelp } from './ReviewHelp'
+import { RefreshCw, Save } from 'lucide-react'
 
 const DAILY_MILK_TYPE_OPTIONS: Array<{ value: DailyMilkTypeCode; label: string }> = [
   { value: 'MILK-COW', label: 'COW' },
@@ -557,7 +561,7 @@ function applyCenterMatchesToData(data: ExtractedData, matches: CenterMatch[]) {
 }
 
 export function OcrReviewScreen() {
-  const { language, setLanguage, isRo } = useOcrLanguage()
+  const { language, isRo } = useOcrLanguage()
   const [queueView, setQueueView] = useState<QueueView>('pending')
   const [queueCollapsed, setQueueCollapsed] = useState(false)
   const [jobSearch, setJobSearch] = useState('')
@@ -1610,13 +1614,19 @@ export function OcrReviewScreen() {
   return (
     <div className="review-screen">
       <header className="review-header">
+        <BackButton onClick={() => { window.location.href = appPath('/ocr') }} />
+        <OcrNavigation />
         <div><h1>{isRo ? 'Verificare rute zilnice' : 'Daily Routes Review'} <small>v{APP_VERSION}</small></h1><p>{isRo ? 'Verificarea documentelor de colectare zilnică' : 'Daily milk collection document verification'}</p></div>
         <div className="review-header-actions">
+          <ReviewHelp kind="daily" disabled={saving || autoSaveStatus === 'saving' || erpSending || Boolean(loadingId) || Boolean(draft && JSON.stringify({ data: draft, centerMatches }) !== lastSavedRef.current)} onStart={() => {
+            setQueueView('pending')
+            setQueueCollapsed(false)
+            setJobSearch('')
+            setJobDateFilter('')
+            setPage(1)
+          }} />
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/upload') }}>{isRo ? 'Încărcare' : 'Upload'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Decont lunar' : 'Monthly Review'}</button>
-          <button type="button" onClick={() => { window.location.href = appPath('/ocr/archive-history') }}>{isRo ? 'Istoric backup' : 'Backup history'}</button>
-          <button type="button" onClick={() => void loadJobs()}>{isRo ? 'Actualizați coada' : 'Refresh queue'}</button>
-          <OcrLanguageSwitch language={language} onChange={setLanguage} />
         </div>
       </header>
 
@@ -1624,10 +1634,15 @@ export function OcrReviewScreen() {
       {success && <div className="review-global-success" role="status"><span>{success}</span><button type="button" onClick={() => setSuccess('')} aria-label={isRo ? 'Închideți notificarea' : 'Dismiss notification'}>×</button></div>}
       <main className={`review-layout ${queueCollapsed ? 'queue-collapsed' : ''}`}>
         <aside className="review-queue">
+          <div className="review-queue-toolbar">
           <button className="review-queue-toggle" type="button" onClick={() => setQueueCollapsed((current) => !current)} title={queueCollapsed ? (isRo ? 'Extindeți lista documentelor' : 'Expand document list') : (isRo ? 'Restrângeți lista documentelor' : 'Collapse document list')} aria-label={queueCollapsed ? (isRo ? 'Extindeți lista documentelor' : 'Expand document list') : (isRo ? 'Restrângeți lista documentelor' : 'Collapse document list')} aria-expanded={!queueCollapsed}>
             <span aria-hidden="true">{queueCollapsed ? '›' : '‹'}</span>
             {!queueCollapsed && <b>{isRo ? 'Restrângeți' : 'Collapse'}</b>}
           </button>
+          <button className="review-queue-refresh" type="button" onClick={() => void loadJobs()} title={isRo ? 'Actualizați coada' : 'Refresh queue'} aria-label={isRo ? 'Actualizați coada' : 'Refresh queue'}>
+            <RefreshCw size={17} aria-hidden="true" />
+          </button>
+          </div>
           <div className="review-queue-content">
           <div className="review-queue-tabs">
             <button className={queueView === 'pending' ? 'active' : ''} type="button" onClick={() => setQueueView('pending')}>{isRo ? 'În așteptare' : 'Pending'}</button>
@@ -1672,8 +1687,6 @@ export function OcrReviewScreen() {
                   })()}
                   <span className="review-job-status"><i aria-hidden="true" />{loadingId === job.id ? (isRo ? 'Se deschide…' : 'Opening…') : statusLabel(job, language)}</span>
                   {job.attention?.needsAttention && <span className="review-attention-text">{isRo ? 'Necesită verificare' : 'Needs verification'}</span>}
-                  {job.openai?.model && <span className="review-job-model">OCR: {job.openai.provider || 'openai'} · {job.openai.model}{formatOcrDuration(job) ? ` · ${formatOcrDuration(job)}` : ''}</span>}
-                  {formatCost(job) && <span className="review-job-cost">OpenAI est. {formatCost(job)}</span>}
                   {job.erpExport?.status && job.erpExport.status !== 'not_ready' && <span className={`review-erp-status erp-${job.erpExport.status}`}>ERP: {job.erpExport.status}</span>}
                   {job.archiveStatus?.status === 'archived' && <span className="review-archive-status archived">{isRo ? 'Arhivat' : 'Archived'}</span>}
                   {job.archiveStatus?.status === 'failed' && <span className="review-archive-status failed">{isRo ? 'Backup eșuat' : 'Backup failed'}</span>}
@@ -1735,13 +1748,22 @@ export function OcrReviewScreen() {
 
               <div className="review-data-panel">
                 <div className="review-panel-heading review-data-heading">
-                  <div className="review-data-title"><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><span>{isRo ? 'Editați câmpurile și salvați-le pe server' : 'Edit fields and save them to the server'}</span><button className={`review-fit-columns ${columnsFit ? 'active' : ''}`} type="button" onClick={toggleColumnsFit} title={columnsFit ? (isRo ? 'Restabiliți aspectul anterior' : 'Restore previous layout') : (isRo ? 'Afișați toate coloanele' : 'Fit all columns')} aria-pressed={columnsFit}><span aria-hidden="true">↔</span>{columnsFit ? (isRo ? 'Restabiliți' : 'Restore') : (isRo ? 'Potriviți coloanele' : 'Fit columns')}</button></div>
+                  <div className="review-data-title">
+                    <div className="review-data-title-line">
+                      <h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2>
+                      {formatOcrDuration(selected) && <b className="review-ocr-time-badge">{isRo ? 'Durată OCR' : 'OCR time'}: {formatOcrDuration(selected)}</b>}
+                    </div>
+                    <span>{isRo ? 'Editați câmpurile și salvați-le pe server' : 'Edit fields and save them to the server'}</span><button className={`review-fit-columns ${columnsFit ? 'active' : ''}`} type="button" onClick={toggleColumnsFit} title={columnsFit ? (isRo ? 'Restabiliți aspectul anterior' : 'Restore previous layout') : (isRo ? 'Afișați toate coloanele' : 'Fit all columns')} aria-pressed={columnsFit}><span aria-hidden="true">↔</span>{columnsFit ? (isRo ? 'Restabiliți' : 'Restore') : (isRo ? 'Potriviți coloanele' : 'Fit columns')}</button>
+                  </div>
                   <div className="review-heading-badges">
-                    {formatOcrDuration(selected) && <b className="review-ocr-time-badge">{isRo ? 'Durată OCR' : 'OCR time'}: {formatOcrDuration(selected)}</b>}
-                    <button className="review-manual-save" type="button" onClick={() => void saveDocument(false)} disabled={saving || autoSaveStatus === 'saving'}>
-                      {saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}
-                    </button>
-                    <b className={`review-autosave-status status-${autoSaveStatus}`}>{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>
+                    <div className="review-save-status">
+                      <b className={`review-autosave-status status-${autoSaveStatus}`} role="status">{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>
+                      <button className="review-manual-save" type="button" onClick={() => void saveDocument(false)} disabled={saving || autoSaveStatus === 'saving'} aria-busy={saving || autoSaveStatus === 'saving'}
+                        aria-label={saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}
+                        title={saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}>
+                        <Save size={18} aria-hidden="true" />
+                      </button>
+                    </div>
                     {selected.reviewStatus === 'reviewed' ? <b className="reviewed-badge">{isRo ? 'Verificat' : 'Reviewed'}</b> : selected.attention?.needsAttention ? <b className="attention-badge">! {isRo ? 'Necesită verificare' : 'Needs verification'}</b> : <b className="clear-badge">{isRo ? 'Fără avertizări OCR' : 'No OCR warnings'}</b>}
                   </div>
                 </div>

@@ -319,6 +319,17 @@ export async function upsertMonthlyProducerPricingRows(rows) {
     for (const row of rows) {
       const request = new sql.Request(tx)
       bindMonthlyProducerPricing(request, row)
+      // Hold the invoice lock until pricing commits, so a concurrent send cannot
+      // transition this row to SENDING between the status check and the write.
+      const invoice = await request.query(`
+SELECT TOP (1) status FROM dbo.MonthlyInvoices WITH (UPDLOCK,HOLDLOCK)
+WHERE monthKey=@monthKey AND LOWER(LTRIM(RTRIM(producerCode)))=LOWER(LTRIM(RTRIM(@producerCode)))
+  AND milkType IN (@milkType,'') AND status <> 'DRAFT';`)
+      if (invoice.recordset.length) {
+        const error = new Error(`${row.producerName || row.producerCode}: pricing is locked because the invoice is ${invoice.recordset[0].status} in ERP. Refresh the page.`)
+        error.code = 'INVOICE_PRICING_LOCKED'
+        throw error
+      }
       const result = await request.query(`
 MERGE dbo.MonthlyProducerPricing AS target
 USING (

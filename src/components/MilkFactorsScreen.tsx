@@ -1,3 +1,5 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import './MilkFactorsScreen.css'
@@ -91,7 +93,8 @@ export function MilkFactorsScreen() {
   return (
     <div className="app-shell milk-factors-screen">
       <header className="app-topbar milk-factors-topbar">
-        <button className="back-button" type="button" onClick={() => { window.location.href = appPath(backPath()) }}>Back</button>
+        <BackButton className="back-button" type="button" onClick={() => { window.location.href = appPath(backPath()) }} />
+        <OcrNavigation />
         <div className="app-title-block"><p>Factory workflow</p><h1>Milk Factors</h1></div>
       </header>
       <main className="milk-factors-content">

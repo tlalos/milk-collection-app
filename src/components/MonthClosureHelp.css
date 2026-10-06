@@ -1,0 +1,86 @@
+.month-closure-actions .month-closure-help-button { display: inline-grid; place-items: center; width: var(--app-header-button-height, 38px); min-width: var(--app-header-button-height, 38px); flex: 0 0 var(--app-header-button-height, 38px); padding: 0; border-radius: 50%; }
+.month-closure-help-button svg > circle { display: none; }
+.month-closure-guide { position: fixed; inset: 0; margin: auto; box-sizing: border-box; width: min(1380px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 40px); padding: 0; border: 1px solid #cbdcd2; border-radius: 8px; background: #f6f9f7; color: #192b22; box-shadow: 0 12px 40px #102b2233; }
+.month-closure-guide::backdrop { background: #11251c66; }
+.closure-guide-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; background: white; border-bottom: 1px solid #dbe4df; }
+.closure-guide-header small { font-size: 11px; color: #61796c; font-weight: 700; }
+.closure-guide-header h2 { font-size: 21px; line-height: 1.3; margin: 6px 0 0; }
+.closure-guide-controls { display: flex; align-items: center; gap: 14px; }
+.month-closure-guide .closure-guide-language { display: flex; gap: 8px; }
+.month-closure-guide .closure-guide-language button { min-width: 28px; min-height: 30px; padding: 2px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; background: transparent; color: #6f8278; font: inherit; font-size: 11px; }
+.month-closure-guide .closure-guide-language button[aria-pressed="true"] { border-bottom-color: #21643f; color: #21643f; }
+.month-closure-guide .closure-guide-close { display: grid; place-items: center; width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; background: transparent; color: #21643f; }
+.closure-guide-content { padding: 16px 22px; }
+.closure-guide-example-label { display: block; font-size: 12px; color: #61796c; margin-bottom: 10px; }
+.closure-guide-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0 8px; font-size: 13px; }
+.closure-guide-table th { padding: 6px; text-align: left; font-size: 11px; color: #52675c; }
+.closure-guide-table th:first-child { width: 17%; }
+.closure-guide-table th:nth-child(2) { width: 5%; }
+.closure-guide-table th:nth-child(3) { width: 6%; }
+.closure-guide-table th:nth-child(4), .closure-guide-table th:nth-child(5), .closure-guide-table th:nth-child(6) { width: 7%; }
+.closure-guide-table th:nth-child(7) { width: 12%; }
+.closure-guide-table td { padding: 12px 7px; vertical-align: middle; background: white; border-block: 1px solid #d9e3dd; overflow-wrap: anywhere; }
+.closure-guide-table .closure-guide-producer { background: #e1f2e8; }
+.closure-guide-producer small { display: block; margin-top: 6px; color: #61796c; font-size: 11px; }
+.closure-guide-case.blocked td:not(.closure-guide-note-cell) { background: #fff4db; }
+.closure-guide-case.sent .closure-guide-value { background: #edf2ef; color: #617268; }
+.closure-guide-value { display: block; border: 1px solid #ccdcd2; border-radius: 4px; padding: 7px 5px; background: #fff; font-variant-numeric: tabular-nums; }
+.closure-guide-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; }
+.closure-guide-warning { display: flex; align-items: center; gap: 4px; margin-top: 7px; color: #8a5908; font-size: 11px; }
+.closure-guide-table td.closure-guide-note-cell { border: 0; background: transparent; padding: 4px 0 4px 24px; }
+.closure-guide-note { position: relative; border: 1px solid #cddcd3; border-left: 3px solid var(--case-color, #b57b14); border-radius: 6px; padding: 13px 14px; background: #fff; box-shadow: 0 5px 14px #1c37221a; }
+.closure-guide-note::before { content: ''; position: absolute; left: -20px; top: 50%; width: 17px; height: 2px; background: var(--case-color, #b57b14); }
+.closure-guide-case.saved { --case-color: #287647; }
+.closure-guide-case.blocked { --case-color: #bb7a10; }
+.closure-guide-case.sent { --case-color: #477d9c; }
+.closure-guide-note h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; font-size: 15px; }
+.closure-guide-note h3 svg { flex-shrink: 0; color: var(--case-color, #b57b14); }
+.closure-guide-note p { margin: 0; font-size: 13px; line-height: 1.5; }
+.closure-guide-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 22px; border-top: 1px solid #dbe4df; background: white; font-size: 12px; color: #61796c; }
+.month-closure-guide .closure-guide-footer button { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 4px; background: #e8f2ed; color: #1c6340; font-size: 13px; }
+.closure-guide-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.closure-guide-navigation { display: flex; gap: 8px; }
+.closure-guide-invoice-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; }
+.closure-guide-filter-tip svg, .closure-guide-status svg { flex-shrink: 0; }
+.closure-guide-invoice-table th:nth-child(1) { width: 11%; }
+.closure-guide-invoice-table th:nth-child(2) { width: 16%; }
+.closure-guide-invoice-table th:nth-child(3) { width: 12%; }
+.closure-guide-invoice-table th:nth-child(4) { width: 9%; }
+.closure-guide-invoice-table th:nth-child(5) { width: 18%; }
+.closure-guide-invoice-table th:nth-child(6) { width: 34%; }
+.closure-guide-invoice-table .closure-guide-invoice-center { background: #e1f2e8; }
+.closure-guide-invoice-table .closure-guide-producer small.month-closure-invoice-warning { color: #805000; }
+.closure-guide-invoice-table .closure-guide-producer small.month-closure-invoice-sent { color: #215c38; }
+.closure-guide-invoice-table .closure-guide-case.blocked td:not(.closure-guide-note-cell) { background: white; }
+.closure-guide-invoice-date { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; border: 1px solid #cddbd3; border-radius: 4px; padding: 8px 4px; white-space: nowrap; font-size: 12px; }
+.closure-guide-invoice-date.locked { background: #f1f4f2; color: #52685b; }
+.closure-guide-invoice-date svg { flex-shrink: 0; }
+.closure-guide-invoice-table .closure-guide-note { padding: 10px 12px; }
+.closure-guide-invoice-table .closure-guide-note p { font-size: 12px; line-height: 1.45; }
+.closure-guide-invoice-table .closure-guide-note h3 { margin-bottom: 5px; }
+.closure-guide-invoice-table td { padding-block: 8px; }
+.closure-guide-invoice-table .closure-guide-status { margin-top: 8px; color: var(--case-color); }
+.closure-guide-case.sending { --case-color: #477d9c; }
+.closure-guide-case.verification { --case-color: #bb7a10; }
+.closure-guide-filter-tip { display: flex; align-items: center; gap: 8px; color: #61796c; font-size: 12px; line-height: 1.5; }
+@media (max-width: 900px) {
+  .closure-guide-invoice-table .closure-guide-case { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .closure-guide-table.closure-guide-invoice-table .closure-guide-producer { grid-column: auto; }
+  .closure-guide-invoice-table .month-closure-invoice-send { grid-column: 1 / -1; }
+  .closure-guide-table, .closure-guide-table tbody { display: block; }
+  .closure-guide-table thead { display: none; }
+  .closure-guide-case { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; }
+  .closure-guide-table td { display: block; min-width: 0; padding: 8px; }
+  .closure-guide-table td::before { content: attr(data-label); display: block; font-size: 10px; color: #61796c; margin-bottom: 5px; }
+  .closure-guide-table .closure-guide-producer { grid-column: 1 / -1; }
+  .closure-guide-table td.closure-guide-note-cell { grid-column: 1 / -1; padding: 12px 0 0; }
+  .closure-guide-note::before { left: 18px; top: -12px; width: 2px; height: 10px; }
+}
+@media (max-width: 760px) {
+  .closure-guide-invoice-toolbar { flex-wrap: wrap; }
+  .month-closure-actions.month-closure-actions-compact { grid-template-columns: var(--app-header-button-height, 38px) minmax(0, 1fr) var(--app-header-button-height, 38px); }
+  .closure-guide-header { align-items: flex-start; padding: 14px; gap: 8px; }
+  .closure-guide-header h2 { font-size: 17px; }
+  .closure-guide-controls { gap: 4px; }
+  .closure-guide-content { padding: 12px; }
+}

@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
-import { Agent } from 'undici'
-import sharp from 'sharp'
+import { createOcrProviderClient } from './ocrProviderHttp.js'
+import { prepareFinalColumnCrop } from './ocrImageProcessing.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { calculateOpenAiCost } from './openaiCost.js'
 import { getOcrSettings, OCR_PROVIDERS } from './ocrSettingsStore.js'
@@ -248,29 +248,7 @@ const providerEndpoints = {
 }
 
 const compatibleProviderTimeoutMs = Math.max(300_000, Number(process.env.COMPATIBLE_OCR_TIMEOUT_MS || 900_000))
-const compatibleProviderAgent = new Agent({
-  headersTimeout: compatibleProviderTimeoutMs,
-  bodyTimeout: compatibleProviderTimeoutMs,
-  connectTimeout: 30_000,
-})
-
-async function fetchProviderJson(url, options, providerLabel) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), compatibleProviderTimeoutMs)
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal, dispatcher: compatibleProviderAgent })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(`${providerLabel} API error: ${payload.error?.message || payload.message || response.statusText}`)
-    return payload
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`${providerLabel} OCR timed out after ${Math.round(compatibleProviderTimeoutMs / 60_000)} minutes.`)
-    if (String(error?.message || '').startsWith(`${providerLabel} API error:`)) throw error
-    const detail = error?.cause?.code || error?.cause?.message || error?.message
-    throw new Error(`${providerLabel} network request failed${detail ? `: ${detail}` : '.'}`)
-  } finally {
-    clearTimeout(timeout)
-  }
-}
+const { agent: compatibleProviderAgent, fetchJson: fetchProviderJson } = createOcrProviderClient(compatibleProviderTimeoutMs)
 
 function jsonPrompt(documentCategory) {
   if (documentCategory === 'journal_monthly_settlement') {
@@ -434,19 +412,7 @@ async function extractWithMistralDocumentAi(file, settings, documentCategory) {
 }
 
 async function verifyMistralFinalColumns(file, preliminary, headers, structuringModel) {
-  const rotated = await sharp(file.buffer).rotate().toBuffer({ resolveWithObject: true })
-  // The repeated totals occupy the far-right edge of this form. Starting at
-  // roughly 77% deliberately removes the first TOTAL L column from the crop,
-  // so the verifier cannot accidentally select it.
-  const cropLeft = Math.floor(rotated.info.width * 0.77)
-  const cropWidth = rotated.info.width - cropLeft
-  const targetWidth = Math.min(2600, Math.max(cropWidth, cropWidth * 4))
-  const crop = await sharp(rotated.data)
-    .extract({ left: cropLeft, top: 0, width: cropWidth, height: rotated.info.height })
-    .resize({ width: targetWidth })
-    .sharpen()
-    .jpeg({ quality: 94 })
-    .toBuffer()
+  const crop = await prepareFinalColumnCrop(file.buffer)
   const cropDataUrl = `data:image/jpeg;base64,${crop.toString('base64')}`
   const expectedRows = (Array.isArray(preliminary.rows) ? preliminary.rows : []).map((row) => ({ rowNumber: row.rowNumber, producer: row.producer }))
   const prompt = `Verify only the FINAL rightmost totals in this Romanian detailed milk journal.

@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useEffect, useState, type FormEvent } from 'react'
 import { db } from '../db/database'
 import { getTransportDetails, saveTransportDetails } from '../store/transportStore'
@@ -82,13 +84,9 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
   return (
     <div className="transport-screen">
       <header className="transport-header">
-        <button className="transport-back" onClick={onBack} type="button" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-            strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <BackButton className="transport-back" onClick={onBack} type="button" aria-label="Back" />
         <h1>Transport</h1>
+        <PageLanguageSwitch />
       </header>
 
       <main className="transport-body">

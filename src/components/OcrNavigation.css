@@ -1,0 +1,50 @@
+.ocr-auth-content.ocr-has-navigation { --ocr-auth-session-space: 150px; }
+.ocr-has-navigation .ocr-navigation-trigger {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  flex: 0 0 38px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.14);
+  color: #fff;
+  cursor: pointer;
+}
+.ocr-navigation-trigger:hover { background: rgba(255,255,255,.25); }
+.ocr-navigation-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(280px, calc(100vw - 40px));
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-right: 1px solid #cbd9d1;
+  background: #fff;
+  color: #193d2d;
+  box-shadow: 8px 0 28px rgba(0,0,0,.16);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ocr-navigation-drawer::backdrop { background: rgba(15,31,24,.32); }
+body:has(.ocr-navigation-drawer[open]) { overflow: hidden; }
+.ocr-navigation-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid #dde6e1; }
+.ocr-navigation-heading h2 { margin: 0; font-size: 18px; }
+.ocr-navigation-heading button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid #ccdcd2; border-radius: 6px; background: #f4f8f5; color: #205b3c; cursor: pointer; }
+.ocr-navigation-drawer nav { display: grid; gap: 4px; padding: 12px; }
+.ocr-navigation-drawer nav a { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 10px 12px; box-sizing: border-box; border-radius: 6px; color: #354d40; font-size: 14px; font-weight: 650; line-height: 1.4; text-decoration: none; }
+.ocr-navigation-drawer nav svg { flex: 0 0 19px; }
+.ocr-navigation-drawer nav a:hover { background: #f0f5f2; }
+.ocr-navigation-drawer nav a.locked { color: #78857d; cursor: not-allowed; }
+.ocr-navigation-drawer nav a.locked:hover { background: #f5f6f5; }
+.ocr-navigation-drawer nav a span { flex: 1; min-width: 0; }
+.ocr-navigation-drawer nav svg.ocr-navigation-lock { flex: 0 0 16px; }
+.ocr-navigation-drawer nav a.active { background: #e2f2e9; color: #135637; box-shadow: inset 3px 0 #207b4d; }
+.ocr-navigation-drawer nav .ocr-navigation-home { margin-bottom: 8px; border-bottom: 1px solid #dde6e1; border-radius: 0; }
+.ocr-navigation-drawer :is(a, button):focus-visible, .ocr-navigation-trigger:focus-visible { outline: 3px solid #d69929; outline-offset: 2px; }

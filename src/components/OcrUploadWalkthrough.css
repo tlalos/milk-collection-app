@@ -1,0 +1,16 @@
+.ocr-upload-walkthrough { position: fixed; inset: 0; z-index: 10000; }
+.ocr-auth-content:has(.ocr-guide-active) .ocr-auth-session { visibility: hidden; }
+.ocr-guide-active .ocr-process-button { position: static; }
+.ocr-tour-practice { position: fixed; z-index: 10001; margin: 0; padding: 0; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.ocr-tour-practice:focus-visible { outline: 3px solid #17613a; outline-offset: 5px; }
+.ocr-upload-walkthrough .ocr-tour-practice-note { margin: 10px 0 0; color: #587066; font-size: 12px; line-height: 1.4; }
+.ocr-tour-header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ocr-tour-header-actions .ocr-language-switch { flex-basis: 56px !important; width: 56px !important; min-width: 56px !important; max-width: 56px !important; height: 28px !important; min-height: 28px !important; gap: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.ocr-tour-header-actions .ocr-language-switch > button { width: 28px !important; max-width: 28px !important; height: 28px !important; min-height: 28px !important; font-size: 10px !important; font-weight: 600 !important; border-radius: 0 !important; color: #718077 !important; }
+.ocr-tour-header-actions .ocr-language-switch > button.active { background: transparent !important; color: #244a37 !important; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; }
+.ocr-tour-type { position: fixed; z-index: 10001; color: #193624; font-size: 13px; }
+.ocr-tour-type-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 12px; border: 1px solid #b8c9be; border-radius: 8px; background: #f9fcfa; font-weight: 750; }
+.ocr-tour-type-label svg { flex-shrink: 0; }
+.ocr-tour-type-options { height: 96px; padding: 4px; border: 1px solid #b8c9be; border-radius: 0 0 6px 6px; background: white; box-shadow: 0 4px 12px #17231c26; }
+.ocr-tour-type-options button { display: block; width: 100%; height: 43px; padding: 4px 8px; border: 0; border-radius: 4px; background: white; color: inherit; text-align: left; font-size: 12px; font-weight: 700; cursor: pointer; }
+.ocr-tour-type-options button:hover, .ocr-tour-type-options button:focus-visible { outline: none; background: #e5f3eb; }

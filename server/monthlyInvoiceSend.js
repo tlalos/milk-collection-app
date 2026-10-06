@@ -50,13 +50,15 @@ export function buildInvoicePreview(row, supplier, date, username, params = {}) 
   return { snapshot, payload, fingerprint }
 }
 
-export async function connectInvoiceErp(connection, fetchImpl = fetch, connectionStore = erpConnectionStore) {
+export async function connectInvoiceErp(connection, fetchImpl = fetch, connectionStore = erpConnectionStore, internalUrl = process.env.MONTHLY_INVOICE_ERP_INTERNAL_URL) {
   const { serverUrl: configured } = await connectionStore.get()
   if (!configured) throw new Error('Save the shared ERP URL in OCR connection settings before sending.')
   if (normalizeErpUrl(connection?.serverUrl) !== configured) throw new Error('ERP destination changed. Refresh the connection settings before retrying.')
   if (!connection.apiUsername || !connection.apiPassword) throw new Error('Configure the OCR ERP credentials first.')
+  // Only server configuration can choose the internal route; browser-supplied URLs still require approval.
+  const requestBase = internalUrl?.trim() ? normalizeErpUrl(internalUrl) : configured
   async function call(path, body, token) {
-    const response = await fetchImpl(`${configured}/${path}`, {
+    const response = await fetchImpl(`${requestBase}/${path}`, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(60000),

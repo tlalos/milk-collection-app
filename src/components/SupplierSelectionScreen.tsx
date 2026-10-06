@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useEffect, useMemo, useState } from 'react'
 import { mockSuppliers } from '../data/mockSuppliers'
 import { db } from '../db/database'
@@ -68,14 +70,13 @@ export function SupplierSelectionScreen({
   return (
     <div className="app-shell">
       <header className="app-topbar workflow-topbar">
-        <button className="back-button" type="button" onClick={onBack}>
-          Back
-        </button>
+        <BackButton className="back-button" type="button" onClick={onBack} />
         <div>
           <p className="topbar-label">Milk collection</p>
           <h1>MilkCollect</h1>
         </div>
         <span className="offline-badge">Offline ready</span>
+        <PageLanguageSwitch />
       </header>
 
       <main className="screen-content supplier-content">

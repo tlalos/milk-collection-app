@@ -1,0 +1,66 @@
+.monthly-recon-actions .monthly-recon-help-button,
+.monthly-recon-actions .monthly-recon-refresh-button { display: inline-grid; place-items: center; width: 38px; min-width: 38px; flex: 0 0 38px; padding: 0; }
+.monthly-recon-actions .monthly-recon-help-button { border-radius: 50%; }
+.monthly-recon-help-button svg > circle { display: none; }
+.monthly-recon-help-button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.monthly-recon-example-banner { padding: 10px 14px; border: 1px solid #a9c6df; border-radius: 6px; background: #eaf3fb; color: #22567d; font-size: 14px; font-weight: 700; }
+.monthly-recon-guide-case .monthly-recon-center-cell { box-shadow: inset 0 0 0 3px #e0a126; }
+.monthly-recon-row.review-guide-secondary-target .monthly-recon-center-cell { box-shadow: inset 0 0 0 3px #3373a3; }
+.monthly-recon-table:has(.monthly-recon-row.difference.review-guide-secondary-target) > thead .monthly-recon-diff-liters,
+.monthly-recon-table:has(.monthly-recon-row.difference.review-guide-secondary-target) > tbody > tr > .monthly-recon-diff-liters { background: #edf6fc; color: #245a82; }
+.monthly-recon-table:has(.monthly-recon-row.difference.review-guide-secondary-target) > thead .monthly-recon-diff-liters { box-shadow: inset 0 -3px #3373a3; }
+.monthly-recon-row.difference.review-guide-secondary-target > .monthly-recon-diff-liters { box-shadow: inset 0 0 0 3px #3373a3; font-size: 16px; font-weight: 900; }
+.monthly-recon-approvals-toggle.review-guide-secondary-target { outline: 3px solid #e0a126; outline-offset: 2px; }
+.monthly-recon-guide-pricing .monthly-recon-producers { outline: 3px solid #e0a126; outline-offset: 3px; border-radius: 3px; margin: 8px 0 14px; }
+.monthly-recon-guide-pricing .monthly-aviz-pricing-button { outline: 3px solid #3373a3; outline-offset: 2px; }
+.monthly-recon-detail-grid.monthly-recon-guide-details { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); width: min(960px, calc(100vw - 80px)); box-sizing: border-box; }
+.monthly-recon-guide-details .monthly-recon-detail-panel { width: 100%; min-width: 0; }
+.monthly-recon-guide-details .monthly-recon-detail-panel table { width: 100% !important; min-width: 0; }
+.monthly-recon-guide-details .monthly-recon-detail-panel th,
+.monthly-recon-guide-details .monthly-recon-detail-panel td { width: auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.monthly-recon-guide-details .monthly-recon-journal-detail-table th:nth-child(2),
+.monthly-recon-guide-details .monthly-recon-journal-detail-table td:nth-child(2) { width: 46%; }
+.monthly-recon-guide-details .monthly-recon-daily-detail-table th:last-child,
+.monthly-recon-guide-details .monthly-recon-daily-detail-table td:last-child { width: 110px; }
+.monthly-recon-guide-details .monthly-recon-detail-panel button { white-space: nowrap; }
+.monthly-recon-guide-details .monthly-recon-producer-warning { margin-top: 6px; margin-bottom: 4px; outline: 3px solid #e0a126; outline-offset: 3px; border-radius: 3px; background: #fff2cd; }
+.monthly-recon-guide-actions .monthly-recon-producer-warning { outline: none; background: transparent; }
+.monthly-recon-guide-actions .monthly-recon-file-actions button:first-child,
+.monthly-recon-guide-actions .monthly-recon-journal-detail-table td:last-child button { outline: 3px solid #e0a126; outline-offset: 2px; background: #fff8e9; }
+.monthly-recon-guide-actions .monthly-recon-row-edit { outline: 3px solid #3373a3; outline-offset: 2px; background: #edf6fc; }
+@media (max-height: 500px) {
+  .monthly-recon-detail-grid.monthly-recon-guide-details { max-height: 150px; overflow-y: auto; }
+}
+@media (max-width: 700px) {
+  .monthly-recon-detail-grid.monthly-recon-guide-details { grid-template-columns: minmax(0, 1fr); padding: 8px; gap: 8px; }
+  .monthly-recon-guide-details .monthly-recon-detail-heading { min-height: 0; padding: 5px 8px; }
+  .monthly-recon-guide-details .monthly-recon-detail-heading button,
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table th:nth-child(2),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table td:nth-child(2),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table th:nth-child(3),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table td:nth-child(3),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table th:nth-child(4),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table td:nth-child(4),
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table th:last-child,
+  .monthly-recon-guide-details .monthly-recon-daily-detail-table td:last-child,
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table th:first-child,
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table td:first-child,
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table th:last-child,
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table td:last-child { display: none; }
+  .monthly-recon-guide-details .monthly-recon-detail-panel th,
+  .monthly-recon-guide-details .monthly-recon-detail-panel td { padding: 4px 8px; }
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table th:nth-child(2),
+  .monthly-recon-guide-details .monthly-recon-journal-detail-table td:nth-child(2) { width: 75%; }
+  .monthly-recon-guide-details .monthly-recon-producer-warning { margin: 4px 0; }
+  .monthly-recon-guide-actions .monthly-recon-daily-detail-table th:first-child,
+  .monthly-recon-guide-actions .monthly-recon-daily-detail-table td:first-child { display: none; }
+  .monthly-recon-guide-actions .monthly-recon-daily-detail-table th:last-child,
+  .monthly-recon-guide-actions .monthly-recon-daily-detail-table td:last-child,
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table th:last-child,
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table td:last-child { display: table-cell; }
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table th:nth-child(2),
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table td:nth-child(2) { width: 60%; }
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table th:nth-child(3),
+  .monthly-recon-guide-actions .monthly-recon-journal-detail-table td:nth-child(3),
+  .monthly-recon-guide-actions .monthly-recon-producer-warning { display: none; }
+}

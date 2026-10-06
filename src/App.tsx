@@ -1,3 +1,8 @@
+import { BackButton } from './components/BackButton'
+import { FileOutput, House, Landmark } from 'lucide-react'
+import { ExportsScreen } from './components/ExportsScreen'
+import { PageLanguageSwitch } from './components/OcrLanguage'
+import { WebAccountMenu } from './components/WebAccountMenu'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { CustomersScreen } from './components/CustomersScreen'
 import { DataSyncScreen } from './components/DataSyncScreen'
@@ -19,6 +24,7 @@ import { OcrSettingsScreen } from './components/OcrSettingsScreen'
 import { MonthlySettlementReviewScreen } from './components/MonthlySettlementReviewScreen'
 import { OcrComparisonScreen } from './components/OcrComparisonScreen'
 import { OcrAuthGate } from './components/OcrAuthGate'
+import { WebSignInHelp } from './components/WebSignInHelp'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
 import { SupplierSelectionScreen } from './components/SupplierSelectionScreen'
@@ -43,6 +49,7 @@ import type { AppSettings } from './types/settings'
 import { loadOcrReferenceSuppliers } from './store/ocrReferenceSuppliersStore'
 import './App.css'
 import './components/OcrHeaderControls.css'
+import './components/AppHeaderControls.css'
 import { appPath, routePathname } from './ocrPaths'
 
 type Screen =
@@ -73,6 +80,7 @@ type Screen =
   | 'webUserHistory'
   | 'monthlySettlementReview'
   | 'ocrComparison'
+  | 'exports'
 
 type HomeMenuGroup = 'milkCollection' | 'ocr' | null
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
@@ -106,6 +114,7 @@ function formatRefreshTime(value: string) {
 function initialScreen(): Screen {
   if (routePathname() === '/milk-collection') return 'home'
   if (routePathname() === '/ocr') return 'home'
+  if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/veterinary'].includes(routePathname())) return 'exports'
   if (routePathname() === '/home') return 'home'
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
@@ -141,15 +150,12 @@ function HomeOcrSessionButton({
 }: {
   checking: boolean
   user: HomeWebUser | null
-  onSignOut: () => void
+  onSignOut: () => void | Promise<void>
 }) {
   if (checking || !user) return null
 
   return (
-    <div className="home-header-session-pill">
-      <span>{user.username}</span>
-      <button type="button" onClick={onSignOut}>Web sign out</button>
-    </div>
+    <WebAccountMenu username={user.username} onSignOut={onSignOut} />
   )
 }
 
@@ -166,6 +172,7 @@ function HomeOcrSignInPanel({
   const [error, setError] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const signInForm = useRef<HTMLFormElement>(null)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -196,12 +203,13 @@ function HomeOcrSignInPanel({
           <h2>OCR sign in</h2>
         </div>
       </div>
+      {!checking && !user && <WebSignInHelp formRef={signInForm} />}
       {checking ? (
         <p className="home-access-note">Checking OCR session...</p>
       ) : user ? (
         <p className="home-access-note">Signed in as <strong>{user.fullName || user.username}</strong>.</p>
       ) : (
-        <form className="home-ocr-login-form" onSubmit={submit}>
+        <form ref={signInForm} className="home-ocr-login-form" onSubmit={submit}>
           <label>
             <span>Username</span>
             <input autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} />
@@ -763,6 +771,10 @@ export function App() {
         <OcrAuthGate requiredPermission="ocr_documents"><OcrComparisonScreen /></OcrAuthGate>
       )}
 
+      {screen === 'exports' && (
+        <OcrAuthGate requiredPermission={routePathname() === '/ocr/exports/apia' ? ['ocr_documents', 'monthly_reconciliation'] : 'ocr_documents'}><ExportsScreen /></OcrAuthGate>
+      )}
+
       {screen === 'suppliers' && (
         <SupplierSelectionScreen
           successMessage={successMessage}
@@ -782,9 +794,14 @@ export function App() {
 
       {screen === 'home' && (
         <div className="home-screen">
-          <header className="home-header">
+          <header className={`home-header${homeMenuGroup === 'ocr' ? ' home-ocr-header' : ''}`}>
             <div className="home-header-left">
               <div className="home-title-row">
+                {homeMenuGroup === 'ocr' && <button className="home-master-menu-button" type="button"
+                  aria-label="Master menu" title="Master menu"
+                  onClick={() => { window.location.href = appPath('/home') }}>
+                  <House size={20} aria-hidden="true" />
+                </button>}
                 <h1>
                   {homeMenuGroup === 'milkCollection'
                     ? 'Milk collection'
@@ -827,21 +844,20 @@ export function App() {
                 <HomeOcrSessionButton
                   checking={homeOcrChecking}
                   user={homeOcrUser}
-                  onSignOut={() => void handleHomeOcrSignOut()}
+                  onSignOut={handleHomeOcrSignOut}
                 />
               </div>
             )}
+            {homeMenuGroup === 'milkCollection' && <PageLanguageSwitch />}
           </header>
 
           <main className="home-main">
-            <div className="home-menu-heading">
+            {homeMenuGroup !== 'ocr' && <div className="home-menu-heading">
               {!homeMenuGroup && <p className="home-welcome">Choose a menu</p>}
               {homeMenuGroup && (
-                <button className="home-menu-back" type="button" onClick={() => { setHomeMenuGroup(null); setShowOcrConnectionSettings(false) }}>
-                  All menus
-                </button>
+                <BackButton className="home-menu-back" type="button" onClick={() => { setHomeMenuGroup(null); setShowOcrConnectionSettings(false) }} aria-label="All menus" />
               )}
-            </div>
+            </div>}
             <div className={`home-grid ${homeMenuGroup ? '' : 'home-group-grid'}`}>
               {!homeMenuGroup && (
                 <>
@@ -1136,16 +1152,17 @@ export function App() {
                 onClick={() => { window.location.href = appPath('/month-closure') }}
               >
                 <div className="home-tile-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-                    strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 5h16" />
-                    <path d="M7 9h10" />
-                    <path d="M7 13h6" />
-                    <path d="M7 17h4" />
-                    <path d="M15 16l2 2 4-5" />
-                  </svg>
+                  <Landmark strokeWidth={1.8} aria-hidden="true" />
                 </div>
                 <span className="home-tile-label">Month Closure & Payments</span>
+              </button>}
+              {canShowOcrTile('ocr_documents') && <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/ocr/exports') }}
+              >
+                <div className="home-tile-icon"><FileOutput strokeWidth={1.8} aria-hidden="true" /></div>
+                <span className="home-tile-label">Exports</span>
               </button>}
                 </>
               )}

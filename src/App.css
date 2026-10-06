@@ -73,6 +73,27 @@ button {
   gap: 2px;
 }
 
+.home-ocr-header { padding-left: 16px; flex-wrap: wrap; }
+.home-ocr-header .home-header-right { margin-left: auto; }
+.home-master-menu-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 8px;
+  background: rgba(255,255,255,.14);
+  color: white;
+  cursor: pointer;
+}
+.home-master-menu-button:hover { background: rgba(255,255,255,.24); }
+.home-master-menu-button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+@media (max-width: 760px) {
+  .home-ocr-header { padding-left: 12px; padding-right: 12px; }
+}
+
 .home-title-row {
   display: flex;
   align-items: center;

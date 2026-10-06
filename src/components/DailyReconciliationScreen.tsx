@@ -1,3 +1,5 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useMemo, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import {
@@ -138,12 +140,8 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
 
   return <div className="daily-recon-screen app-shell">
     <header className="app-topbar daily-recon-topbar">
-      <button className="back-button daily-recon-back" type="button" onClick={onBack} aria-label="Back to OCR menu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
-        </svg>
-        <span>Back</span>
-      </button>
+      <BackButton className="back-button daily-recon-back" type="button" onClick={onBack} aria-label="Back to OCR menu" />
+      <OcrNavigation />
       <div className="app-title-block"><span>Daily workflow</span><h1>Daily Reconciliation</h1></div>
       <div className="daily-recon-nav">
         <button type="button" onClick={() => { window.location.href = appPath('/milk-reception') }}>Milk Reception</button>

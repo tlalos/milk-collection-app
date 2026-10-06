@@ -1,0 +1,83 @@
+.web-account {
+  position: relative;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  z-index: 110;
+}
+
+.web-account > .web-account-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  box-sizing: border-box;
+  padding: 0 !important;
+  margin: 0;
+  border: 1px solid #a4c5b3;
+  border-radius: 50% !important;
+  background: #e4f1e9;
+  color: #175c3b;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.web-account > .web-account-trigger:hover,
+.web-account > .web-account-trigger[aria-expanded="true"] { background: #fff; }
+.web-account button:focus-visible { outline: 2px solid #dfa62c; outline-offset: 3px; }
+
+.web-account-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 220px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid #cbd9d0;
+  border-radius: 8px;
+  background: #fff;
+  color: #172d20;
+  box-shadow: 0 8px 24px #08291a33;
+}
+.web-account-popover::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 13px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid #cbd9d0;
+  border-left: 1px solid #cbd9d0;
+  background: #fff;
+  transform: rotate(45deg);
+}
+.web-account-username { display: block; margin-bottom: 12px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.web-account-popover > .web-account-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid #c4d8cc;
+  border-radius: 6px;
+  background: #f0f6f2;
+  color: #175c3b;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.web-account-popover > .web-account-logout:hover { background: #e2eee6; }
+.web-account-popover > .web-account-logout:disabled { cursor: wait; opacity: .6; }
+.web-account-error { margin: 12px 0 0; color: #9d342d; font-size: 12px; line-height: 1.4; }

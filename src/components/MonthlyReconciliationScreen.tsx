@@ -1,7 +1,11 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert, RefreshCw } from 'lucide-react'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
-import { MonthlyReconciliationInfo } from './MonthlyReconciliationInfo'
+import { MonthlyReconciliationHelp } from './MonthlyReconciliationHelp'
+import { monthlyReconciliationGuideData } from '../monthlyReconciliationGuideData'
+import { useOcrLanguage } from './OcrLanguage'
 import { appPath } from '../ocrPaths'
 import { isApprovedForAvizPricing, journalAvizIssueSeverity } from '../monthlyReconciliationApproval'
 import './MonthlyReconciliationScreen.css'
@@ -264,10 +268,11 @@ function OcrIssueSection({ title, issues, daily = false, showSeverity = false }:
 }
 
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
-  const [showInfo, setShowInfo] = useState(false)
-  const [rows, setRows] = useState<MonthlyReconciliationRow[]>([])
-  const [canApproveAviz, setCanApproveAviz] = useState(false)
-  const [avizApprovals, setAvizApprovals] = useState<AvizPricingApproval[]>([])
+  const [liveRows, setRows] = useState<MonthlyReconciliationRow[]>([])
+  const [liveCanApproveAviz, setCanApproveAviz] = useState(false)
+  const [liveAvizApprovals, setAvizApprovals] = useState<AvizPricingApproval[]>([])
+  const [guideExample, setGuideExample] = useState(false)
+  const { isRo } = useOcrLanguage()
   const [approvalDraft, setApprovalDraft] = useState<MonthlyReconciliationRow | null>(null)
   const [cancelDraft, setCancelDraft] = useState<AvizPricingApproval | null>(null)
   const [cancelReason, setCancelReason] = useState('')
@@ -286,14 +291,21 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   const [showAvizApprovals, setShowAvizApprovals] = useState(false)
   const [correctionDraft, setCorrectionDraft] = useState<AvizCenterCorrectionDraft | null>(null)
   const [correctionSaving, setCorrectionSaving] = useState(false)
-  const [referenceCenters, setReferenceCenters] = useState<ReferenceCenterOption[]>([])
-  const [referenceCentersLoaded, setReferenceCentersLoaded] = useState(false)
-  const [referenceCentersError, setReferenceCentersError] = useState('')
+  const [liveReferenceCenters, setReferenceCenters] = useState<ReferenceCenterOption[]>([])
+  const [liveReferenceCentersLoaded, setReferenceCentersLoaded] = useState(false)
+  const [liveReferenceCentersError, setReferenceCentersError] = useState('')
   const [notice, setNotice] = useState('')
   const [ocrIssues, setOcrIssues] = useState<OcrIssue[]>([])
   const [ocrIssueErrors, setOcrIssueErrors] = useState<Array<{ source: OcrIssueSource; message: string }>>([])
   const [ocrIssuesLoading, setOcrIssuesLoading] = useState(false)
   const [showOcrIssues, setShowOcrIssues] = useState(false)
+  const example = useMemo(() => guideExample ? monthlyReconciliationGuideData(monthFilter || initialMonthFilter()) : null, [guideExample, monthFilter])
+  const rows: MonthlyReconciliationRow[] = example?.rows ?? liveRows
+  const avizApprovals: AvizPricingApproval[] = example?.approvals ?? liveAvizApprovals
+  const canApproveAviz = guideExample || liveCanApproveAviz
+  const referenceCenters = example?.centers ?? liveReferenceCenters
+  const referenceCentersLoaded = guideExample || liveReferenceCentersLoaded
+  const referenceCentersError = guideExample ? '' : liveReferenceCentersError
 
   async function loadRows() {
     setLoading(true)
@@ -315,6 +327,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   }
 
   async function saveAvizApproval() {
+    if (guideExample) return
     if (approvalBusy) return
     setApprovalBusy(true)
     setApprovalError('')
@@ -501,6 +514,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   }
 
   async function applyAvizCenterCorrection() {
+    if (guideExample) return
     if (!correctionDraft || correctionSaving) return
     const targetCenter = correctionDraft.targetCenter.trim()
     if (!targetCenter) {
@@ -544,37 +558,44 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   return (
     <div className="monthly-recon-screen app-shell">
       <header className="app-topbar monthly-recon-topbar">
-        <button className="back-button monthly-recon-home-button" type="button" onClick={onBack} aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5" />
-            <path d="M12 19l-7-7 7-7" />
-          </svg>
-          <span>Back</span>
-        </button>
+        <BackButton className="back-button monthly-recon-home-button" type="button" onClick={onBack} aria-label="Back" />
+        <OcrNavigation />
         <div className="app-title-block">
           <span>OCR documents</span>
           <h1>Monthly Reconciliation</h1>
         </div>
         <div className="monthly-recon-actions">
-          <button className="monthly-recon-header-button monthly-recon-info-button" type="button"
-            aria-label="Page information" title="Page information" aria-expanded={showInfo}
-            aria-controls="monthly-recon-info" onClick={() => setShowInfo(current => !current)}>
-            <span aria-hidden="true">i</span>
-          </button>
-          <button
-            className="monthly-recon-header-button"
-            type="button"
-            onClick={() => { window.location.href = appPath('/ocr/review') }}
-          >
-            Daily OCR
-          </button>
-          <button
-            className="monthly-recon-header-button"
-            type="button"
-            onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}
-          >
-            Monthly OCR
-          </button>
+          <MonthlyReconciliationHelp
+            disabled={loading || correctionSaving || approvalBusy || Boolean(correctionDraft || approvalDraft || cancelDraft)}
+            onStart={() => {
+              const previous = { expandedId, expandedProducers, showJournalCenters, showAvizApprovals,
+                monthFilter, centerFilter, milkTypeFilter, statusFilter, showOcrIssues, error, notice }
+              setGuideExample(true)
+              setCenterFilter('')
+              setMilkTypeFilter('')
+              setStatusFilter('all')
+              setExpandedId(null)
+              setExpandedProducers(new Set())
+              setShowJournalCenters(false)
+              setShowAvizApprovals(false)
+              setShowOcrIssues(false)
+              return () => {
+                setGuideExample(false)
+                setMonthFilter(previous.monthFilter)
+                setCenterFilter(previous.centerFilter)
+                setMilkTypeFilter(previous.milkTypeFilter)
+                setStatusFilter(previous.statusFilter)
+                setShowOcrIssues(previous.showOcrIssues)
+                setError(previous.error)
+                setNotice(previous.notice)
+                setExpandedId(previous.expandedId)
+                setExpandedProducers(previous.expandedProducers)
+                setShowJournalCenters(previous.showJournalCenters)
+                setShowAvizApprovals(previous.showAvizApprovals)
+                setCorrectionDraft(null)
+                setApprovalDraft(null)
+              }
+            }} />
           <button
             className="monthly-recon-header-button"
             type="button"
@@ -587,21 +608,24 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
             OCR issues ({visibleOcrIssues.length})
           </button>
           <button
-            className="monthly-recon-header-button"
+            className="monthly-recon-header-button monthly-recon-refresh-button"
             type="button"
+            aria-label="Refresh" title="Refresh"
             onClick={() => {
               void loadRows()
               void loadOcrIssues()
             }}
             disabled={loading || ocrIssuesLoading}
           >
-            Refresh
+            <RefreshCw size={18} aria-hidden="true" />
           </button>
         </div>
       </header>
 
       <main className="monthly-recon-content">
-        {showInfo && <MonthlyReconciliationInfo />}
+        {guideExample && <div className="monthly-recon-example-banner" role="status">
+          {isRo ? 'Exemplu pentru ghid — date fictive, nu înregistrări reale.' : 'Guide example — fictional data, not real records.'}
+        </div>}
         <section className="monthly-recon-summary" aria-label="Monthly reconciliation summary">
           <div><span>Journals</span><strong>{receivedJournalCenters}</strong></div>
           <div><span>Centers in aviz</span><strong>{avizCenters}</strong></div>
@@ -666,8 +690,8 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
           </button>
         </section>
 
-        {error && <div className="monthly-recon-error" role="alert">{error}</div>}
-        {notice && <div className="monthly-recon-success" role="status">{notice}</div>}
+        {!guideExample && error && <div className="monthly-recon-error" role="alert">{error}</div>}
+        {!guideExample && notice && <div className="monthly-recon-success" role="status">{notice}</div>}
         {showOcrIssues && (
           <section className="monthly-recon-ocr-issues" aria-label="OCR issues report">
             <div className="monthly-recon-ocr-issues-title">
@@ -780,7 +804,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                   <th>Milk type</th>
                   <th>Aviz L</th>
                   <th>Monthly L</th>
-                  <th>Diff L</th>
+                  <th className="monthly-recon-diff-liters">Diff L</th>
                   <th>Diff %</th>
                   <th>Aviz lines</th>
                   <th>Journal rows</th>
@@ -800,7 +824,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                   const hasDetailIssues = row.monthlyRows.some(detail => Boolean(detail.producerWarning))
                   return (
                   <Fragment key={row.id}>
-                    <tr className={`monthly-recon-row ${displayStatus}`}>
+                    <tr className={`monthly-recon-row ${displayStatus}`} data-guide-row={guideExample ? row.id : undefined}>
                       <td>
                         <button
                           className="monthly-recon-expand"
@@ -854,7 +878,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                       <td>{row.milkType}</td>
                       <td>{formatNumber(row.avizLiters)}</td>
                       <td>{formatNumber(row.monthlyLiters)}</td>
-                      <td>{formatNumber(row.differenceLiters)}</td>
+                      <td className="monthly-recon-diff-liters">{formatNumber(row.differenceLiters)}</td>
                       <td>{row.differencePercent == null ? '-' : `${formatNumber(row.differencePercent, 2)}%`}</td>
                       <td>{row.avizLineCount}</td>
                       <td>{row.monthlyRowCount}</td>

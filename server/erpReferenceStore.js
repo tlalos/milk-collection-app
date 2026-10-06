@@ -10,7 +10,7 @@ import {
 
 const snapshotPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'ocr', 'erp-reference-snapshot.json')
 const producerFields = [
-  'centerCode', 'centerName', 'trn', 'primaryAddress', 'zip', 'city', 'primaryPhone',
+  'centerCode', 'centerName', 'trn', 'primaryAddress', 'zip', 'city', 'county', 'primaryPhone',
   'exploitationCode', 'active', 'vatStatusName', 'bankCode', 'iban', 'extra', 'bool2', 'paymentTerms',
 ]
 

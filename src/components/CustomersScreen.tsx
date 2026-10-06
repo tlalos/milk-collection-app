@@ -1,3 +1,5 @@
+import { PageLanguageSwitch } from './OcrLanguage'
+import { BackButton } from './BackButton'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getCustomers } from '../api/customersApi'
 import { ApiError } from '../api/client'
@@ -60,14 +62,10 @@ export function CustomersScreen({ onBack }: CustomersScreenProps) {
     <div className="customers-screen">
       {/* Header */}
       <header className="customers-header">
-        <button className="customers-back" onClick={onBack} type="button" aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-            strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <BackButton className="customers-back" onClick={onBack} type="button" aria-label="Back" />
         <h1>Customers</h1>
         {status === 'loading' && <span className="customers-loader" />}
+        <PageLanguageSwitch />
       </header>
 
       {/* Search bar */}

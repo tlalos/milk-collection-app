@@ -1,4 +1,9 @@
+import { BackButton } from './BackButton'
+import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { pageBounds } from '../monthClosurePagination'
+import { usePinnedTableHeader } from './usePinnedTableHeader'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
 import { appPath } from '../ocrPaths'
 import { failedDailyErpRecovery, sendDailyRouteDetailsToErp, type DailyRouteCenterMatch, type DailyRouteExtractedData, type DailyRouteErpExport, type DailyRouteErpRowLog } from '../store/dailyRouteErpStore'
@@ -214,6 +219,9 @@ function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => str
 
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   const tableWrapRef = useRef<HTMLDivElement>(null)
+  const tableToolbarRef = useRef<HTMLDivElement>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [confirmSend, setConfirmSend] = useState<DailyAvizRow | null>(null)
   const [sendingRowId, setSendingRowId] = useState('')
@@ -330,6 +338,40 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
     0,
   )
 
+  const paging = pageBounds(filteredRows.length, page, pageSize)
+  const pagedRows = filteredRows.slice(paging.start, paging.end)
+  usePinnedTableHeader(tableWrapRef, tableToolbarRef)
+
+  useEffect(() => {
+    setPage(1)
+    setConfirmSend(null)
+  }, [truckFilter, centerFilter, milkTypeFilter, selectedMonth, selectedDate, reviewFilter, pageSize])
+
+  useEffect(() => {
+    setConfirmSend(null)
+    const bounds = tableWrapRef.current?.getBoundingClientRect()
+    const toolbarHeight = tableToolbarRef.current?.offsetHeight || 0
+    if (bounds && bounds.top < toolbarHeight) {
+      window.scrollTo({ top: Math.max(0, window.scrollY + bounds.top - toolbarHeight) })
+    }
+  }, [paging.page])
+
+  function renderPagination(position: 'top' | 'bottom') {
+    return <nav className="daily-aviz-pagination" aria-label={`Daily aviz pages ${position}`}>
+      <span aria-live="polite">{filteredRows.length ? paging.start + 1 : 0}-{paging.end} of {filteredRows.length}</span>
+      <label>Rows per page<select aria-label={`Rows per page ${position}`} value={pageSize} disabled={loading || Boolean(sendingRowId)} onChange={event => setPageSize(Number(event.target.value))}>
+        {[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}
+      </select></label>
+      <div className="daily-aviz-page-controls">
+        <button type="button" aria-label="First page" title="First page" disabled={loading || Boolean(sendingRowId) || paging.page === 1} onClick={() => setPage(1)}><ChevronsLeft size={17} /></button>
+        <button type="button" aria-label="Previous page" title="Previous page" disabled={loading || Boolean(sendingRowId) || paging.page === 1} onClick={() => setPage(paging.page - 1)}><ChevronLeft size={17} /></button>
+        <span>Page {paging.page} of {paging.pages}</span>
+        <button type="button" aria-label="Next page" title="Next page" disabled={loading || Boolean(sendingRowId) || paging.page === paging.pages} onClick={() => setPage(paging.page + 1)}><ChevronRight size={17} /></button>
+        <button type="button" aria-label="Last page" title="Last page" disabled={loading || Boolean(sendingRowId) || paging.page === paging.pages} onClick={() => setPage(paging.pages)}><ChevronsRight size={17} /></button>
+      </div>
+    </nav>
+  }
+
   function openFile(row: DailyAvizRow) {
     window.open(row.fileUrl || appPath(`/api/ocr/jobs/${row.jobId}/file`), '_blank', 'noopener,noreferrer')
   }
@@ -337,13 +379,8 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="daily-aviz-screen app-shell">
       <header className="app-topbar daily-aviz-topbar">
-        <button className="back-button daily-aviz-home-button" type="button" onClick={onBack} aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5" />
-            <path d="M12 19l-7-7 7-7" />
-          </svg>
-          <span>Back</span>
-        </button>
+        <BackButton className="back-button daily-aviz-home-button" type="button" onClick={onBack} aria-label="Back" />
+        <OcrNavigation />
         <div className="app-title-block">
           <span>OCR documents</span>
           <h1>Daily Aviz</h1>
@@ -448,16 +485,14 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
         {error && <div className="daily-aviz-error" role="alert">{error}</div>}
 
         <section className="daily-aviz-table-card">
-          <div className="daily-aviz-table-title">
+          <div className="daily-aviz-table-title" ref={tableToolbarRef}>
             <div>
               <h2>Recognized aviz lines</h2>
-              <p>{filteredRows.length} rows shown{selectedMonth ? ` · ${displayMonth(selectedMonth)}` : ''} · {formatNumber(filteredLiters)} liters</p>
+              <p>{filteredRows.length} filtered rows{selectedMonth ? ` · ${displayMonth(selectedMonth)}` : ''} · {formatNumber(filteredLiters)} liters</p>
             </div>
-            <button type="button" onClick={() => { window.location.href = appPath('/ocr/review') }}>
-              Open OCR review
-            </button>
+            {renderPagination('top')}
           </div>
-          <div className="daily-aviz-table-wrap" ref={tableWrapRef}>
+          <div className="daily-aviz-table-wrap" ref={tableWrapRef} role="region" aria-label="Daily aviz table" tabIndex={0}>
             <table className="daily-aviz-table">
               <thead>
                 <tr>
@@ -483,7 +518,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                 {!loading && filteredRows.length === 0 && (
                   <tr><td colSpan={13} className="daily-aviz-empty">No recognized daily aviz lines found.</td></tr>
                 )}
-                {!loading && filteredRows.map((row) => (
+                {!loading && pagedRows.map((row) => (
                   <Fragment key={row.id}>
                   <tr className={`reception-row-${row.receptionMatch?.status || 'unknown'}`}>
                     <td><div className="daily-aviz-line">
@@ -555,6 +590,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
               </tbody>
             </table>
           </div>
+          {renderPagination('bottom')}
           <FloatingHorizontalScrollbar targetRef={tableWrapRef} label="Scroll daily aviz table horizontally" />
         </section>
       </main>

@@ -1,3 +1,5 @@
+import { BackButton } from './BackButton'
+import { PageLanguageSwitch } from './OcrLanguage'
 import { useState } from 'react'
 import { db } from '../db/database'
 import { authStore } from '../store/authStore'
@@ -67,11 +69,10 @@ export function LoginScreen({ onLogin, onBack, initialUsername = '', initialPass
     <div className="login-screen">
       <div className="login-card">
         {/* Back button */}
-        <button className="login-back" type="button" onClick={onBack} aria-label="Back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+        <div className="login-navigation">
+          <BackButton className="login-back" type="button" onClick={onBack} aria-label="Back" />
+          <PageLanguageSwitch />
+        </div>
 
         <h1 className="login-title">Sign in</h1>
         <p className="login-subtitle">Enter your credentials to continue</p>
