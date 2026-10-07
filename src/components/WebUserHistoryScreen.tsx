@@ -84,7 +84,7 @@ export function WebUserHistoryScreen() {
   const requestIdRef = useRef(0)
 
   useEffect(() => {
-    void fetch(appPath('/api/web-users/admin-data'))
+    void fetch(appPath('/api/web-users/activity-users'))
       .then(async (response) => {
         const payload = await response.json()
         if (!response.ok) throw new Error(payload.error || 'Could not load users.')
@@ -133,7 +133,7 @@ export function WebUserHistoryScreen() {
 
   return <div className="web-users-screen">
     <header className="web-users-header">
-      <BackButton type="button" onClick={() => { window.location.href = appPath('/web-users') }} aria-label="Back to users" />
+      <BackButton type="button" onClick={() => { window.location.href = appPath('/home') }} aria-label="Back to menu" />
       <div><span>Administration</span><h1>User Log History</h1></div>
     </header>
     <main className="web-users-main user-log-main">

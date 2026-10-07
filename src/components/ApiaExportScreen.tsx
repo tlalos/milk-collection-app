@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react'
 import { createApiaExcelDownload } from '../apiaExcelExport'
 import { appPath } from '../ocrPaths'
-import { apiaColumns, buildApiaProducerList, type ApiaAvizApproval, type ApiaJournalGroup, type ApiaProducerReference, type ApiaReceptionFactor } from '../apiaExport'
+import { apiaColumns, buildApiaProducerList, type ApiaAvizApproval, type ApiaJournalGroup, type ApiaProducerReference, type ApiaReceptionFactor, type ApiaProducerContract } from '../apiaExport'
 import { loadOcrReferenceSuppliers } from '../store/ocrReferenceSuppliersStore'
 import { pageBounds } from '../monthClosurePagination'
 import { useOcrLanguage } from './OcrLanguage'
@@ -24,6 +24,7 @@ export function ApiaExportScreen() {
   const [approvals, setApprovals] = useState<ApiaAvizApproval[]>([])
   const [references, setReferences] = useState<ApiaProducerReference[]>([])
   const [factors, setFactors] = useState<ApiaReceptionFactor[]>([])
+  const [contracts, setContracts] = useState<ApiaProducerContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exportError, setExportError] = useState('')
@@ -39,7 +40,7 @@ export function ApiaExportScreen() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    fetch(appPath('/api/ocr/monthly-reconciliation/rows'), { signal: controller.signal })
+    fetch(appPath('/api/ocr/exports/apia-rows'), { signal: controller.signal })
       .then(async response => {
         const payload = await response.json() as { rows?: ApiaJournalGroup[]; avizApprovals?: ApiaAvizApproval[]; error?: string }
         if (!response.ok) throw new Error(payload.error || 'Could not load journals.')
@@ -49,25 +50,36 @@ export function ApiaExportScreen() {
         const factorResponse = await fetch(appPath('/api/ocr/exports/reception-factors'), { signal: controller.signal, cache: 'no-store' })
         const factorPayload = await factorResponse.json() as { factors?: ApiaReceptionFactor[]; error?: string }
         if (!factorResponse.ok || !Array.isArray(factorPayload.factors)) throw new Error(factorPayload.error || 'Could not load reception factors.')
+        const contractResponse = await fetch(appPath('/api/ocr/exports/producer-contracts'), { signal: controller.signal, cache: 'no-store' })
+        const contractPayload = await contractResponse.json() as { contracts?: ApiaProducerContract[]; error?: string }
+        if (!contractResponse.ok || !Array.isArray(contractPayload.contracts)) throw new Error(contractPayload.error || 'Could not load producer contracts.')
         if (!controller.signal.aborted) {
           setGroups(payload.rows)
           setApprovals(payload.avizApprovals || [])
           setReferences(suppliers.producers)
           setFactors(factorPayload.factors)
+          setContracts(contractPayload.contracts)
         }
       })
       .catch((loadError: Error) => {
-        if (!controller.signal.aborted) { setGroups([]); setApprovals([]); setReferences([]); setFactors([]); setError(loadError.message) }
+        if (!controller.signal.aborted) { setGroups([]); setApprovals([]); setReferences([]); setFactors([]); setContracts([]); setError(loadError.message) }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [revision])
 
   const milkTypes = useMemo(() => [...new Set(['MILK-COW', milkType, ...groups.map(group => group.milkType || ''), ...approvals.filter(approval => approval.status === 'APPROVED').map(approval => approval.milkType)])].filter(Boolean).sort(), [groups, approvals, milkType])
-  const rows = useMemo(() => buildApiaProducerList(groups, month, milkType, approvals, references, factors), [groups, month, milkType, approvals, references, factors])
+  const rows = useMemo(() => buildApiaProducerList(groups, month, milkType, approvals, references, factors, contracts), [groups, month, milkType, approvals, references, factors, contracts])
   const bounds = pageBounds(rows.length, page, pageSize)
   const visibleRows = rows.slice(bounds.start, bounds.end)
-  const warningCount = rows.filter(row => row.warning || row.missingReceptionFactor).length
+  const warningCount = rows.filter(row => row.warning || row.missingReceptionFactor || row.contractWarning).length
+  const contractWarnings = isRo ? {
+    missing: 'Lipseste contractul pentru aceasta luna', partial: 'Contractul nu acopera intreaga luna',
+    multiple: 'Mai multe contracte in aceasta luna', 'mixed-milk-types': 'Selectati un tip de lapte pentru contract',
+  } : {
+    missing: 'No contract for this month', partial: 'Contract does not cover the full month',
+    multiple: 'Multiple contracts in this month', 'mixed-milk-types': 'Select one milk type for contract details',
+  }
 
   function changeMonth(value: string) {
     setExportError('')
@@ -144,9 +156,20 @@ export function ApiaExportScreen() {
           <td><strong>{row.producer || (isRo ? 'Producator neidentificat' : 'Unidentified producer')}</strong>
             {row.producerCode && <small>{row.producerCode}</small>}
             {row.source === 'aviz' && <small>{isRo ? 'Sursa: Aviz aprobat' : 'Source: Approved aviz'}</small>}
+            {row.contractWarning && <span className="apia-row-warning"><AlertTriangle size={14} aria-hidden="true" />{contractWarnings[row.contractWarning]}</span>}
             {row.warning && <span className="apia-row-warning"><AlertTriangle size={14} aria-hidden="true" />{isRo ? (row.warning === 'No ERP match' ? 'Fara corespondent ERP' : row.warning === 'Wrong center' ? 'Centru incorect' : row.warning) : row.warning}</span>}
           </td>
           {apiaColumns.slice(1).map(column => {
+            if (column.key === 'contractStartDate' || column.key === 'contractEndDate') {
+              const value = row[column.key]
+              return <td key={column.key} className={value ? 'apia-identifier' : 'apia-unmapped'}>{value ? value.split('-').reverse().join('/') : '-'}</td>
+            }
+            if (column.key === 'contractNumber' || column.key === 'contractedKg') {
+              const value = row[column.key]
+              return <td key={column.key} className={value == null ? 'apia-unmapped' : column.key === 'contractedKg' ? 'apia-quantity' : 'apia-identifier'}>
+                {value == null ? '-' : typeof value === 'number' ? new Intl.NumberFormat(isRo ? 'ro-RO' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) : value}
+              </td>
+            }
             if (column.key === 'purchasedKg') return <td key={column.key} className="apia-quantity">
               {row.purchasedKg == null ? <span className="apia-row-warning">{isRo ? 'Lipseste factorul de receptie' : 'Missing reception factor'}</span> : new Intl.NumberFormat(isRo ? 'ro-RO' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(row.purchasedKg)}
             </td>

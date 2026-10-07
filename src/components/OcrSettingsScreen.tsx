@@ -17,7 +17,6 @@ export function OcrSettingsScreen() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const selectedProvider = useMemo(() => settings?.providers.find((item) => item.id === provider), [provider, settings])
-  const from = new URLSearchParams(window.location.search).get('from') === 'upload' ? 'upload' : 'review'
 
   useEffect(() => {
     void fetch(appPath('/api/ocr/settings')).then(async (response) => {
@@ -47,7 +46,7 @@ export function OcrSettingsScreen() {
   }
 
   return <div className="ocr-settings-screen">
-    <header><BackButton type="button" onClick={() => { window.location.href = appPath(`/ocr/${from}`) }} aria-label={isRo ? 'Înapoi' : 'Back'} /><OcrNavigation /><div><h1>{isRo ? 'Setări OCR' : 'OCR Settings'}</h1><p>{isRo ? 'Alegeți furnizorul și modelul pentru documentele noi' : 'Choose the provider and model for new documents'}</p></div></header>
+    <header><BackButton type="button" onClick={() => { window.location.href = appPath('/ocr') }} aria-label={isRo ? 'Înapoi' : 'Back'} /><OcrNavigation /><div><h1>{isRo ? 'Setări OCR' : 'OCR Settings'}</h1><p>{isRo ? 'Alegeți furnizorul și modelul pentru documentele noi' : 'Choose the provider and model for new documents'}</p></div></header>
     <main><section>
       <h2>{isRo ? 'Model de extragere' : 'Extraction model'}</h2>
       <p>{isRo ? 'Cheile API rămân în variabilele de mediu ale serverului și nu sunt salvate în browser.' : 'API keys remain in server environment variables and are never stored in the browser.'}</p>

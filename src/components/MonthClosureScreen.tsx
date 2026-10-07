@@ -1,6 +1,6 @@
 import { BackButton } from './BackButton'
-import { OcrNavigation } from './OcrNavigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { OcrNavigation, OcrNavigationContext } from './OcrNavigation'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { usePinnedTableHeader } from './usePinnedTableHeader'
 import { CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CircleDollarSign, DollarSign, History, LockKeyhole, RefreshCw, Save, Zap } from 'lucide-react'
 import { pageBounds, selectPage } from '../monthClosurePagination'
@@ -204,6 +204,8 @@ function pricingLabel(status: PricingStatus) {
 }
 
 export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: () => void; bankNotePage?: boolean }) {
+  const access = useContext(OcrNavigationContext)?.user
+  const canOpenPage = (permission: string) => Boolean(access?.isAdmin || access?.permissions?.includes(permission))
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
   const [summary, setSummary] = useState<MonthClosureSummary>(emptySummary)
   const [monthOptions, setMonthOptions] = useState<string[]>([])
@@ -886,9 +888,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     <div className="month-closure-screen app-shell">
       <header className="app-topbar month-closure-topbar">
         <BackButton className="back-button month-closure-home-button" type="button" onClick={() => {
-          if (bankNotePage) window.location.href = appPath(`/month-closure?month=${encodeURIComponent(monthFilter)}`)
+          if (bankNotePage && canOpenPage('month_closure')) window.location.href = appPath(`/month-closure?month=${encodeURIComponent(monthFilter)}`)
           else onBack()
-        }} aria-label={bankNotePage ? 'Back to Month Closure & Payments' : 'Back'} />
+        }} aria-label={bankNotePage && canOpenPage('month_closure') ? 'Back to Month Closure & Payments' : 'Back'} />
         <OcrNavigation />
         <div className="app-title-block">
           <span>Monthly workflow</span>
@@ -900,8 +902,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
             disabled={loading || pricingSaveStatus === 'saving' || changedPricingRows.length > 0}
             title={changedPricingRows.length ? 'Save pricing changes before opening Bank note' : undefined}
             onClick={() => { window.location.href = appPath(`/bank-note?month=${encodeURIComponent(monthFilter)}`) }}>Bank note</button>}
-          {bankNotePage && <button type="button" onClick={() => { window.location.href = appPath('/monthly-reconciliation') }}>Reconciliation</button>}
-          {bankNotePage && <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>Monthly OCR</button>}
+          {bankNotePage && canOpenPage('monthly_reconciliation') && <button type="button" onClick={() => { window.location.href = appPath('/monthly-reconciliation') }}>Reconciliation</button>}
+          {bankNotePage && canOpenPage('ocr_documents') && <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>Monthly OCR</button>}
           <button className={bankNotePage ? undefined : 'month-closure-refresh'} type="button" onClick={() => void loadRows()} disabled={loading} aria-label="Refresh" title="Refresh">
             {bankNotePage ? 'Refresh' : <RefreshCw size={18} aria-hidden="true" />}
           </button>

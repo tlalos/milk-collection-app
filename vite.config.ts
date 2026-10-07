@@ -5,6 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const ocrTarget = `http://127.0.0.1:${env.PORT || '8787'}`
+  const cloneHeaders = env.LOCAL_PRODUCTION_CLONE === 'true'
+    ? { 'Content-Security-Policy': "connect-src 'self' ws://127.0.0.1:5173 ws://localhost:5173" }
+    : undefined
   const basePath = env.VITE_BASE_PATH || '/'
   const normalizedBasePath = basePath.replace(/\/$/u, '')
   const apiProxy = {
@@ -28,11 +31,13 @@ export default defineConfig(({ mode }) => {
   return {
     base: basePath,
     server: {
+      headers: cloneHeaders,
       port: 5173,
       strictPort: true,
       proxy: apiProxy,
     },
     preview: {
+      headers: cloneHeaders,
       allowedHosts: true,
       proxy: apiProxy,
     },

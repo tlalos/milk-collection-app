@@ -24,6 +24,10 @@ export async function createApiaExcelDownload(month: string, milkType: string, r
         case 'county': return row.county
         case 'taxId': return row.taxId
         case 'exploitationCode': return row.exploitationCode
+        case 'contractNumber': return row.contractNumber ?? null
+        case 'contractStartDate': return row.contractStartDate ? new Date(`${row.contractStartDate}T00:00:00Z`) : null
+        case 'contractEndDate': return row.contractEndDate ? new Date(`${row.contractEndDate}T00:00:00Z`) : null
+        case 'contractedKg': return row.contractedKg ?? null
         case 'purchasedKg': return row.purchasedKg != null && Number.isFinite(row.purchasedKg) ? row.purchasedKg : null
         default: return null
       }
@@ -33,6 +37,9 @@ export async function createApiaExcelDownload(month: string, milkType: string, r
     sheet.getColumn(key).numFmt = '@'
   }
   sheet.getColumn('purchasedKg').numFmt = '0.00'
+  sheet.getColumn('contractedKg').numFmt = '0.00'
+  sheet.getColumn('contractStartDate').numFmt = 'dd/mm/yyyy'
+  sheet.getColumn('contractEndDate').numFmt = 'dd/mm/yyyy'
   const type = milkType.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'all-milk-types'
   return {
     filename: `apia-${month}-${type}.xlsx`,

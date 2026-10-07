@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { installLocalCloneNetworkGuard, localCloneEnabled, localCloneHerdEditsEnabled, localCloneMiddleware } from './localCloneSafety.js'
 import express from 'express'
 import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
 import { dailyErpRowSendBlocker, dailyErpSource, prepareDailyErpRecovery, prepareDailyErpRowSend, registerAddedDailyErpRows } from './dailyErpRecovery.js'
@@ -21,6 +22,7 @@ import {
   getSessionUser,
   initializeAuthStore,
   listAuditActivity,
+  listAuditUsers,
   listWebUserAdminData,
   login,
   logout,
@@ -29,7 +31,7 @@ import {
   userHasPermission,
 } from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
-import { ocrFileJobId, ocrPermissionsForRoute } from './ocrPermissions.js'
+import { createPermissionMiddleware } from './permissionMiddleware.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
 import { MilkCollectionEditableDocumentSchema, MonthlySettlementEditableDocumentSchema } from './ocrSchema.js'
@@ -99,6 +101,8 @@ import {
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getMilkDensitySettings, initializeMilkDensitySettingsStore } from './milkDensitySettingsStore.js'
+import { initializeProducerContracts, listProducerContracts } from './producerContractStore.js'
+import { initializeProducerHerdCounts, listProducerHerdCounts, saveProducerHerdCounts } from './producerHerdStore.js'
 import { initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
 import { initializeMonthlyInvoices, listMonthlyInvoices, saveMonthlyInvoiceDate, saveMonthlyInvoiceDates, invoiceIdentity, claimMonthlyInvoice, finishMonthlyInvoiceAttempt, getMonthlyInvoiceHistory, resolveMonthlyInvoice, validateInvoiceResolution } from './monthlyInvoiceStore.js'
 import { connectInvoiceErp, executeInvoiceSend } from './monthlyInvoiceSend.js'
@@ -107,6 +111,7 @@ import { monthlyAvizApprovalContext } from './monthlyAvizPricingService.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
+installLocalCloneNetworkGuard()
 const port = Number(process.env.PORT || 8787)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH)
@@ -1039,6 +1044,7 @@ app.use((request, _response, next) => {
 })
 
 app.use(express.json({ limit: '1mb' }))
+app.use(localCloneMiddleware())
 
 const cookieName = 'milk_session'
 const sessionDays = Math.max(1, Number(process.env.AUTH_SESSION_DAYS || 30))
@@ -1057,46 +1063,7 @@ function cookieValue(token, maxAge) {
   return `${cookieName}=${encodeURIComponent(token)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
 }
 
-function requirePermission(permission) {
-  return async (request, response, next) => {
-    try {
-      const user = await getSessionUser(sessionToken(request))
-      if (!user) return response.status(401).json({ error: 'Authentication required.' })
-      if (!userHasPermission(user, permission)) {
-        return response.status(403).json({ error: 'You do not have access to this page or action.' })
-      }
-      request.authUser = user
-      next()
-    } catch (error) {
-      next(error)
-    }
-  }
-}
-
-async function requireOcrPermission(request, response, next) {
-  try {
-    const user = await getSessionUser(sessionToken(request))
-    if (!user) return response.status(401).json({ error: 'Authentication required.' })
-
-    const route = request.path
-    const fileJobId = ocrFileJobId(route)
-    let documentCategory = ''
-    if (fileJobId) {
-      const job = await getJob(fileJobId)
-      if (!job) return response.status(404).json({ error: 'OCR job not found.' })
-      documentCategory = job.documentCategory || 'daily_routes'
-    }
-    const permissions = ocrPermissionsForRoute(route, documentCategory)
-
-    if (!permissions.some((permission) => userHasPermission(user, permission))) {
-      return response.status(403).json({ error: 'You do not have access to this page or action.' })
-    }
-    request.authUser = user
-    next()
-  } catch (error) {
-    next(error)
-  }
-}
+const { requirePermission, requireOcrPermission } = createPermissionMiddleware({ getSessionUser, sessionToken, getJob })
 
 function auditFailureReason(error) {
   const status = Number(error?.status || error?.statusCode || 500)
@@ -1151,7 +1118,11 @@ app.get('/api/web-users/admin-data', requirePermission('app_admin'), async (_req
   }
 })
 
-app.get('/api/web-users/activity', requirePermission('app_admin'), async (request, response, next) => {
+app.get('/api/web-users/activity-users', requirePermission('audit_log'), async (_request, response, next) => {
+  try { response.json({ users: await listAuditUsers() }) } catch (error) { next(error) }
+})
+
+app.get('/api/web-users/activity', requirePermission('audit_log'), async (request, response, next) => {
   try {
     const area = String(request.query.area || '')
     if (!['', 'reception', 'deliveries'].includes(area)) return response.status(400).json({ error: 'Unknown activity area.' })
@@ -1168,7 +1139,7 @@ app.get('/api/web-users/activity', requirePermission('app_admin'), async (reques
   }
 })
 
-app.get('/api/web-users/weight-history', requirePermission('app_admin'), async (request, response, next) => {
+app.get('/api/web-users/weight-history', requirePermission('audit_log'), async (request, response, next) => {
   try {
     const source = String(request.query.source || '')
     const weightKind = String(request.query.weightKind || '')
@@ -1190,7 +1161,7 @@ app.get('/api/web-users/weight-history', requirePermission('app_admin'), async (
   }
 })
 
-app.get('/api/web-users/delivery-weight-history', requirePermission('app_admin'), async (request, response, next) => {
+app.get('/api/web-users/delivery-weight-history', requirePermission('audit_log'), async (request, response, next) => {
   try {
     const source = String(request.query.source || '')
     const weightKind = String(request.query.weightKind || '')
@@ -1278,6 +1249,8 @@ app.get('/api/ocr/health', async (_request, response) => {
     version: appVersion,
   })
 })
+
+app.use('/api/ocr', requireOcrPermission)
 
 app.post('/api/ocr/reference-centers', async (request, response, next) => {
   try {
@@ -1660,8 +1633,6 @@ app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
   }
 })
 
-app.use('/api/ocr', requireOcrPermission)
-
 app.get('/api/erp/connection', async (request, response, next) => {
   try {
     if (!await getSessionUser(sessionToken(request))) return response.status(401).json({ error: 'Authentication required.' })
@@ -1881,7 +1852,26 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
   }
 })
 
-app.get('/api/ocr/exports/reception-factors', requirePermission('monthly_reconciliation'), async (_request, response, next) => {
+app.get('/api/ocr/exports/producer-contracts', async (_request, response, next) => {
+  try {
+    const contracts = await listProducerContracts()
+    response.set('Cache-Control', 'no-store').json({ contracts })
+  } catch (error) { next(error) }
+})
+
+app.get('/api/ocr/exports/producer-herd-counts', async (_request, response, next) => {
+  try {
+    response.set('Cache-Control', 'no-store').json({ counts: await listProducerHerdCounts(), canEdit: !localCloneEnabled || localCloneHerdEditsEnabled })
+  } catch (error) { next(error) }
+})
+
+app.put('/api/ocr/exports/producer-herd-counts', async (request, response, next) => {
+  try {
+    response.set('Cache-Control', 'no-store').json({ saved: await saveProducerHerdCounts(request.body, request.authUser) })
+  } catch (error) { next(error) }
+})
+
+app.get('/api/ocr/exports/reception-factors', async (_request, response, next) => {
   try {
     const settings = await getMilkDensitySettings()
     response.set('Cache-Control', 'no-store').json({ factors: settings.RECEPTION })
@@ -1890,7 +1880,7 @@ app.get('/api/ocr/exports/reception-factors', requirePermission('monthly_reconci
   }
 })
 
-app.get('/api/ocr/monthly-reconciliation/rows', async (_request, response, next) => {
+app.get(['/api/ocr/monthly-reconciliation/rows', '/api/ocr/exports/apia-rows'], async (_request, response, next) => {
   try {
     if (!isSqlOcrStoreEnabled()) return response.json(monthlyReconciliationFromJobs(await listJobs()))
     const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
@@ -2757,15 +2747,21 @@ await initializeAuthStore()
 await initializeJobStore()
 await initializeOcrSettingsStore()
 await initializeMilkDensitySettingsStore()
+await initializeProducerContracts()
+await initializeProducerHerdCounts()
 await initializeMilkDeliveryStore()
 await initializeDailyReconciliationLinks()
 await initializeMonthlyAvizPricingApprovals()
 await initializeMonthlyInvoices()
-const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()
-console.log(`[Daily reconciliation] ${restoredDailyLinks} reviewed aviz lines linked to COLLECTION receptions`)
-await resumePendingJobs()
-startOcrArchiveCleanup()
+if (localCloneEnabled) {
+  console.log(`[Local production-data copy] ${localCloneHerdEditsEnabled ? 'Animal-count edits only' : 'Read-only API'}; outbound HTTP, OCR resumption and archiving disabled.`)
+} else {
+  const restoredDailyLinks = await reconcileAllDailyReconciliationLinks()
+  console.log(`[Daily reconciliation] ${restoredDailyLinks} reviewed aviz lines linked to COLLECTION receptions`)
+  await resumePendingJobs()
+  startOcrArchiveCleanup()
+}
 
-app.listen(port, '0.0.0.0', () => {
+app.listen(port, localCloneEnabled ? '127.0.0.1' : '0.0.0.0', () => {
   console.log(`MilkCollect server running at http://127.0.0.1:${port}`)
 })

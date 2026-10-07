@@ -1,0 +1,14 @@
+.veterinary-filters { gap: 12px; }
+.veterinary-tabs { display: flex; gap: 4px; margin-left: auto; padding: 4px; border: 1px solid #c4d8ce; border-radius: 6px; background: #eef5f1; }
+.veterinary-tabs button { min-height: 36px; padding: 8px 16px; border: 0; border-radius: 4px; background: transparent; color: #52665a; font-size: 14px; font-weight: 700; }
+.veterinary-tabs button[aria-selected="true"] { color: #155438; background: white; box-shadow: 0 1px 4px #164d3314; }
+.veterinary-table.veterinary-form-1 { min-width: 1624px; }
+.veterinary-table.veterinary-form-2 { min-width: 1064px; }
+.veterinary-table th { font-size: 12px; line-height: 1.4; padding: 10px; }
+.veterinary-table th[colspan] { border-bottom: 1px solid #cbdcd1; }
+.veterinary-table .veterinary-index { font-size: 13px; color: #627168; font-variant-numeric: tabular-nums; }
+.veterinary-table .veterinary-unfilled { background: #fbfcfd; }
+@media (max-width: 520px) {
+  .veterinary-tabs { margin-left: 0; }
+  .veterinary-filters { margin-bottom: 16px; }
+}

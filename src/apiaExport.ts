@@ -36,9 +36,39 @@ export interface ApiaProducerRow {
   taxId: string | null
   exploitationCode: string | null
   purchasedKg: number | null
+  litersByMilkType: Record<string, number>
   missingReceptionFactor: boolean
   warning: string | null
   source: 'journal' | 'aviz'
+  contractNumber: string | null
+  contractStartDate: string | null
+  contractEndDate: string | null
+  contractedKg: number | null
+  contractWarning: 'missing' | 'partial' | 'multiple' | 'mixed-milk-types' | null
+}
+
+export interface ApiaProducerContract {
+  producerCode: string
+  milkType: string
+  contractNumber: string
+  contractStartDate: string
+  contractEndDate: string
+  contractedKg: number
+}
+
+const emptyContract = { contractNumber: null, contractStartDate: null, contractEndDate: null, contractedKg: null, contractWarning: null }
+
+export function selectApiaContract(contracts: ApiaProducerContract[], month: string, milkTypes: string[]) {
+  if (milkTypes.length !== 1) return { ...emptyContract, contractWarning: 'mixed-milk-types' as const }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return { ...emptyContract, contractWarning: 'missing' as const }
+  const first = `${month}-01`
+  const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).toISOString().slice(0, 10)
+  const overlapping = contracts.filter(contract => contract.milkType === milkTypes[0] && contract.contractStartDate <= last && contract.contractEndDate >= first)
+  if (!overlapping.length) return { ...emptyContract, contractWarning: 'missing' as const }
+  if (overlapping.length > 1) return { ...emptyContract, contractWarning: 'multiple' as const }
+  const contract = overlapping[0]
+  if (contract.contractStartDate > first || contract.contractEndDate < last) return { ...emptyContract, contractWarning: 'partial' as const }
+  return { contractNumber: contract.contractNumber, contractStartDate: contract.contractStartDate, contractEndDate: contract.contractEndDate, contractedKg: contract.contractedKg, contractWarning: null }
 }
 
 export interface ApiaAvizApproval {
@@ -63,8 +93,8 @@ export interface ApiaReceptionFactor {
   densityFactor: number
 }
 
-export function buildApiaProducerList(groups: ApiaJournalGroup[], month: string, milkType = '', approvals: ApiaAvizApproval[] = [], references: ApiaProducerReference[] = [], factors: ApiaReceptionFactor[] = []): ApiaProducerRow[] {
-  const producers = new Map<string, ApiaProducerRow>()
+export function buildApiaProducerList(groups: ApiaJournalGroup[], month: string, milkType = '', approvals: ApiaAvizApproval[] = [], references: ApiaProducerReference[] = [], factors: ApiaReceptionFactor[] = [], contracts: ApiaProducerContract[] = []): ApiaProducerRow[] {
+  const producers = new Map<string, Omit<ApiaProducerRow, 'litersByMilkType'>>()
   const quantities = new Map<string, Map<string, number>>()
   const journalKeys = new Set<string>()
   const approvalKeys = new Set<string>()
@@ -92,7 +122,7 @@ export function buildApiaProducerList(groups: ApiaJournalGroup[], month: string,
         continue
       }
       producers.set(id, {
-        id, producer: String(row.producer || '').trim(), producerCode: linked ? code : '',
+        ...emptyContract, id, producer: String(row.producer || '').trim(), producerCode: linked ? code : '',
         country: null, county: null, taxId: null, exploitationCode: null, purchasedKg: null, missingReceptionFactor: false, warning, source: 'journal',
       })
     }
@@ -111,12 +141,17 @@ export function buildApiaProducerList(groups: ApiaJournalGroup[], month: string,
     addLiters(id, approval.milkType, approval.approvedLiters)
     if (producers.has(id)) continue
     producers.set(id, {
-      id, producer: String(approval.producerName || '').trim(), producerCode: linked ? code : '',
+      ...emptyContract, id, producer: String(approval.producerName || '').trim(), producerCode: linked ? code : '',
       country: null, county: null, taxId: null, exploitationCode: null, purchasedKg: null, missingReceptionFactor: false, warning: linked ? null : 'No ERP match', source: 'aviz',
     })
   }
   const referenceByCode = new Map(references.map(reference => [reference.producerCode.trim().toLowerCase(), reference]))
   const factorByType = new Map(factors.map(factor => [factor.code, factor.densityFactor]))
+  const contractsByCode = new Map<string, ApiaProducerContract[]>()
+  for (const contract of contracts) {
+    const key = contract.producerCode.trim().toLowerCase()
+    contractsByCode.set(key, [...(contractsByCode.get(key) || []), contract])
+  }
   return [...producers.values()].map(row => {
     const reference = row.producerCode ? referenceByCode.get(row.producerCode.toLowerCase()) : undefined
     let purchasedKg = 0
@@ -126,7 +161,9 @@ export function buildApiaProducerList(groups: ApiaJournalGroup[], month: string,
       if (typeof factor !== 'number' || !Number.isFinite(factor) || factor <= 0) missingReceptionFactor = true
       else purchasedKg += liters * factor
     }
-    return { ...row, county: reference?.county?.trim() || null, taxId: reference?.trn?.trim() || null, exploitationCode: reference?.exploitationCode?.trim() || null,
-      purchasedKg: missingReceptionFactor ? null : purchasedKg, missingReceptionFactor }
+    const contract = selectApiaContract(contractsByCode.get(row.producerCode.toLowerCase()) || [], month, [...(quantities.get(row.id)?.keys() || [])])
+    return { ...row, ...contract, county: reference?.county?.trim() || null, taxId: reference?.trn?.trim() || null, exploitationCode: reference?.exploitationCode?.trim() || null,
+      purchasedKg: missingReceptionFactor ? null : purchasedKg, missingReceptionFactor,
+      litersByMilkType: Object.fromEntries(quantities.get(row.id) || []) }
   }).sort((a, b) => a.producer.localeCompare(b.producer, 'ro', { numeric: true }) || a.id.localeCompare(b.id))
 }

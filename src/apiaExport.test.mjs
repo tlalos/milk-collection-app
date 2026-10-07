@@ -3,8 +3,31 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 
 const built = await build({ entryPoints: ['src/apiaExport.ts'], bundle: true, write: false, platform: 'node', format: 'esm' })
-const { apiaColumns, buildApiaProducerList } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
+const { apiaColumns, buildApiaProducerList, selectApiaContract } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
 const row = (id, producerCode, producer, liters, producerWarning = null) => ({ id, producerCode, producer, liters, producerWarning })
+
+const contract = (overrides = {}) => ({ producerCode: 'P1', milkType: 'MILK-COW', contractNumber: '001/26', contractStartDate: '2026-06-01', contractEndDate: '2027-06-01', contractedKg: 9900, ...overrides })
+
+test('selects contract by producer code and month for journals and approved aviz without affecting membership', () => {
+  const groups = [{ month: '2026-08', milkType: 'MILK-COW', monthlyRows: [row('1', 'p1', 'Ana', 20), row('2', 'P2', 'Same name', 10)] }]
+  const approvals = [{ approvalId: 'a1', monthKey: '2026-08', producerName: 'Aviz', producerCode: 'P3', milkType: 'MILK-COW', approvedLiters: 30, status: 'APPROVED' }]
+  const result = buildApiaProducerList(groups, '2026-08', 'MILK-COW', approvals, [], [], [contract(), contract({ producerCode: 'P3', contractNumber: '3' })])
+  assert.equal(result.length, 3)
+  assert.equal(result.find(r => r.producerCode === 'p1').contractNumber, '001/26')
+  assert.equal(result.find(r => r.producerCode === 'P3').contractedKg, 9900)
+  assert.equal(result.find(r => r.producerCode === 'P2').contractWarning, 'missing')
+})
+
+test('historical periods use their own contracts; partial, overlapping and mixed-type contracts need review', () => {
+  const contracts = [contract(), contract({ contractStartDate: '2027-06-02', contractEndDate: '2028-06-01', contractNumber: 'new' })]
+  assert.equal(selectApiaContract(contracts, '2026-08', ['MILK-COW']).contractNumber, '001/26')
+  assert.equal(selectApiaContract(contracts, '2027-08', ['MILK-COW']).contractNumber, 'new')
+  assert.equal(selectApiaContract(contracts, '2026-05', ['MILK-COW']).contractWarning, 'missing')
+  assert.equal(selectApiaContract([contract()], '2027-06', ['MILK-COW']).contractWarning, 'partial')
+  assert.equal(selectApiaContract(contracts, '2027-06', ['MILK-COW']).contractWarning, 'multiple')
+  assert.equal(selectApiaContract(contracts, '2026-08', ['MILK-SHEEP']).contractNumber, null)
+  assert.equal(selectApiaContract(contracts, '2026-08', ['MILK-COW', 'MILK-SHEEP']).contractWarning, 'mixed-milk-types')
+})
 
 test('contains all fourteen Excel template columns in their original order', () => {
   assert.deepEqual(apiaColumns.map(column => column.label), [

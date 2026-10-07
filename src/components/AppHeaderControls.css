@@ -31,6 +31,12 @@
 
 .ocr-auth-content { position: relative; }
 
+.milk-collection-access > div:not(.ocr-auth-session) .ocr-language-switch { display: none !important; }
+
+@media (min-width: 761px) {
+  .ocr-auth-content.milk-collection-access > div > header { padding-right: 166px; }
+}
+
 /* Shared page header order: back, navigation, title, page actions. */
 .ocr-auth-content.ocr-has-navigation > div > header {
   display: grid;

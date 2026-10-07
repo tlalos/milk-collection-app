@@ -1,6 +1,6 @@
 import { BackButton } from './BackButton'
-import { OcrNavigation } from './OcrNavigation'
-import { useEffect, useState } from 'react'
+import { OcrNavigation, OcrNavigationContext } from './OcrNavigation'
+import { useContext, useEffect, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import './MilkFactorsScreen.css'
 
@@ -27,6 +27,7 @@ function backPath() {
 }
 
 export function MilkFactorsScreen() {
+  const access = useContext(OcrNavigationContext)?.user
   const [settings, setSettings] = useState<Settings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [canEdit, setCanEdit] = useState(false)
@@ -93,7 +94,7 @@ export function MilkFactorsScreen() {
   return (
     <div className="app-shell milk-factors-screen">
       <header className="app-topbar milk-factors-topbar">
-        <BackButton className="back-button" type="button" onClick={() => { window.location.href = appPath(backPath()) }} />
+        <BackButton className="back-button" type="button" onClick={() => { window.location.href = appPath(access?.isAdmin || access?.permissions?.includes('milk_reception') ? backPath() : '/ocr') }} />
         <OcrNavigation />
         <div className="app-title-block"><p>Factory workflow</p><h1>Milk Factors</h1></div>
       </header>

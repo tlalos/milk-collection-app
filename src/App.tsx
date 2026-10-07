@@ -51,6 +51,7 @@ import './App.css'
 import './components/OcrHeaderControls.css'
 import './components/AppHeaderControls.css'
 import { appPath, routePathname } from './ocrPaths'
+import { requiresMilkCollectionAccess } from './pageAccess'
 
 type Screen =
   | 'startup'
@@ -114,7 +115,7 @@ function formatRefreshTime(value: string) {
 function initialScreen(): Screen {
   if (routePathname() === '/milk-collection') return 'home'
   if (routePathname() === '/ocr') return 'home'
-  if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/veterinary'].includes(routePathname())) return 'exports'
+  if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'].includes(routePathname())) return 'exports'
   if (routePathname() === '/home') return 'home'
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
@@ -649,7 +650,7 @@ export function App() {
     }
   }
 
-  return (
+  const content = (
     <>
       {screen === 'startup' && (
         <StartupScreen onComplete={handleStartupComplete} />
@@ -740,7 +741,7 @@ export function App() {
       )}
 
       {screen === 'ocrArchiveHistory' && (
-        <OcrAuthGate requiredPermission="ocr_documents"><OcrArchiveHistoryScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="backup_history"><OcrArchiveHistoryScreen /></OcrAuthGate>
       )}
 
       {screen === 'ocrReview' && (
@@ -758,7 +759,7 @@ export function App() {
       )}
 
       {screen === 'webUserHistory' && (
-        <OcrAuthGate requiredPermission="app_admin" title="Web admin sign in" description="Sign in as an admin Web user to view history.">
+        <OcrAuthGate requiredPermission="audit_log" title="Web user sign in">
           <WebUserHistoryScreen />
         </OcrAuthGate>
       )}
@@ -772,7 +773,7 @@ export function App() {
       )}
 
       {screen === 'exports' && (
-        <OcrAuthGate requiredPermission={routePathname() === '/ocr/exports/apia' ? ['ocr_documents', 'monthly_reconciliation'] : 'ocr_documents'}><ExportsScreen /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="exports"><ExportsScreen /></OcrAuthGate>
       )}
 
       {screen === 'suppliers' && (
@@ -809,9 +810,12 @@ export function App() {
                       ? 'OCR'
                       : 'MilkCollect'}
                 </h1>
-                <button className="home-web-users-btn" type="button" onClick={() => { window.location.href = appPath('/web-users') }}>
+                {canShowOcrTile('app_admin') && <button className="home-web-users-btn" type="button" onClick={() => { window.location.href = appPath('/web-users') }}>
                   Web Users
-                </button>
+                </button>}
+                {canShowOcrTile('audit_log') && !canShowOcrTile('app_admin') && <button className="home-web-users-btn" type="button" onClick={() => { window.location.href = appPath('/web-users/history') }}>
+                  User log history
+                </button>}
               </div>
               {user && (
                 <span className="home-username">{user.fullName || user.username}</span>
@@ -861,7 +865,7 @@ export function App() {
             <div className={`home-grid ${homeMenuGroup ? '' : 'home-group-grid'}`}>
               {!homeMenuGroup && (
                 <>
-                  <button
+                  {canShowOcrTile('milk_collection') && <button
                     className="home-tile home-group-tile"
                     type="button"
                     onClick={() => { window.location.href = appPath('/milk-collection') }}
@@ -875,7 +879,7 @@ export function App() {
                       </svg>
                     </div>
                     <span className="home-tile-label">Milk collection</span>
-                  </button>
+                  </button>}
 
                   <button
                     className="home-tile home-group-tile"
@@ -999,7 +1003,7 @@ export function App() {
                 <HomeOcrConnectionPanel onClose={() => setShowOcrConnectionSettings(false)} />
               ) : null}
 
-              <section className={`home-erp-reference-panel ${erpReferenceRefreshStatus}`}>
+              {canShowOcrTile('ocr_documents') && <section className={`home-erp-reference-panel ${erpReferenceRefreshStatus}`}>
                 <div>
                   <strong>ERP supplier list</strong>
                   <span>Manual refresh for OCR suggestions and month closure invoice fields.</span>
@@ -1014,7 +1018,7 @@ export function App() {
                 >
                   {erpReferenceRefreshStatus === 'loading' ? 'Fetching...' : 'Fetch ERP list'}
                 </button>
-              </section>
+              </section>}
 
               {canShowOcrTile('ocr_documents') && <button
                 className="home-tile"
@@ -1034,7 +1038,7 @@ export function App() {
                 <span className="home-tile-label">OCR documents</span>
               </button>}
 
-              {canShowOcrTile('ocr_documents') && <button
+              {canShowOcrTile('backup_history') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/ocr/archive-history') }}
@@ -1156,7 +1160,7 @@ export function App() {
                 </div>
                 <span className="home-tile-label">Month Closure & Payments</span>
               </button>}
-              {canShowOcrTile('ocr_documents') && <button
+              {canShowOcrTile('exports') && <button
                 className="home-tile"
                 type="button"
                 onClick={() => { window.location.href = appPath('/ocr/exports') }}
@@ -1182,4 +1186,8 @@ export function App() {
       )}
     </>
   )
+
+  return requiresMilkCollectionAccess(screen, homeMenuGroup)
+    ? <OcrAuthGate requiredPermission="milk_collection" contentClassName="milk-collection-access" onUserChange={setHomeOcrUser}>{content}</OcrAuthGate>
+    : content
 }

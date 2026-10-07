@@ -1,19 +1,20 @@
 import { createContext, useContext, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Archive, CalendarCheck, ClipboardCheck, FileOutput, FileScan, House, Landmark, LockKeyhole, Menu, Scale, Truck, X } from 'lucide-react'
+import { Archive, CalendarCheck, ClipboardCheck, FileOutput, FileScan, House, Landmark, LockKeyhole, Menu, Scale, Settings, Truck, X } from 'lucide-react'
 import { appPath, routePathname } from '../ocrPaths'
 import './OcrNavigation.css'
 
 const pages = [
-  { path: '/ocr/upload', label: 'OCR documents', permission: 'ocr_documents', icon: FileScan, children: ['/ocr/review', '/ocr/monthly-review', '/ocr/settings', '/ocr/compare'] },
-  { path: '/ocr/archive-history', label: 'Backup history', permission: 'ocr_documents', icon: Archive },
+  { path: '/ocr/upload', label: 'OCR documents', permission: 'ocr_documents', icon: FileScan, children: ['/ocr/review', '/ocr/monthly-review', '/ocr/compare'] },
+  { path: '/ocr/settings', label: 'OCR settings', permission: 'ocr_settings', icon: Settings },
+  { path: '/ocr/archive-history', label: 'Backup history', permission: 'backup_history', icon: Archive },
   { path: '/milk-reception', label: 'Milk Reception', permission: 'milk_reception', icon: Scale },
   { path: '/milk-deliveries', label: 'Milk Deliveries', permission: 'milk_reception', icon: Truck, children: ['/milk-factors'] },
   { path: '/daily-aviz', label: 'Daily Aviz', permission: 'daily_aviz', icon: ClipboardCheck },
   { path: '/daily-reconciliation', label: 'Daily Reconciliation', permission: 'daily_reconciliation', icon: CalendarCheck },
   { path: '/monthly-reconciliation', label: 'Monthly Reconciliation', permission: 'monthly_reconciliation', icon: CalendarCheck },
   { path: '/month-closure', label: 'Month Closure & Payments', permission: 'month_closure', icon: Landmark, children: ['/bank-note'] },
-  { path: '/ocr/exports', label: 'Exports', permission: 'ocr_documents', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/veterinary'] },
+  { path: '/ocr/exports', label: 'Exports', permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'] },
 ]
 
 export function hasOcrNavigation() {

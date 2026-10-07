@@ -20,6 +20,8 @@ interface OcrAuthGateProps {
   requiredPermission?: string | string[]
   title?: string
   description?: string
+  onUserChange?: (user: User | null) => void
+  contentClassName?: string
 }
 
 function canAccess(user: User | null, permission: string | string[] = '') {
@@ -41,7 +43,7 @@ function loginErrorMessage(error: unknown, isRo: boolean) {
   return message || (isRo ? 'Autentificarea a eșuat.' : 'Login failed.')
 }
 
-export function OcrAuthGate({ children, requiredPermission = '', title = '', description = '' }: OcrAuthGateProps) {
+export function OcrAuthGate({ children, requiredPermission = '', title = '', description = '', onUserChange, contentClassName = '' }: OcrAuthGateProps) {
   const { language, setLanguage, isRo } = useOcrLanguage()
   const [user, setUser] = useState<User | null>(null)
   const [checking, setChecking] = useState(true)
@@ -54,9 +56,12 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
   useEffect(() => {
     void fetch(appPath('/api/auth/session')).then(async (response) => {
       const payload = await response.json() as { user?: User }
-      if (response.ok && payload.user) setUser(payload.user)
+      if (response.ok && payload.user) {
+        setUser(payload.user)
+        onUserChange?.(payload.user)
+      }
     }).catch(() => undefined).finally(() => setChecking(false))
-  }, [])
+  }, [onUserChange])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -71,7 +76,8 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
       const payload = await response.json() as { user?: User; error?: string }
       if (!response.ok || !payload.user) throw new Error(payload.error || 'Login failed.')
       setPassword('')
-      window.location.replace(appPath('/ocr'))
+      setUser(payload.user)
+      onUserChange?.(payload.user)
     } catch (loginError) {
       setError(loginErrorMessage(loginError, isRo))
     } finally {
@@ -82,6 +88,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
   async function signOut() {
     await fetch(appPath('/api/auth/logout'), { method: 'POST' }).catch(() => undefined)
     setUser(null)
+    onUserChange?.(null)
   }
 
   if (checking) return <div className="ocr-auth-loading"><span />{isRo ? 'Se verifică sesiunea…' : 'Checking session…'}</div>
@@ -121,7 +128,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
 
   return (
     <OcrNavigationContext.Provider value={{ user, isRo }}>
-    <div className={`ocr-auth-content${hasOcrNavigation() ? ' ocr-has-navigation' : ''}`}>
+    <div className={`ocr-auth-content${hasOcrNavigation() ? ' ocr-has-navigation' : ''} ${contentClassName}`}>
       {children}
       <div className="ocr-auth-session">
         <OcrLanguageSwitch language={language} onChange={setLanguage} />

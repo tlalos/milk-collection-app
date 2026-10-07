@@ -67,3 +67,17 @@ test('rejects invalid month and empty exports', async () => {
   await assert.rejects(createApiaExcelDownload('2026-13', '', [producer(1)]), /valid month/)
   await assert.rejects(createApiaExcelDownload('2026-08', '', []), /No rows/)
 })
+
+test('exports contract F-I with text numbers, real Excel dates and numeric kilograms', async () => {
+  const download = await createApiaExcelDownload('2026-08', 'MILK-COW', [producer(1, {
+    contractNumber: '0001/26', contractStartDate: '2026-06-01', contractEndDate: '2027-06-01', contractedKg: 9900.125,
+  })])
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(download.data)
+  const sheet = workbook.getWorksheet('APIA')
+  assert.equal(sheet.getCell('F2').value, '0001/26')
+  assert.equal(sheet.getCell('G2').value.toISOString(), '2026-06-01T00:00:00.000Z')
+  assert.equal(sheet.getCell('H2').value.toISOString(), '2027-06-01T00:00:00.000Z')
+  assert.equal(sheet.getCell('G2').numFmt, 'dd/mm/yyyy')
+  assert.equal(sheet.getCell('I2').value, 9900.125)
+})

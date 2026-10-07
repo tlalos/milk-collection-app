@@ -14,17 +14,15 @@ const seedUser = {
 }
 
 export const APP_PERMISSIONS = [
-  { key: 'milk_collection', label: 'Milk collection' },
-  { key: 'customers', label: 'Customers' },
-  { key: 'data_sync', label: 'Data sync' },
-  { key: 'journal', label: 'Journal' },
-  { key: 'transport', label: 'Transport' },
+  { key: 'milk_collection', label: 'Milk collection (entire menu)' },
   { key: 'milk_reception', label: 'Milk reception & deliveries' },
   { key: 'ocr_documents', label: 'OCR documents' },
+  { key: 'backup_history', label: 'Backup history' },
   { key: 'daily_aviz', label: 'Daily aviz' },
   { key: 'daily_reconciliation', label: 'Daily reconciliation' },
   { key: 'monthly_reconciliation', label: 'Monthly reconciliation' },
   { key: 'month_closure', label: 'Month closure and payments' },
+  { key: 'exports', label: 'Exports' },
   { key: 'invoice_resolution', label: 'Resolve unconfirmed ERP invoices' },
   { key: 'ocr_settings', label: 'OCR settings' },
   { key: 'app_admin', label: 'Application administration' },
@@ -203,6 +201,8 @@ IF NOT EXISTS (SELECT 1 FROM sys.default_constraints dc JOIN sys.columns c ON c.
 IF NOT EXISTS (SELECT 1 FROM sys.default_constraints dc JOIN sys.columns c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id WHERE dc.parent_object_id = OBJECT_ID(N'dbo.AppAuditLog') AND c.name = N'occurredAt')
   ALTER TABLE dbo.AppAuditLog ADD CONSTRAINT DF_AppAuditLog_OccurredAt DEFAULT SYSDATETIMEOFFSET() FOR occurredAt;
 
+IF ${process.env.LOCAL_PRODUCTION_CLONE === 'true' ? 0 : 1} = 1
+BEGIN
 IF NOT EXISTS (SELECT 1 FROM dbo.AppRoles WHERE roleKey = N'admin')
   INSERT INTO dbo.AppRoles (roleKey, roleName, description, createdAt, updatedAt)
   VALUES (N'admin', N'Administrator', N'Full application access', SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
@@ -227,6 +227,7 @@ ON target.roleKey = source.roleKey AND target.permissionKey = source.permissionK
 WHEN NOT MATCHED THEN
   INSERT (roleKey, permissionKey, createdAt)
   VALUES (source.roleKey, source.permissionKey, SYSDATETIMEOFFSET());
+END;
 `)
   initialized = true
 }
@@ -428,6 +429,14 @@ ORDER BY auditId DESC;
   const hasMore = result.recordset.length > 50
   const entries = result.recordset.slice(0, 50).map(presentAuditActivity)
   return { entries, nextBeforeId: hasMore ? entries.at(-1).auditId : null }
+}
+
+export async function listAuditUsers() {
+  await initializeAuthStore()
+  const result = await (await getPool()).request().query(`
+SELECT userId, username, fullName FROM dbo.AppUsers ORDER BY username;
+`)
+  return result.recordset
 }
 
 export async function saveWebUser(input = {}) {

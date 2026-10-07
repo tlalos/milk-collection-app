@@ -2,9 +2,13 @@ export function ocrFileJobId(route) {
   return /^\/jobs\/([^/]+)\/file$/u.exec(route)?.[1] || null
 }
 
-export function ocrPermissionsForRoute(route, documentCategory = '') {
+export function ocrPermissionsForRoute(route, documentCategory = '', method = 'GET') {
   if (route === '/settings') return ['ocr_settings']
-  if (route === '/reference-suppliers') return ['ocr_documents', 'month_closure']
+  if (route === '/archive-history') return ['backup_history']
+  if (route === '/reference-suppliers') return method === 'GET'
+    ? ['ocr_documents', 'month_closure', 'monthly_reconciliation', 'exports']
+    : ['ocr_documents']
+  if (['/exports/apia-rows', '/exports/producer-contracts', '/exports/producer-herd-counts', '/exports/reception-factors'].includes(route)) return ['exports']
   if (route === '/daily-aviz/rows') return ['daily_aviz']
   if (route === '/monthly-reconciliation/rows' || route === '/monthly-reconciliation/aviz-center' || route === '/issues') {
     return ['monthly_reconciliation']

@@ -1,0 +1,27 @@
+.herd-search { flex: 1; max-width: 380px; min-width: 210px; }
+.herd-table { min-width: 1070px; }
+.herd-table td { padding-block: 10px; }
+.herd-complete, .herd-notice { display: flex; align-items: center; gap: 6px; color: #176244; }
+.herd-complete { font-size: 12px; }
+.herd-notice { padding: 10px 0; font-size: 14px; overflow-wrap: anywhere; }
+.herd-notice svg { flex-shrink: 0; }
+.herd-edit-heading { font-size: 12px; }
+.herd-readonly { padding: 10px 12px; color: #755208; background: #fff6db; border-left: 3px solid #d7a742; font-size: 14px; }
+.herd-dialog { width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; margin: auto; padding: 22px; border: 1px solid #bdcec4; border-radius: 8px; color: #193f31; background: #fff; }
+.herd-dialog::backdrop { background: #142d245c; }
+.herd-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.herd-dialog-heading h2 { margin: 0; font-size: 20px; }
+.herd-producer-name { display: block; overflow-wrap: anywhere; }
+.herd-producer-code { display: block; margin-top: 4px; color: #617268; }
+.herd-effective { font-size: 14px; margin-block: 18px; }
+.herd-count-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.herd-count-inputs label { display: grid; gap: 7px; font-size: 13px; font-weight: 700; }
+.herd-count-inputs input { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border: 1px solid #c4d8ce; border-radius: 4px; color: inherit; background: #fff; }
+.herd-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.herd-dialog-actions > button { min-height: 36px; padding: 8px 14px; border: 1px solid #c4d8ce; border-radius: 4px; }
+.herd-dialog-actions > button:not(.apia-export-button) { background: #fff; color: #425d50; }
+.herd-history { margin-top: 22px; font-size: 13px; }
+.herd-history summary { cursor: pointer; padding-block: 8px; }
+.herd-history table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.herd-history th, .herd-history td { text-align: left; padding: 8px 5px; border-bottom: 1px solid #dce7e1; }
+@media (max-width: 520px) { .herd-dialog { padding: 16px; } .herd-count-inputs { grid-template-columns: 1fr; } }

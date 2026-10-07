@@ -1,5 +1,6 @@
 import { BackButton } from './BackButton'
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
+import { OcrNavigationContext } from './OcrNavigation'
 import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
 
@@ -48,6 +49,7 @@ const emptyRole: WebRole = {
 }
 
 export function WebUsersScreen({ onBack }: { onBack: () => void }) {
+  const access = useContext(OcrNavigationContext)?.user
   const [data, setData] = useState<AdminData>({ users: [], roles: [], permissions: [] })
   const [selectedUserId, setSelectedUserId] = useState('')
   const [userDraft, setUserDraft] = useState(emptyUser)
@@ -178,7 +180,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
           <span>Administration</span>
           <h1>Web Users</h1>
         </div>
-        <button className="web-users-history-link" type="button" onClick={() => { window.location.href = appPath('/web-users/history') }}>User log history</button>
+        {(access?.isAdmin || access?.permissions?.includes('audit_log')) && <button className="web-users-history-link" type="button" onClick={() => { window.location.href = appPath('/web-users/history') }}>User log history</button>}
       </header>
 
       <main className="web-users-main">
