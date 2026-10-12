@@ -1587,6 +1587,7 @@ app.get('/api/milk-deliveries', async (request, response, next) => {
       date: request.query.date,
       search: request.query.search,
       status: request.query.status,
+      sentToGreece: request.query.sentToGreece === 'true',
     })
     response.json({ records })
   } catch (error) {

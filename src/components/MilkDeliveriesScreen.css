@@ -105,7 +105,7 @@
 
 .milk-deliveries-toolbar {
   display: grid;
-  grid-template-columns: minmax(165px, 210px) minmax(260px, 1fr) minmax(165px, 210px) auto auto;
+  grid-template-columns: minmax(165px, 210px) minmax(220px, 1fr) minmax(165px, 210px) auto auto auto;
   gap: 10px;
   align-items: end;
 }
@@ -128,6 +128,27 @@
   font: inherit;
   font-size: 0.86rem;
   font-weight: 750;
+}
+
+.milk-deliveries-toolbar .delivery-sent-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  cursor: pointer;
+}
+
+.delivery-sent-filter input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #1a6b3c;
+}
+
+.delivery-sent-filter span {
+  white-space: nowrap;
 }
 
 .milk-deliveries-toolbar button {
@@ -400,7 +421,18 @@
 }
 
 .delivery-row-actions button.send {
+  box-sizing: border-box;
+  width: 86px;
+  flex-basis: 86px;
   height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .delivery-departure-icon {
@@ -817,6 +849,10 @@
 }
 
 @media (max-width: 1040px) {
+  .milk-deliveries-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .departure-fields {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }

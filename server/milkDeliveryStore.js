@@ -123,17 +123,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkDeliveryWeightEve
   initialized = true
 }
 
-export async function listMilkDeliveries({ date = '', search = '', status = '' } = {}) {
+export async function listMilkDeliveries({ date = '', search = '', status = '', sentToGreece = false } = {}) {
   await initializeMilkDeliveryStore()
   const result = await (await getPool()).request()
     .input('date', sql.Date, isoDateValue(date))
     .input('search', sql.NVarChar(240), `%${String(search || '').trim()}%`)
     .input('status', sql.NVarChar(40), normalizeFilterStatus(status))
+    .input('sentToGreece', sql.Bit, sentToGreece === true)
     .query(`
 SELECT TOP (1000) *, CONVERT(varchar(5), deliveryTime, 108) AS deliveryTimeText
 FROM dbo.MilkDeliveries
 WHERE (@date IS NULL OR deliveryDate = @date)
   AND (@status = N'' OR status = @status)
+  AND (@sentToGreece = 0 OR status IN (N'AWAITING_GREECE', N'COMPLETE'))
   AND (
     @search = N'%%'
     OR deliveryId LIKE @search

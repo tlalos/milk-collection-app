@@ -198,6 +198,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   const [selectedDate, setSelectedDate] = useState(localIsoDate)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | DeliveryStatus>('ALL')
+  const [sentToGreeceOnly, setSentToGreeceOnly] = useState(false)
   const [expandedId, setExpandedId] = useState('')
   const [loading, setLoading] = useState(false)
   const [deletingId, setDeletingId] = useState('')
@@ -219,7 +220,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadRecords(), 180)
     return () => window.clearTimeout(timer)
-  }, [search, statusFilter])
+  }, [search, statusFilter, sentToGreeceOnly])
 
   useEffect(() => {
     const timers = saveTimersRef.current
@@ -239,8 +240,9 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   const visibleRecords = useMemo(
     () => records
       .filter((record) => !selectedDate || record.deliveryDate === selectedDate)
+      .filter((record) => !sentToGreeceOnly || record.status === 'AWAITING_GREECE' || record.status === 'COMPLETE')
       .map(withCalculations),
-    [records, selectedDate],
+    [records, selectedDate, sentToGreeceOnly],
   )
 
   function commitRecords(next: MilkDelivery[]) {
@@ -319,6 +321,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
       const params = new URLSearchParams()
       if (search.trim()) params.set('search', search.trim())
       if (statusFilter !== 'ALL') params.set('status', statusFilter)
+      if (sentToGreeceOnly) params.set('sentToGreece', 'true')
       const response = await fetch(appPath(`/api/milk-deliveries?${params.toString()}`))
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not load milk deliveries.')
@@ -614,6 +617,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
           <label><span>Delivery date</span><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /></label>
           <label className="delivery-search-field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isRo ? 'AVIZ, camion, tip de lapte sau destinație...' : 'AVIZ, truck, milk type or destination...'} /></label>
           <label><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'ALL' | DeliveryStatus)}><option value="ALL">{isRo ? 'Toate stările' : 'All statuses'}</option><option value="DRAFT">Draft</option><option value="AWAITING_GREECE">Awaiting Greece</option><option value="COMPLETE">Complete</option></select></label>
+          <label className="delivery-sent-filter"><input type="checkbox" checked={sentToGreeceOnly} onChange={(event) => setSentToGreeceOnly(event.target.checked)} /><span>{isRo ? 'Trimise în Grecia' : 'Sent to Greece'}</span></label>
           <button type="button" onClick={addDelivery}>Add delivery</button>
           <button className="secondary" type="button" onClick={() => setSelectedDate(selectedDate ? '' : localIsoDate())}>{selectedDate ? 'Show all dates' : 'Today'}</button>
         </section>
@@ -630,7 +634,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
             <table className="milk-deliveries-entry-table">
               <thead><tr><th /><th>Date</th><th>Truck</th><th>Tractor</th><th>AVIZ</th><th>Milk type</th><th>Loaded kg</th><th>Empty kg</th><th>Net kg</th><th>Liters</th><th>Category</th><th>Comments</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
-                {!visibleRecords.length && <tr><td className="milk-deliveries-empty" colSpan={14}>No deliveries saved for this date. Select Add delivery to start.</td></tr>}
+                {!visibleRecords.length && <tr><td className="milk-deliveries-empty" colSpan={14}>{isRo ? 'Nicio livrare nu corespunde filtrelor selectate.' : 'No deliveries match the selected filters.'}</td></tr>}
                 {visibleRecords.map((record) => {
                   const expanded = expandedId === record.id
                   const arrivalEnabled = record.status !== 'DRAFT'
@@ -652,10 +656,11 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                         <td><input value={record.departureComments} onChange={(event) => updateRecord(record.id, { departureComments: event.target.value })} placeholder="Comments..." /></td>
                         <td><span className={`delivery-status ${record.status.toLocaleLowerCase()}`}>{statusLabel(record.status)}</span></td>
                         <td><div className="delivery-row-actions">{record.status === 'DRAFT' && (
-                          <button className="send" type="button" title="Truck departed (mark sent)" aria-label="Truck departed (mark sent)"
+                          <button className="send" type="button" title="Truck departed for Greece (mark sent)" aria-label="Truck departed for Greece (mark sent)"
                             disabled={saveState?.status === 'saving' || deletingId === record.id}
                             onClick={() => void saveRecord(record.id, 'manual', 'AWAITING_GREECE')}>
                             <span className="delivery-departure-icon" aria-hidden="true"><Truck /><MoveRight viewBox="0 6 24 12" /></span>
+                            <span>Greece</span>
                           </button>
                         )}<button type="button" title="Save now" aria-label="Save delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
                       </tr>
