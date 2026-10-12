@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { normalizeMonthlyDocumentDate } from "../../server/monthlyDocumentDate.js";
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
 import { appPath } from "../ocrPaths";
@@ -136,6 +137,7 @@ function hydrateMonthlyData(data: MonthlyData) {
   const milkType = normalizeMonthlyMilkType(data.milkType);
   return {
     ...data,
+    date: normalizeMonthlyDocumentDate(data.date) || data.date,
     milkType,
     rows: data.rows.map((row) => ({
       ...row,
@@ -167,13 +169,14 @@ function displayMonthFilter(value: string, ro: boolean) {
 }
 
 function displayMonth(job: MonthlyJob, ro: boolean) {
+  const date = normalizeMonthlyDocumentDate(job.summary?.date);
   const monthFromField = job.summary?.documentMonth;
   if (Number.isInteger(monthFromField) && monthFromField! >= 1 && monthFromField! <= 12) {
-    const year = String(job.summary?.date || "").match(/^(\d{4})-/u)?.[1];
+    const year = date?.slice(0, 4);
     const monthName = new Intl.DateTimeFormat(ro ? "ro-RO" : "en-GB", { month: "long" }).format(new Date(2026, monthFromField! - 1, 1));
     return year ? `${monthName} ${year}` : monthName;
   }
-  const dateMatch = String(job.summary?.date || "").match(/^(\d{4})-(\d{2})-/u);
+  const dateMatch = String(date || "").match(/^(\d{4})-(\d{2})-/u);
   if (dateMatch) {
     const month = Number(dateMatch[2]);
     const monthName = new Intl.DateTimeFormat(ro ? "ro-RO" : "en-GB", { month: "long" }).format(new Date(Number(dateMatch[1]), month - 1, 1));
@@ -285,16 +288,6 @@ function referenceProducerOptions(
     .map((producer) => ({ ...producer, score: Number((producer.score || 0).toFixed(3)) }));
 }
 
-function storeDate(value: string) {
-  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u);
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : value || null;
-}
-
-function todayIso() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
 function formatOcrDuration(job: MonthlyJob) {
   const elapsed =
     job.openai?.durationMs ??
@@ -313,16 +306,8 @@ function isFailedMonthlyJob(job: MonthlyJob) {
 }
 
 function recognizedDateSortValue(value: string | null | undefined) {
-  if (!value) return null;
-  const normalized = value.trim();
-  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
-  const displayMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/u);
-  const timestamp = isoMatch
-    ? Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
-    : displayMatch
-      ? Date.UTC(Number(displayMatch[3]), Number(displayMatch[2]) - 1, Number(displayMatch[1]))
-      : Date.parse(normalized);
-  return Number.isFinite(timestamp) ? timestamp : null;
+  const normalized = normalizeMonthlyDocumentDate(value);
+  return normalized ? Date.parse(`${normalized}T00:00:00Z`) : null;
 }
 
 function uploadDateSortValue(value: string | null | undefined) {
@@ -332,7 +317,7 @@ function uploadDateSortValue(value: string | null | undefined) {
 
 function monthlyRecognizedDateSortValue(job: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
   const liveData = job.id === selectedId ? draft : null;
-  const date = liveData?.date ?? job.summary?.date ?? job.data?.date;
+  const date = normalizeMonthlyDocumentDate(liveData?.date ?? job.summary?.date ?? job.data?.date);
   const documentMonth = liveData?.documentMonth ?? job.summary?.documentMonth ?? job.data?.documentMonth;
   if (Number.isInteger(documentMonth) && documentMonth! >= 1 && documentMonth! <= 12) {
     const year = String(date || "").match(/^(\d{4})/u)?.[1];
@@ -343,7 +328,7 @@ function monthlyRecognizedDateSortValue(job: MonthlyJob, selectedId: string, dra
 
 function monthlyFilterMonthValue(job: MonthlyJob, selectedId: string, draft: MonthlyData | null) {
   const liveData = job.id === selectedId ? draft : null;
-  const date = liveData?.date ?? job.summary?.date ?? job.data?.date;
+  const date = normalizeMonthlyDocumentDate(liveData?.date ?? job.summary?.date ?? job.data?.date);
   const documentMonth = liveData?.documentMonth ?? job.summary?.documentMonth ?? job.data?.documentMonth;
   const year = String(date || "").match(/^(\d{4})/u)?.[1];
   if (year && Number.isInteger(documentMonth) && documentMonth! >= 1 && documentMonth! <= 12) {
@@ -394,6 +379,9 @@ function archiveApiUrls(pathname: string) {
 
 export function MonthlySettlementReviewScreen() {
   const { language, isRo } = useOcrLanguage();
+  const dateValidationMessage = isRo
+    ? "Introduceți o dată validă în format zz/ll/aaaa (de exemplu, 31/08/2026)."
+    : "Enter a valid date as DD/MM/YYYY (for example, 31/08/2026).";
   const [view, setView] = useState<"pending" | "reviewed" | "failed">("pending");
   const [listCollapsed, setListCollapsed] = useState(false);
   const [centerSearch, setCenterSearch] = useState("");
@@ -401,6 +389,7 @@ export function MonthlySettlementReviewScreen() {
   const [jobs, setJobs] = useState<MonthlyJob[]>([]);
   const [selected, setSelected] = useState<MonthlyJob | null>(null);
   const [draft, setDraft] = useState<MonthlyData | null>(null);
+  const [dateEditing, setDateEditing] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeUpdatedAt, setNoticeUpdatedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
@@ -559,6 +548,7 @@ export function MonthlySettlementReviewScreen() {
   }, []);
 
   async function openJob(job: MonthlyJob) {
+    setDateEditing(false);
     setSelected(job);
     setDraft(null);
     setNotice("");
@@ -579,7 +569,6 @@ export function MonthlySettlementReviewScreen() {
     if (!response.ok || !payload.job?.data)
       return setNotice(payload.error || "Could not load OCR data.");
     const data = hydrateMonthlyData(structuredClone(payload.job.data));
-    if (!data.date) data.date = todayIso();
     setSelected(payload.job);
     setDraft(data);
     lastSavedRef.current = JSON.stringify({ data });
@@ -587,6 +576,10 @@ export function MonthlySettlementReviewScreen() {
 
   useEffect(() => {
     if (!selected || !draft || selected.status !== "completed" || busy) return;
+    if (dateEditing || !normalizeMonthlyDocumentDate(draft.date)) {
+      setAutoSaveStatus("idle");
+      return;
+    }
     const signature = JSON.stringify({ data: draft });
     if (signature === lastSavedRef.current) return;
     setAutoSaveStatus("saving");
@@ -595,7 +588,7 @@ export function MonthlySettlementReviewScreen() {
         const response = await fetch(appPath(`/api/ocr/jobs/${selected.id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: draft, producerMatches: selected.producerMatches || [] }),
+          body: JSON.stringify({ data: { ...draft, date: normalizeMonthlyDocumentDate(draft.date) }, producerMatches: selected.producerMatches || [] }),
         });
         const payload = (await response.json()) as {
           job?: MonthlyJob;
@@ -628,7 +621,7 @@ export function MonthlySettlementReviewScreen() {
       }
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [busy, draft, selected?.id, selected?.status]);
+  }, [busy, draft, dateEditing, selected?.id, selected?.status]);
 
   useEffect(() => {
     centerImagePreview(sourcePreviewRef.current);
@@ -1205,6 +1198,7 @@ export function MonthlySettlementReviewScreen() {
 
   async function redoExcelMatching() {
     if (!selected || !draft || busy) return;
+    if (!normalizeMonthlyDocumentDate(draft.date)) return setNotice(dateValidationMessage);
     setBusy(true);
       setNotice(
         isRo
@@ -1261,6 +1255,7 @@ export function MonthlySettlementReviewScreen() {
 
   async function save(markReviewed = false) {
     if (!selected || !draft || busy) return;
+    if (!normalizeMonthlyDocumentDate(draft.date)) return setNotice(dateValidationMessage);
     setBusy(true);
     setNotice(isRo ? "Se salvează…" : "Saving…");
     try {
@@ -1269,7 +1264,7 @@ export function MonthlySettlementReviewScreen() {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: draft }),
+          body: JSON.stringify({ data: { ...draft, date: normalizeMonthlyDocumentDate(draft.date) } }),
         },
       );
       const savePayload = (await saveResponse.json()) as {
@@ -1715,7 +1710,9 @@ export function MonthlySettlementReviewScreen() {
                   {draft && (
                     <div>
                       <b className={`monthly-autosave-status status-${autoSaveStatus}`}>
-                        {autoSaveStatus === "saving"
+                        {!normalizeMonthlyDocumentDate(draft.date)
+                          ? isRo ? "Verificați data" : "Check date"
+                          : autoSaveStatus === "saving"
                           ? isRo
                             ? "Se salvează…"
                             : "Saving…"
@@ -1765,12 +1762,25 @@ export function MonthlySettlementReviewScreen() {
                           onChange={(e) =>
                             setDraft({
                               ...draft,
-                              date: storeDate(e.target.value),
+                              date: e.target.value,
                               documentMonth: null,
                             })
                           }
+                          onFocus={() => setDateEditing(true)}
+                          onBlur={() => {
+                            setDateEditing(false);
+                            setDraft(current => current ? {
+                              ...current,
+                              date: normalizeMonthlyDocumentDate(current.date) || current.date,
+                            } : current);
+                          }}
+                          aria-invalid={!normalizeMonthlyDocumentDate(draft.date)}
+                          aria-describedby={!normalizeMonthlyDocumentDate(draft.date) ? "monthly-date-error" : undefined}
                           placeholder="dd/MM/yyyy"
                         />
+                        {!normalizeMonthlyDocumentDate(draft.date) && (
+                          <small id="monthly-date-error" className="monthly-date-error" role="alert">{dateValidationMessage}</small>
+                        )}
                         {draft.documentMonth && (
                           <small className="monthly-derived-date">
                             {isRo

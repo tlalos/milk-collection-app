@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { normalizeMonthlyDocumentDate } from './monthlyDocumentDate.js'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { createOcrProviderClient } from './ocrProviderHttp.js'
 import { prepareFinalColumnCrop } from './ocrImageProcessing.js'
@@ -183,7 +184,7 @@ export function normalizeMonthlyData(data) {
   return {
     ...data,
     headerCenterName,
-    date: data.date || derivedMonthDate || new Date().toISOString().slice(0, 10),
+    date: normalizeMonthlyDocumentDate(data.date) || data.date || derivedMonthDate || new Date().toISOString().slice(0, 10),
     documentMonth: derivedMonthDate ? identifiedMonth : null,
     milkType: documentMilkType,
     totalLiters: data.totalLiters ?? null,

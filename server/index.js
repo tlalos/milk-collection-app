@@ -2424,7 +2424,7 @@ app.patch('/api/ocr/jobs/:id', async (request, response, next) => {
     const parsed = schema.safeParse(submittedData)
     if (!parsed.success) {
       return response.status(400).json({
-        error: 'Corrected document data is invalid.',
+        error: parsed.error.issues.find(issue => issue.path[0] === 'date')?.message || 'Corrected document data is invalid.',
         details: parsed.error.issues,
       })
     }

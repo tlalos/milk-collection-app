@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeMonthlyDocumentDate } from './monthlyDocumentDate.js'
 
 const nullableText = z.string().nullable()
 const nullableNumber = z.number().nullable()
@@ -61,6 +62,9 @@ export const MonthlySettlementDocumentSchema = z.object({
 })
 
 export const MonthlySettlementEditableDocumentSchema = MonthlySettlementDocumentSchema.extend({
+  date: nullableText.transform(normalizeMonthlyDocumentDate).refine(date => date !== null, {
+    message: 'Enter a valid document date as DD/MM/YYYY (for example, 31/08/2026).',
+  }),
   rows: z.array(MonthlySettlementRowSchema.extend({
     manual: z.boolean().optional(),
   })),

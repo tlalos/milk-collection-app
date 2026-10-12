@@ -593,6 +593,16 @@
   border-radius: 6px;
   background: #fafcfb;
 }
+.monthly-fields input[aria-invalid="true"] {
+  border-color: #b33a2e;
+}
+.monthly-fields .monthly-date-error {
+  color: #a12e23;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: none;
+}
 .monthly-review-actions {
   display: flex;
   align-items: flex-start;

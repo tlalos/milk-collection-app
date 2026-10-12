@@ -67,12 +67,13 @@ WHERE vehicleCategory = N'COLLECTION' AND receptionDate IN (${receptionDates});
 `)).recordset
     const desired = desiredDailyAvizLinks(receptions, jobs, dates)
 
+    // Restored databases can use a different collation from the server's tempdb.
     await new sql.Request(transaction).batch(`
 CREATE TABLE #DesiredAvizLinks (
-  jobId NVARCHAR(64) NOT NULL,
+  jobId NVARCHAR(64) COLLATE DATABASE_DEFAULT NOT NULL,
   rowIndex INT NOT NULL,
   rowNumber INT NULL,
-  receptionId NVARCHAR(120) NOT NULL,
+  receptionId NVARCHAR(120) COLLATE DATABASE_DEFAULT NOT NULL,
   documentDate DATE NOT NULL,
   PRIMARY KEY (jobId, rowIndex)
 );
