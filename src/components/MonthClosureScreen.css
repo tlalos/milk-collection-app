@@ -161,8 +161,13 @@
   grid-template-columns: minmax(150px, 0.65fr) repeat(2, minmax(150px, 1.15fr)) repeat(4, minmax(150px, 0.75fr)) auto;
 }
 
+.month-closure-toolbar-pricing {
+  grid-template-columns: minmax(150px, 0.65fr) repeat(2, minmax(150px, 1.15fr)) repeat(3, minmax(140px, 0.75fr)) auto;
+}
+
 @media (min-width: 981px) and (max-width: 1440px) {
-  .month-closure-toolbar-invoices {
+  .month-closure-toolbar-invoices,
+  .month-closure-toolbar-pricing {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

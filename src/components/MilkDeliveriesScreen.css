@@ -282,23 +282,31 @@
 }
 
 .milk-deliveries-list .milk-deliveries-entry-table {
-  min-width: 1770px;
+  min-width: 1567px;
   table-layout: fixed;
 }
 
-.milk-deliveries-entry-table th:nth-child(1) { width: 44px; }
-.milk-deliveries-entry-table th:nth-child(2) { width: 132px; }
+.milk-deliveries-entry-table th,
+.milk-deliveries-entry-table .delivery-register-row > td {
+  box-sizing: border-box;
+  padding-inline: 6px;
+}
+
+.milk-deliveries-entry-table th:nth-child(1) { width: 38px; }
+.milk-deliveries-entry-table th:first-child,
+.milk-deliveries-entry-table .delivery-register-row > td:first-child { padding-inline: 4px; }
+.milk-deliveries-entry-table th:nth-child(2) { width: 128px; }
 .milk-deliveries-entry-table th:nth-child(3),
-.milk-deliveries-entry-table th:nth-child(4) { width: 124px; }
-.milk-deliveries-entry-table th:nth-child(5) { width: 125px; }
-.milk-deliveries-entry-table th:nth-child(6) { width: 128px; }
+.milk-deliveries-entry-table th:nth-child(4),
+.milk-deliveries-entry-table th:nth-child(5) { width: 112px; }
+.milk-deliveries-entry-table th:nth-child(6) { width: 112px; }
 .milk-deliveries-entry-table th:nth-child(7),
 .milk-deliveries-entry-table th:nth-child(8) { width: 128px; }
 .milk-deliveries-entry-table th:nth-child(9),
-.milk-deliveries-entry-table th:nth-child(10) { width: 90px; }
-.milk-deliveries-entry-table th:nth-child(11) { width: 115px; }
-.milk-deliveries-entry-table th:nth-child(12) { width: 180px; }
-.milk-deliveries-entry-table th:nth-child(13) { width: 135px; }
+.milk-deliveries-entry-table th:nth-child(10) { width: 84px; }
+.milk-deliveries-entry-table th:nth-child(11) { width: 112px; }
+.milk-deliveries-entry-table th:nth-child(12) { width: 150px; }
+.milk-deliveries-entry-table th:nth-child(13) { width: 92px; }
 .milk-deliveries-entry-table th:nth-child(14) { width: 172px; }
 
 .milk-deliveries-entry-table th:nth-child(14),
@@ -402,7 +410,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 5px;
 }
 
@@ -531,6 +539,15 @@
   font-size: 0.72rem;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.milk-deliveries-entry-table .delivery-status {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 4px 8px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .delivery-status.awaiting_greece {

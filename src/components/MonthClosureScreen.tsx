@@ -249,6 +249,11 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [seriesFilter, setSeriesFilter] = useState('')
   const [invoiceSendFilter, setInvoiceSendFilter] = useState<InvoiceSendFilter>('all')
   const [view, setView] = useState<ClosureView>(bankNotePage ? 'bankNote' : 'pricing')
+  const pricingFilterKey = JSON.stringify([view, monthFilter, centerFilter, producerFilter, milkTypeFilter, statusFilter, invoiceSendFilter])
+  const [retainedPricingRows, setRetainedPricingRows] = useState<{ key: string; ids: string[] }>({ key: '', ids: [] })
+  useEffect(() => {
+    setRetainedPricingRows({ key: pricingFilterKey, ids: [] })
+  }, [pricingFilterKey])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [bulkCenter, setBulkCenter] = useState('')
@@ -265,6 +270,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [erpReferenceError, setErpReferenceError] = useState('')
 
   async function loadRows(month = monthFilter) {
+    setRetainedPricingRows({ key: pricingFilterKey, ids: [] })
     setLoading(true)
     setInvoiceStatusesLoaded(false)
     setSelectedInvoiceRowIds([])
@@ -431,6 +437,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   function updatePricingDraft(rowId: string, field: PricingDraftField, value: string) {
     const row = rows.find(row => row.id === rowId)
     if (!row || !canEditPricing(row)) return
+    retainPricingRows([rowId])
     setPricingSaveStatus((current) => current === 'saving' ? current : 'idle')
     setPricingSaveMessage('')
     setPricingDrafts((current) => ({
@@ -633,20 +640,31 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const bankProducerByOption = useMemo(() => new Map(
     bankProducerOptions.map((producer) => [bankProducerOption(producer), producer]),
   ), [bankProducerOptions])
-  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || statusFilter !== 'all' || (view === 'erpInvoices' && (seriesFilter || invoiceSendFilter !== 'all')))
+  function retainPricingRows(ids: string[]) {
+    if (view !== 'pricing' || statusFilter === 'all') return
+    // Autosave changes the status, but must not remove rows between pricing fields.
+    setRetainedPricingRows(current => ({
+      key: pricingFilterKey,
+      ids: [...new Set([...(current.key === pricingFilterKey ? current.ids : []), ...ids])],
+    }))
+  }
+
+  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || statusFilter !== 'all' || (view !== 'bankNote' && invoiceSendFilter !== 'all') || (view === 'erpInvoices' && seriesFilter))
 
   const filteredRows = useMemo(() => {
     const centerNeedle = normalizedSearch(centerFilter)
     const producerNeedle = normalizedSearch(producerFilter)
+    const retainedIds = new Set(view === 'pricing' && retainedPricingRows.key === pricingFilterKey ? retainedPricingRows.ids : [])
     return rows.filter((row) => {
       if (monthFilter && row.month !== monthFilter) return false
       if (centerNeedle && !normalizedSearch(row.center).includes(centerNeedle)) return false
       if (producerNeedle && !normalizedSearch(row.producer).includes(producerNeedle)) return false
       if (milkTypeFilter && row.milkType !== milkTypeFilter) return false
-      if (statusFilter !== 'all' && row.pricingStatus !== statusFilter) return false
+      if (view !== 'bankNote' && invoiceSendFilter !== 'all' && (!invoiceStatusesLoaded || !matchesInvoiceSendFilter(invoiceStatuses[row.id], invoiceSendFilter))) return false
+      if (statusFilter !== 'all' && row.pricingStatus !== statusFilter && !retainedIds.has(row.id)) return false
       return true
     })
-  }, [centerFilter, milkTypeFilter, monthFilter, producerFilter, rows, statusFilter])
+  }, [centerFilter, milkTypeFilter, monthFilter, producerFilter, rows, statusFilter, view, invoiceSendFilter, invoiceStatuses, invoiceStatusesLoaded, retainedPricingRows, pricingFilterKey])
 
   const bulkCenterRows = useMemo(() => rows.filter((row) => (
     canEditPricing(row) && (!monthFilter || row.month === monthFilter) && row.center === bulkCenter
@@ -690,6 +708,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       return
     }
     const normalizedPrice = String(parsedPrice)
+    retainPricingRows(filteredRows.filter(row => row.center === bulkCenter && canEditPricing(row)).map(row => row.id))
     setPricingDrafts((current) => {
       const next = { ...current }
       for (const row of bulkCenterRows) {
@@ -725,7 +744,6 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     return { row, erpProducer, price, adjustedPrice, roundingDifference, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult, sendBlockReason, series }
   }).filter(invoiceRow => view !== 'erpInvoices' || !seriesFilter
     || (seriesFilter === 'missing' ? invoiceRow.series === null : String(invoiceRow.series) === seriesFilter))
-    .filter(invoiceRow => view !== 'erpInvoices' || matchesInvoiceSendFilter(invoiceStatuses[invoiceRow.row.id], invoiceSendFilter))
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
     qty: totals.qty + invoiceRow.row.liters,
     result: totals.result + (invoiceRow.result ?? 0),
@@ -953,7 +971,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
           )}
         </section>
 
-        <section className={`month-closure-toolbar${view === 'erpInvoices' ? ' month-closure-toolbar-invoices' : ''}`} aria-label="Month closure filters">
+        <section className={`month-closure-toolbar${view === 'erpInvoices' ? ' month-closure-toolbar-invoices' : view === 'pricing' ? ' month-closure-toolbar-pricing' : ''}`} aria-label="Month closure filters">
           <label>
             <span>Month</span>
               <input
@@ -998,9 +1016,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               <option value="blocked">Blocked</option>
             </select>
           </label>
-          {view === 'erpInvoices' && <label>
+          {view !== 'bankNote' && <label>
             <span>ERP status</span>
-            <select value={invoiceSendFilter} onChange={(event) => setInvoiceSendFilter(event.target.value as InvoiceSendFilter)}>
+            <select aria-label="ERP status" disabled={!invoiceStatusesLoaded} value={invoiceSendFilter} onChange={(event) => setInvoiceSendFilter(event.target.value as InvoiceSendFilter)}>
               <option value="all">All invoices</option>
               <option value="not_sent">Not sent</option>
               <option value="sent">Sent</option>

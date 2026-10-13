@@ -1,5 +1,7 @@
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
+import { MilkDeliveriesHelp } from './MilkDeliveriesHelp'
+import { SaveIcon, ScaleIcon } from './MilkDeliveryIcons'
 import { useOcrLanguage } from './OcrLanguage'
 import { MoveRight, Truck } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -164,16 +166,8 @@ function statusLabel(status: DeliveryStatus) {
   return 'Draft'
 }
 
-function SaveIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l2 2v16H5z" /><path d="M8 3v6h8V3" /><path d="M8 21v-7h8v7" /></svg>
-}
-
 function TrashIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M7 7l1 14h8l1-14" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-}
-
-function ScaleIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20h12" /><path d="M8 20l2-9h4l2 9" /><path d="M12 11V5" /><path d="M8 5h8" /><path d="M7 5 4 11h6z" /><path d="M17 5l-3 6h6z" /></svg>
 }
 
 export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
@@ -609,7 +603,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
         <BackButton className="back-button" type="button" onClick={handleBack} />
         <OcrNavigation />
         <div className="app-title-block"><p>Factory dispatch workflow</p><h1>Milk Deliveries</h1></div>
-        <button className="milk-deliveries-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button>
+        <div className="milk-deliveries-header-actions"><MilkDeliveriesHelp /><button className="milk-deliveries-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button></div>
       </header>
 
       <main className="milk-deliveries-content">
