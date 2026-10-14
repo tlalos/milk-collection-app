@@ -1,5 +1,6 @@
 .user-log-main {
   gap: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .user-log-tabs {
@@ -37,7 +38,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: center;
+  align-items: flex-end;
   padding: 12px 14px;
   border-bottom: 1px solid #dfeae4;
 }
@@ -52,6 +53,22 @@
   background: #fff;
   color: #183b28;
   font: inherit;
+}
+
+.user-log-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.user-log-filters .user-log-date input {
+  flex: none;
+  height: 38px;
+  min-width: 0;
+  width: 160px;
+  box-sizing: border-box;
 }
 
 .user-log-filters input {
@@ -107,6 +124,8 @@
 .user-log-source.manual { color: #885c16; }
 
 @media (max-width: 700px) {
+  .user-log-date { flex: 1 1 140px; min-width: 0; }
+  .user-log-filters .user-log-date input { width: 100%; }
   .user-log-tabs button { flex: 1; }
   .user-log-filters select,
   .user-log-filters input { flex: 1 1 100%; }

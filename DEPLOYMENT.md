@@ -44,6 +44,12 @@ Existing `dbo.MilkDensitySettings` values are retained. No local database backup
 producer data import, payment workbook, or production credentials are included
 in the application ZIP; no separate data import is needed for this release.
 
+The User Log History update adds From/To date filters to general activity,
+reception weights, and delivery weights. Dates use the browser's local calendar
+days, including the full To date. SQL filters the entire history before pagination;
+Load older retains the selected range. This update requires no schema migration
+or data import. Deploy both the frontend and server files and restart the pool.
+
 ## Local production-data copies
 
 Before replacing a local database, create and verify a full local rollback backup.

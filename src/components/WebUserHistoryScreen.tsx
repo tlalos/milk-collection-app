@@ -1,6 +1,7 @@
 import { BackButton } from './BackButton'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { appPath } from '../ocrPaths'
+import { historyDateRange } from '../historyDateRange'
 import './WebUsersScreen.css'
 import './WebUserHistoryScreen.css'
 
@@ -73,6 +74,8 @@ export function WebUserHistoryScreen() {
   const [users, setUsers] = useState<{ userId: string; username: string; fullName: string }[]>([])
   const [username, setUsername] = useState('')
   const [recordSearch, setRecordSearch] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [area, setArea] = useState<ActivityArea>('')
   const [source, setSource] = useState<WeightSource>('')
   const [weightKind, setWeightKind] = useState<WeightKind>('')
@@ -105,6 +108,9 @@ export function WebUserHistoryScreen() {
     }
     try {
       const params = new URLSearchParams()
+      const range = historyDateRange(fromDate, toDate)
+      if (range.from) params.set('from', range.from)
+      if (range.until) params.set('until', range.until)
       if (username) params.set('username', username)
       if (recordSearch.trim()) params.set(tab === 'general' ? 'entityId' : tab === 'weights' ? 'receptionId' : 'deliveryId', recordSearch.trim())
       if (beforeId) params.set('beforeId', beforeId)
@@ -124,11 +130,14 @@ export function WebUserHistoryScreen() {
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
     }
-  }, [area, recordSearch, source, tab, username, weightKind])
+  }, [area, recordSearch, source, tab, username, weightKind, fromDate, toDate])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadHistory(), recordSearch ? 300 : 0)
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      requestIdRef.current++
+    }
   }, [loadHistory, recordSearch])
 
   return <div className="web-users-screen">
@@ -144,6 +153,13 @@ export function WebUserHistoryScreen() {
       </div>
       <section className="user-log-panel">
         <div className="user-log-filters">
+          <label className="user-log-date">From date
+            <input type="date" value={fromDate} max={toDate || '9999-12-30'} onChange={(event) => setFromDate(event.target.value)} />
+          </label>
+          <label className="user-log-date">To date
+            <input type="date" value={toDate} min={fromDate || undefined} max="9999-12-30" onChange={(event) => setToDate(event.target.value)} />
+          </label>
+          {(fromDate || toDate) && <button type="button" onClick={() => { setFromDate(''); setToDate('') }}>Clear dates</button>}
           <select aria-label="User" value={username} onChange={(event) => setUsername(event.target.value)}>
             <option value="">All users</option>
             {users.map((user) => <option key={user.userId} value={user.username}>{user.fullName || user.username}</option>)}

@@ -642,7 +642,7 @@ ORDER BY eventId DESC;
   return { entries, nextBeforeId: hasMore ? entries.at(-1).eventId : null }
 }
 
-export async function listMilkReceptionWeightHistoryForAdmin({ username = '', receptionId = '', source = '', weightKind = '', beforeId = null } = {}) {
+export async function listMilkReceptionWeightHistoryForAdmin({ username = '', receptionId = '', source = '', weightKind = '', beforeId = null, from = null, until = null } = {}) {
   await initializeMilkReceptionStore()
   const result = await (await getPool()).request()
     .input('username', sql.NVarChar(160), username)
@@ -650,6 +650,8 @@ export async function listMilkReceptionWeightHistoryForAdmin({ username = '', re
     .input('source', sql.NVarChar(10), source)
     .input('weightKind', sql.NVarChar(10), weightKind)
     .input('beforeId', sql.BigInt, beforeId)
+    .input('from', sql.DateTimeOffset, from)
+    .input('until', sql.DateTimeOffset, until)
     .query(`
 SELECT TOP (51) eventId, receptionId, weightKind, source, weightKg, previousWeightKg, previousSource, scaleCapturedAt, recordedAt, username
 FROM dbo.MilkReceptionWeightEvents
@@ -658,6 +660,8 @@ WHERE (@username = N'' OR username = @username)
   AND (@source = N'' OR source = @source)
   AND (@weightKind = N'' OR weightKind = @weightKind)
   AND (@beforeId IS NULL OR eventId < @beforeId)
+  AND (@from IS NULL OR recordedAt >= @from)
+  AND (@until IS NULL OR recordedAt < @until)
 ORDER BY eventId DESC;
 `)
   const hasMore = result.recordset.length > 50
