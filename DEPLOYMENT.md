@@ -17,6 +17,33 @@
 
 The frontend is already compiled in `dist`; no production build is required on the server.
 
+## Upgrade an existing production installation
+
+1. Back up the production SQL database and the current application directory.
+2. Stop the IIS application pool used by `/milk` before replacing application files.
+3. Extract the release ZIP into `C:\inetpub\wwwroot\milk`, replacing the included
+   application files. Preserve the server's existing `.env`, `data`, `logs`, and
+   external token caches. Do not replace `.env` with `.env.example` on an upgrade.
+4. Run `npm.cmd ci --omit=dev` in the application directory. If installation fails,
+   keep the pool stopped and investigate before continuing.
+5. Start the pool, check `/milk/api/ocr/health`, and refresh the browser.
+
+The October 14, 2026 release enables Milk factors from Reception and Deliveries,
+adds Collection only to Daily Reconciliation, and includes the pending collector,
+sent-invoice correction, and Bank note status-filter changes. Factor editing
+requires Application administration access; existing records retain their factor
+unless their milk type is changed. Collector invoices use one ERP unit but zero
+collected milk liters. Sent-invoice corrections require an administrator and
+confirmation that the existing ERP invoice was already corrected; they do not
+send another invoice.
+
+`dbo.MonthlyCollectors` and `dbo.MonthlyInvoiceCorrections` are created
+automatically when their workflows initialize. The SQL account needs the same
+schema-creation permissions used by the application's existing initialization.
+Existing `dbo.MilkDensitySettings` values are retained. No local database backup,
+producer data import, payment workbook, or production credentials are included
+in the application ZIP; no separate data import is needed for this release.
+
 ## Local production-data copies
 
 Before replacing a local database, create and verify a full local rollback backup.

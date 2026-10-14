@@ -1247,7 +1247,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
           </div>
         </div>
         <div className="reception-header-actions">
-          <button className="reception-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button>
+          <button className="reception-factors-button" type="button" onClick={() => { window.location.href = appPath('/milk-factors?from=reception') }}>Milk factors</button>
           <button className="reception-settings-tile" type="button" onClick={() => setSettingsOpen((open) => !open)}>
             <span>Settings</span>
             <strong>{options.vehicles.length} trucks</strong>

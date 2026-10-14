@@ -2,6 +2,7 @@ import sql from 'mssql'
 import { randomUUID } from 'node:crypto'
 import { getMilkReceptionPool } from './milkReceptionStore.js'
 import { buildMonthlyAvizApprovalSnapshot, initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
+import { initializeMonthlyCollectors } from './monthlyCollectorStore.js'
 
 const code = value => String(value || '').trim().toLowerCase()
 const name = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/gu, '').trim().toUpperCase().replace(/\s+/gu, ' ')
@@ -71,6 +72,7 @@ function conflict(message) { return Object.assign(new Error(message), { status: 
 // No OCR foreign keys: approved evidence survives deletion of a source document.
 export async function monthlyAvizApprovalContext(groupBuilder, action = null, user = null) {
   await initializeMonthlyAvizPricingApprovals()
+  await initializeMonthlyCollectors()
   const pool = await getMilkReceptionPool()
   const tx = new sql.Transaction(pool)
   await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
@@ -80,7 +82,8 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       @LockMode=N'Exclusive',@LockOwner=N'Transaction',@LockTimeout=15000;
       IF @result<0 THROW 51000,'Approval is busy. Try again.',1;`)
     const records = await query(`SELECT jobJson FROM dbo.OcrJobs; SELECT centersJson,producersJson FROM dbo.OcrErpReferenceSnapshot WHERE snapshotKey='suppliers';
-      SELECT * FROM dbo.MonthlyAvizPricingApprovals WHERE status <> 'CANCELLED';`)
+      SELECT * FROM dbo.MonthlyAvizPricingApprovals WHERE status <> 'CANCELLED';
+      SELECT * FROM dbo.MonthlyCollectors;`)
     const jobs = records.recordsets[0].map(row => JSON.parse(row.jobJson))
     const reference = records.recordsets[1][0]
     const references = reference ? { centers: JSON.parse(reference.centersJson), producers: JSON.parse(reference.producersJson) } : null
@@ -133,6 +136,6 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       await audit('monthly_aviz_pricing.cancel',approval.approvalId,{...approval,cancellationReason:reason})
     }
     await tx.commit()
-    return { jobs, reconciliation, candidates, references, approvals: approvals.filter(a => a.status !== 'CANCELLED'), saved }
+    return { jobs, reconciliation, candidates, references, approvals: approvals.filter(a => a.status !== 'CANCELLED'), collectors: records.recordsets[3], saved }
   } catch (error) { await tx.rollback(); throw error }
 }

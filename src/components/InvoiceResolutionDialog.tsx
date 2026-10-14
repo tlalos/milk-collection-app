@@ -6,6 +6,7 @@ interface History {
   invoice: { invoiceId: string; monthKey: string; producerCode: string; milkType: string; invoiceDate: string; status: string; series: number | null; erpId: string | null; erpNumber: string | null }
   attempts: Array<{ attemptId: string; status: string; startedAt: string; finishedAt: string | null; attemptedBy: string; error: string | null; verifiedAbsentAt: string | null; verifiedAbsentBy: string | null; outcome: string | null; reason: string | null; erpId: string | null; erpNumber: string | null; resolvedBy: string | null; resolvedAt: string | null }>
   canResolve: boolean
+  corrections?: Array<{ correctionId: string; reason: string; correctedBy: string; correctedAt: string; after: { previousProducerCode: string; producerCode: string; liters: number; price: number; commission: number; electricity: number } }>
 }
 
 export interface InvoiceResolutionDialogHandle { open(invoiceId: string, producer: string): void }
@@ -92,6 +93,11 @@ export const InvoiceResolutionDialog = forwardRef<InvoiceResolutionDialogHandle,
             {!attempt.outcome && attempt.verifiedAbsentAt && <p>Verified absent by {attempt.verifiedAbsentBy} · {new Date(attempt.verifiedAbsentAt).toLocaleString('en-GB')}</p>}
           </li>)}</ol>
         </details>
+        {Boolean(history.corrections?.length) && <details className="invoice-resolution-history" open><summary>Corrections after ERP changes</summary><ol>{history.corrections?.map(correction => <li key={correction.correctionId}>
+          <strong>{correction.correctedBy}</strong> · {new Date(correction.correctedAt).toLocaleString('en-GB')}
+          <p>{correction.reason}</p><p>{correction.after.previousProducerCode} → {correction.after.producerCode} · {correction.after.liters} L</p>
+          <p>Price {correction.after.price} · Commission {correction.after.commission} · Electricity {correction.after.electricity} · Remains sent</p>
+        </li>)}</ol></details>}
         {canResolve && <fieldset disabled={saving} className="invoice-resolution-fields">
           <legend>ERP verification</legend>
           <label><input type="radio" name="erp-resolution" checked={outcome === 'FOUND'} onChange={() => { setOutcome('FOUND'); setConfirmed(false) }} /> Found in ERP</label>

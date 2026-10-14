@@ -100,11 +100,13 @@ import {
   updateMilkDelivery,
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
-import { getMilkDensitySettings, initializeMilkDensitySettingsStore } from './milkDensitySettingsStore.js'
+import { getMilkDensitySettings, initializeMilkDensitySettingsStore, saveMilkDensitySettings, validateMilkDensitySettings } from './milkDensitySettingsStore.js'
 import { initializeProducerContracts, listProducerContracts } from './producerContractStore.js'
 import { initializeProducerHerdCounts, listProducerHerdCounts, saveProducerHerdCounts } from './producerHerdStore.js'
 import { initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
 import { initializeMonthlyInvoices, listMonthlyInvoices, saveMonthlyInvoiceDate, saveMonthlyInvoiceDates, invoiceIdentity, claimMonthlyInvoice, finishMonthlyInvoiceAttempt, getMonthlyInvoiceHistory, resolveMonthlyInvoice, validateInvoiceResolution } from './monthlyInvoiceStore.js'
+import { monthlyInvoiceCorrection, requireInvoiceCorrectionAdmin } from './monthlyInvoiceCorrection.js'
+import { initializeMonthlyCollectors, changeMonthlyCollector, collectorPricingRows, isCollectorName } from './monthlyCollectorStore.js'
 import { connectInvoiceErp, executeInvoiceSend } from './monthlyInvoiceSend.js'
 import { validateInvoiceBatch, prepareInvoiceFromContext, previewInvoiceBatch } from './monthlyInvoiceBatch.js'
 import { monthlyAvizApprovalContext } from './monthlyAvizPricingService.js'
@@ -811,7 +813,7 @@ function monthClosureSummary(rows) {
   }
 }
 
-function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizApprovals = [], references = null) {
+function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizApprovals = [], references = null, collectors = []) {
   const duplicateJournalRows = new Set(monthlyJournalDuplicateGroups(jobs, {
     monthKey: monthKeyFromJob, normalizeName: normalizeSuggestionText, normalizeMilkType: normalizeMonthlyReconciliationMilkType,
   }).flatMap(group => group.entries.map(({ job, row }) => `${job.id}:${row.rowNumber}`)))
@@ -874,6 +876,14 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizA
       centerAvizLiters: Number(approval.approvedLiters), centerMonthlyLiters: 0, centerJournalRows: 0, centerAvizLines: 0,
     })
   }
+  for (const collector of collectorPricingRows(collectors, references)) {
+    const key = producerPricingKey(collector.month, collector.producerCode, collector.producer, collector.milkType)
+    if (rowsByProducer.has(key)) {
+      rowsByProducer.get(key).producerWarning = 'This producer also has a collector payment. Remove the collector row before using milk quantities.'
+      continue
+    }
+    rowsByProducer.set(key, { ...collector, id:key, centerKey:normalizeSuggestionText(collector.center), producerKey:normalizeSuggestionText(collector.producer) })
+  }
   const rows = [...rowsByProducer.values()].map((row) => {
     const previousMonth = previousMonthKey(row.month)
     const previousKey = producerPricingKey(previousMonth, row.producerCode, row.producer, row.milkType)
@@ -881,7 +891,7 @@ function monthClosurePricingFromJobs(jobs, filters = {}, pricingRows = [], avizA
     const pricing = savedPricing.get(savedPricingKey(row.month, row.producerCode, row.milkType))
     const previousPricing = savedPricing.get(savedPricingKey(previousMonth, row.producerCode, row.milkType))
     const group = reconciliationByGroup.get(monthlyReconciliationKey(row.month, row.center, row.milkType))
-    const blocked = Boolean(row.producerWarning) || row.approvalReviewRequired || (row.source !== 'aviz' && (!group || group.status !== 'ok'))
+    const blocked = Boolean(row.producerWarning) || row.approvalReviewRequired || (!['aviz','collector'].includes(row.source) && (!group || group.status !== 'ok'))
     return {
       ...row,
       source: row.source || 'journal',
@@ -1310,16 +1320,29 @@ app.get('/api/weighbridge/config', (_request, response) => {
   response.json({ ok: true, weighbridge: getPublicWeighbridgeConfig() })
 })
 
-app.get('/api/milk-factors', requirePermission('milk_reception'), async (_request, response, next) => {
+app.get('/api/milk-factors', requirePermission('milk_reception'), async (request, response, next) => {
   try {
-    response.json({ settings: await getMilkDensitySettings(), canEdit: false })
+    response.set('Cache-Control', 'no-store').json({ settings: await getMilkDensitySettings(), canEdit: userHasPermission(request.authUser, 'app_admin') })
   } catch (error) {
     next(error)
   }
 })
 
-app.put('/api/milk-factors', requirePermission('app_admin'), (_request, response) => {
-  response.status(403).json({ error: 'Milk factor editing is currently disabled.' })
+app.put('/api/milk-factors', requirePermission('app_admin'), async (request, response, next) => {
+  let input
+  try {
+    input = validateMilkDensitySettings(request.body?.settings)
+  } catch (error) {
+    return response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid factor settings.' })
+  }
+  try {
+    const before = await getMilkDensitySettings()
+    const settings = await saveMilkDensitySettings(input, request.authUser.username)
+    await auditAction({ request, user: request.authUser, action: 'milk_factors.update', entityType: 'MilkDensitySettings', before, after: settings })
+    response.json({ settings })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.use('/api/milk-receptions', requirePermission('milk_reception'))
@@ -2007,15 +2030,35 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
     const context = isSqlOcrStoreEnabled() ? await monthlyAvizApprovalContext(monthlyReconciliationFromJobs) : null
     const jobs = context?.jobs || await listJobs()
     const approvals = context?.approvals || []
-    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month }, [], approvals, context?.references)
+    const basePricing = monthClosurePricingFromJobs(jobs, { month: request.query.month }, [], approvals, context?.references, context?.collectors)
     const pricingRows = isSqlOcrStoreEnabled() && basePricing.selectedMonth
       ? await listMonthlyProducerPricingRows([basePricing.selectedMonth, previousMonthKey(basePricing.selectedMonth)])
       : []
-    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals, context?.references))
+    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals, context?.references, context?.collectors))
   } catch (error) {
     next(error)
   }
 })
+
+app.get('/api/month-closure/collectors', requirePermission('month_closure'), async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL storage is required.' })
+    const month = String(request.query.month || '')
+    const invoices = await listMonthlyInvoices(month)
+    const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
+    response.json({ options: (context.references?.producers || []).filter(p => isCollectorName(p.producerName)).map(p => ({ producerCode:p.producerCode, producerName:p.producerName, centerName:p.centerName })),
+      collectors: context.collectors.filter(row => row.monthKey === month).map(row => ({ ...row, locked: invoices.some(i => i.producerCode.toLowerCase() === row.producerCode.toLowerCase() && i.status !== 'DRAFT') })) })
+  } catch(error) { next(error) }
+})
+for (const method of ['post', 'delete']) {
+  app[method]('/api/month-closure/collectors', requirePermission('month_closure'), async (request, response, next) => {
+    try {
+      if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL storage is required.' })
+      response.json(await changeMonthlyCollector({ month:request.body?.month, producerCode:request.body?.producerCode, user:request.authUser, remove:method === 'delete',
+        buildRows: (jobs, month) => monthClosurePricingFromJobs(jobs, { month }).rows }))
+    } catch(error) { next(error) }
+  })
+}
 
 app.get('/api/month-closure/invoices', requirePermission('month_closure'), async (request, response, next) => {
   try {
@@ -2032,6 +2075,22 @@ app.get('/api/month-closure/invoices/:invoiceId/history', requirePermission('mon
     response.json({ ...history, canResolve: userHasPermission(request.authUser, 'invoice_resolution') })
   } catch (error) { next(error) }
 })
+
+const correctionRows = (jobs, month, pricing, approvals, references, collectors) => monthClosurePricingFromJobs(jobs, { month }, pricing, approvals, references, collectors).rows
+app.get('/api/month-closure/invoices/:invoiceId/correction', requirePermission('month_closure'), requireInvoiceCorrectionAdmin, async (request, response, next) => {
+  try {
+    if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
+    response.json(await monthlyInvoiceCorrection({ invoiceId: request.params.invoiceId, user: request.authUser, buildRows: correctionRows }))
+  } catch (error) { next(error) }
+})
+for (const action of ['correction-preview', 'correction']) {
+  app.post(`/api/month-closure/invoices/:invoiceId/${action}`, requirePermission('month_closure'), requireInvoiceCorrectionAdmin, async (request, response, next) => {
+    try {
+      if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
+      response.json(await monthlyInvoiceCorrection({ invoiceId: request.params.invoiceId, user: request.authUser, input: request.body, apply: action === 'correction', buildRows: correctionRows }))
+    } catch (error) { next(error) }
+  })
+}
 
 app.post('/api/month-closure/invoices/:invoiceId/resolve', requirePermission('month_closure'), requirePermission('invoice_resolution'), async (request, response, next) => {
   try {
@@ -2052,7 +2111,7 @@ async function loadInvoiceContext(month, connection) {
   const erp = await connectInvoiceErp(connection)
   const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
   const pricing = await listMonthlyProducerPricingRows([month])
-  const rows = monthClosurePricingFromJobs(context.jobs, { month }, pricing, context.approvals, context.references).rows
+  const rows = monthClosurePricingFromJobs(context.jobs, { month }, pricing, context.approvals, context.references, context.collectors).rows
   const invoices = await listMonthlyInvoices(month)
   return { erp, rows, invoices }
 }
@@ -2099,7 +2158,7 @@ app.post('/api/month-closure/invoice-dates', requirePermission('month_closure'),
     const { month, invoiceDate } = request.body || {}
     invoiceIdentity(month, 'p-validation', invoiceDate)
     const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
-    const rows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references).rows
+    const rows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references, context.collectors).rows
       .filter(row => /^p\S+$/i.test(row.producerCode.trim()))
     const invoices = await saveMonthlyInvoiceDates({ month, rows, invoiceDate, user: request.authUser?.username })
     response.json({ invoices })
@@ -2112,7 +2171,7 @@ app.post('/api/month-closure/invoice-date', requirePermission('month_closure'), 
     const { month, producerCode, milkType, invoiceDate } = request.body || {}
     const identity = invoiceIdentity(month, producerCode, invoiceDate)
     const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
-    const rows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references).rows
+    const rows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references, context.collectors).rows
     if (!rows.some(row => row.producerCode.trim().toLowerCase() === identity.producerCode && row.milkType === milkType)) return response.status(400).json({ error: 'Producer and milk type are not in this collection month.' })
     const invoice = await saveMonthlyInvoiceDate({ month, producerCode, milkType, invoiceDate, user: request.authUser?.username })
     response.json({ invoice })
@@ -2164,7 +2223,7 @@ app.post('/api/month-closure/pricing-rows', requirePermission('month_closure'), 
     })
 
     const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
-    const currentRows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references).rows
+    const currentRows = monthClosurePricingFromJobs(context.jobs, { month }, [], context.approvals, context.references, context.collectors).rows
     for (const row of rows) {
       const current = currentRows.find(item => String(item.producerCode || '').toLowerCase() === row.producerCode.toLowerCase() && item.milkType === row.milkType)
       if (!current || current.producerWarning) {
@@ -2754,6 +2813,7 @@ await initializeMilkDeliveryStore()
 await initializeDailyReconciliationLinks()
 await initializeMonthlyAvizPricingApprovals()
 await initializeMonthlyInvoices()
+await initializeMonthlyCollectors()
 if (localCloneEnabled) {
   console.log(`[Local production-data copy] ${localCloneHerdEditsEnabled ? 'Animal-count edits only' : 'Read-only API'}; outbound HTTP, OCR resumption and archiving disabled.`)
 } else {

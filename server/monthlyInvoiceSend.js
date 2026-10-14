@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
+import { isCollectorName } from './monthlyCollectorStore.js'
 
 const items = { 'MILK-COW': [16551, 'MF0010'], 'MILK-SHEEP': [17119, 'mff0000000000038'], 'MILK-BUFF': [17155, 'mff0000000000042'] }
 const normalized = value => String(value ?? '').trim().toLowerCase()
@@ -7,12 +8,14 @@ const money = value => Math.round((value + Number.EPSILON * Math.abs(value)) * 1
 const unitPrice = value => Math.round((value + Number.EPSILON * Math.abs(value)) * 1e6) / 1e6
 
 export function buildInvoicePreview(row, supplier, date, username, params = {}) {
+  const collector = row?.source === 'collector'
   if (!row || row.producerWarning || row.duplicateProducer || row.approvalReviewRequired || row.missingLiters || !row.readyForPricing) throw new Error(row?.producerWarning || 'Resolve this row\'s pricing or producer warnings first.')
-  if (row.source !== 'aviz' && (row.reconciliationDifferenceLiters == null || !Number.isFinite(row.reconciliationDifferenceLiters) || Math.abs(row.reconciliationDifferenceLiters) > 10 || ['missing_aviz', 'missing_monthly'].includes(row.reconciliationStatus))) throw new Error('Unresolved journal/aviz comparison.')
+  if (!collector && row.source !== 'aviz' && (row.reconciliationDifferenceLiters == null || !Number.isFinite(row.reconciliationDifferenceLiters) || Math.abs(row.reconciliationDifferenceLiters) > 10 || ['missing_aviz', 'missing_monthly'].includes(row.reconciliationStatus))) throw new Error('Unresolved journal/aviz comparison.')
   if (normalized(supplier?.sup_code) !== normalized(row.producerCode) || !/^p\S+$/i.test(row.producerCode)) throw new Error('No exact ERP producer match.')
-  if (row.price == null) throw new Error('Collector procedure pending.')
-  if (!Number.isFinite(row.liters) || row.liters <= 0) throw new Error('Positive liters are required.')
-  for (const amount of [row.price, row.commission ?? 0, row.electricity ?? 0]) if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid saved pricing.')
+  if (collector && (row.liters !== 0 || row.milkType !== 'MILK-COW' || !isCollectorName(supplier?.sup_name))) throw new Error('Collector invoice requires a collector ERP supplier, cow item and zero actual liters.')
+  if (!collector && row.price == null) throw new Error('Collector procedure pending.')
+  if (!collector && (!Number.isFinite(row.liters) || row.liters <= 0)) throw new Error('Positive liters are required.')
+  for (const amount of [row.price ?? (collector ? 0 : NaN), row.commission ?? 0, row.electricity ?? 0]) if (!Number.isFinite(amount) || amount < 0) throw new Error('Invalid saved pricing.')
   const series = normalized(supplier.sup_bool02) === '0' ? 5106 : normalized(supplier.sup_bool02) === '1' ? 5105 : null
   if (!series) throw new Error('ERP Bool2 must be 0 or 1.')
   const payment = String(supplier.sup_payment ?? '').trim()
@@ -25,10 +28,11 @@ export function buildInvoicePreview(row, supplier, date, username, params = {}) 
     ?? ({ '0': 'is exempted', '1': 'regular', '2': 'reduced' }[String(supplier.sup_vatsts)])
   if (vatName == null && !extra) throw new Error('ERP VAT status is missing.')
   const vatid = extra ? '8' : normalized(vatName) === 'regular' ? '11' : '99'
-  const originalSubtotal = row.price * row.liters + (row.commission ?? 0) + (row.electricity ?? 0)
-  const price = unitPrice(originalSubtotal / row.liters)
+  const invoiceQuantity = collector ? 1 : row.liters
+  const originalSubtotal = (row.price ?? 0) * row.liters + (row.commission ?? 0) + (row.electricity ?? 0)
+  const price = unitPrice(originalSubtotal / invoiceQuantity)
   if (price <= 0) throw new Error('Invoice price rounds to zero.')
-  const subtotal = money(price * row.liters)
+  const subtotal = money(price * invoiceQuantity)
   const tax = money(subtotal * (vatid === '8' ? 0.08 : vatid === '11' ? 0.11 : 0))
   const internalnum = String(Number(`${date.replace(/\D/g, '').slice(2, 8)}${String(supplierId).slice(-4).padStart(4, '0')}`.slice(-9)))
   const payload = [{
@@ -37,14 +41,14 @@ export function buildInvoicePreview(row, supplier, date, username, params = {}) 
     store: '110', store_id: '110', fromstore: '110', tostore: '0',
     frombranch: String(params.par_from_branch ?? ''), tobranch: String(params.par_to_branch ?? ''),
     position: '', position_id: '', fromposition: '', toposition: '',
-    item_id: items[row.milkType][0], item_code: items[row.milkType][1], qty1: row.liters, qty2: row.liters, price, vatid,
+    item_id: items[row.milkType][0], item_code: items[row.milkType][1], qty1: invoiceQuantity, qty2: invoiceQuantity, price, vatid,
     disc1prc: 0, disc2prc: 0, lot_id: 0, lot_lot: '', pal_code: '', item_extra_field: '',
-    item_comments: `${row.milkType} ${row.liters} L`, comments: '', transportnum: '', sampleid: '',
+    item_comments: collector ? `Collector payment ${row.month}; no collected milk` : `${row.milkType} ${row.liters} L`, comments: '', transportnum: '', sampleid: '',
     countryid: '', compartmentid: '', buyerid: '', carrierid: '', shipkindid: '', shipmentid: '',
     fat: '', density: '', temperature: '', water: '', alcohol: '', antibiotic: '', silo: '', ph: '', mobility: '',
   }]
   const snapshot = { month: row.month, producerCode: row.producerCode, producerName: row.producer, milkType: row.milkType, invoiceDate: date,
-    liters: row.liters, originalPrice: row.price, commission: row.commission, electricity: row.electricity,
+    liters: row.liters, source: row.source, invoiceQuantity, originalPrice: row.price, commission: row.commission, electricity: row.electricity,
     price, originalSubtotal: money(originalSubtotal), subtotal, tax, total: money(subtotal + tax), roundingDifference: money(subtotal - money(originalSubtotal)), series, paymentid: Number(payment), internalnum }
   const fingerprint = createHash('sha256').update(JSON.stringify({ snapshot, payload })).digest('hex')
   return { snapshot, payload, fingerprint }

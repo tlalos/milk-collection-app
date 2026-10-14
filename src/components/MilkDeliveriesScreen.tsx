@@ -603,7 +603,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
         <BackButton className="back-button" type="button" onClick={handleBack} />
         <OcrNavigation />
         <div className="app-title-block"><p>Factory dispatch workflow</p><h1>Milk Deliveries</h1></div>
-        <div className="milk-deliveries-header-actions"><MilkDeliveriesHelp /><button className="milk-deliveries-factors-button" type="button" disabled title="Currently unavailable">Milk factors</button></div>
+        <div className="milk-deliveries-header-actions"><MilkDeliveriesHelp /><button className="milk-deliveries-factors-button" type="button" onClick={() => { window.location.href = appPath('/milk-factors?from=deliveries') }}>Milk factors</button></div>
       </header>
 
       <main className="milk-deliveries-content">

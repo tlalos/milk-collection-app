@@ -100,7 +100,7 @@ export const InvoiceBatchDialog = forwardRef<InvoiceBatchDialogHandle, { onFinis
           <td>{invoice.snapshot?.producerName || invoice.selection.producerCode}<small>{invoice.selection.producerCode}</small></td>
           <td>{invoice.selection.milkType.replace('MILK-', '')}</td>
           <td>{displayInvoiceDate(invoice.selection.invoiceDate)}</td><td>{invoice.snapshot?.series ?? '-'}</td>
-          <td>{invoice.snapshot?.liters ?? '-'}</td><td>{amount(invoice.snapshot?.price)}</td><td>{amount(invoice.snapshot?.subtotal)}</td><td>{amount(invoice.snapshot?.tax)}</td><td>{amount(invoice.snapshot?.total)}</td>
+          <td>{invoice.snapshot?.liters ?? '-'}{invoice.snapshot?.source === 'collector' && <small>ERP qty: 1</small>}</td><td>{amount(invoice.snapshot?.price)}</td><td>{amount(invoice.snapshot?.subtotal)}</td><td>{amount(invoice.snapshot?.tax)}</td><td>{amount(invoice.snapshot?.total)}</td>
           <td className={`invoice-batch-status ${results[index]?.status}`}>
             {({ ready: 'Ready', blocked: 'Blocked', sending: 'Sending...', sent: 'Sent', failed: 'Check status', not_sent: 'Not sent' })[results[index]?.status || 'ready']}
             {results[index]?.erpId && <small>ERP ID: {results[index].erpId}</small>}

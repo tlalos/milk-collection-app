@@ -1,0 +1,16 @@
+.invoice-correction-dialog { width: 760px; color: #12382a; }
+.invoice-correction-dialog form { display: grid; gap: 14px; padding: 20px; }
+.invoice-correction-dialog p, .invoice-correction-dialog h3 { margin: 0; overflow-wrap: anywhere; }
+.invoice-correction-dialog h3 { font-size: 15px; }
+.invoice-correction-dialog fieldset { min-width: 0; padding: 0; margin: 0; border: 0; display: grid; gap: 16px; }
+.invoice-correction-dialog label { display: grid; gap: 6px; min-width: 0; font-size: 14px; font-weight: 600; }
+.invoice-correction-dialog select, .invoice-correction-dialog input[type="number"], .invoice-correction-dialog textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px; border: 1px solid #bfd3c7; border-radius: 6px; background: white; font: inherit; }
+.invoice-correction-journal { display: grid; gap: 12px; max-height: 260px; overflow: auto; margin-top: 10px; padding-right: 6px; }
+.invoice-correction-amounts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.invoice-correction-file, .invoice-correction-reference { color: #586e65; font-size: 13px; }
+.invoice-correction-warning { background: #fff7df; border-left: 3px solid #dca128; padding: 10px; font-size: 14px; }
+.invoice-correction-dialog .invoice-correction-confirm { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; }
+.invoice-correction-confirm input { flex: 0 0 auto; margin-top: 3px; }
+.invoice-correction-preview { display: grid; gap: 12px; }
+.month-closure-correct-invoice { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-left: 6px; padding: 5px; border: 1px solid #bbccc2; border-radius: 5px; background: #fff9e7; color: #755116; cursor: pointer; vertical-align: middle; }
+@media(max-width: 600px) { .invoice-correction-amounts { grid-template-columns: 1fr; } .invoice-correction-dialog .month-closure-bulk-actions { flex-wrap: wrap; } }

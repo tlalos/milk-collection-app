@@ -15,7 +15,7 @@ import {
 } from './dailyReconciliationModel'
 import './DailyReconciliationScreen.css'
 
-type StatusFilter = 'all' | 'attention' | 'no_scale' | 'others' | MatchStatus
+type StatusFilter = 'all' | 'collection' | 'attention' | 'no_scale' | 'others' | MatchStatus
 
 const statusLabels: Record<MatchStatus, string> = {
   within_range: 'Within 5 L',
@@ -117,11 +117,11 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const monthData = useMemo(() => buildDailyReconciliation(receptions, documents, savedLinks, month), [receptions, documents, savedLinks, month])
   const query = search.trim().toLocaleLowerCase()
   const comparisonVisible = (comparison: CollectionComparison) => {
-    const statusMatches = status === 'all' || (status === 'attention' && comparison.status !== 'within_range') || comparison.status === status
+    const statusMatches = status === 'all' || status === 'collection' || (status === 'attention' && comparison.status !== 'within_range') || comparison.status === status
     return statusMatches && comparisonMatchesSearch(comparison, query)
   }
   const unmatchedVisible = (item: typeof monthData.unmatched[number]) => {
-    const statusMatches = status === 'all' || status === 'attention' || item.status === status
+    const statusMatches = status === 'all' || status === 'collection' || status === 'attention' || item.status === status
     return statusMatches && documentMatchesSearch(item.document, query)
   }
   const otherVisible = (reception: ReceptionRow) => (status === 'all' || status === 'others') && matchesSearch(query,
@@ -174,6 +174,7 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
         <label>Search<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Truck, route, aviz, driver or milk type" /></label>
         <label>Show<select value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)}>
           <option value="all">All records</option>
+          <option value="collection">Collection only</option>
           <option value="others">Others only</option>
           <option value="attention">Needs attention</option>
           <option value="no_aviz">Scale without aviz</option>

@@ -2,7 +2,7 @@ export interface BatchSelection { month: string; producerCode: string; milkType:
 export interface BatchInvoice {
   selection: BatchSelection
   fingerprint?: string
-  snapshot?: { producerName: string; series: number; liters: number; price: number; subtotal: number; tax: number; total: number }
+  snapshot?: { producerName: string; series: number; liters: number; invoiceQuantity?: number; source?: string; price: number; subtotal: number; tax: number; total: number }
   error?: string
 }
 export type BatchResult = { status: 'ready' | 'blocked' | 'sending' | 'sent' | 'failed' | 'not_sent'; erpId?: string; error?: string }

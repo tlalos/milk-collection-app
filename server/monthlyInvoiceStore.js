@@ -237,8 +237,10 @@ FROM dbo.MonthlyInvoices WHERE invoiceId=@id;
 SELECT a.attemptId,a.status,a.startedAt,a.finishedAt,a.attemptedBy,a.error,a.verifiedAbsentAt,a.verifiedAbsentBy,
   r.outcome,r.reason,r.erpId,r.erpNumber,r.resolvedBy,r.resolvedAt
 FROM dbo.MonthlyInvoiceAttempts a LEFT JOIN dbo.MonthlyInvoiceResolutions r ON r.attemptId=a.attemptId
-WHERE a.invoiceId=@id ORDER BY a.startedAt DESC,a.attemptId DESC;`)
-  return result.recordsets[0][0] ? { invoice: result.recordsets[0][0], attempts: result.recordsets[1] } : null
+WHERE a.invoiceId=@id ORDER BY a.startedAt DESC,a.attemptId DESC;
+IF OBJECT_ID(N'dbo.MonthlyInvoiceCorrections',N'U') IS NOT NULL
+  EXEC sp_executesql N'SELECT correctionId,reason,correctedBy,correctedAt,beforeJson,afterJson FROM dbo.MonthlyInvoiceCorrections WHERE invoiceId=@id ORDER BY correctedAt DESC',N'@id UNIQUEIDENTIFIER',@id;`)
+  return result.recordsets[0][0] ? { invoice: result.recordsets[0][0], attempts: result.recordsets[1], corrections: (result.recordsets[2] || []).map(row => ({ ...row, before: JSON.parse(row.beforeJson), after: JSON.parse(row.afterJson), beforeJson: undefined, afterJson: undefined })) } : null
 }
 
 function validateInvoiceId(id) {

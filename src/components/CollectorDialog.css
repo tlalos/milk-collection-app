@@ -1,0 +1,16 @@
+.collector-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; }
+.month-closure-date-dialog.collector-dialog .month-closure-bulk-editor { width: 100%; box-sizing: border-box; }
+.month-closure-add-collector { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 12px; border: 1px solid #cddbd3; border-radius: 6px; background: #fff; color: #175c40; font: inherit; font-weight: 800; cursor: pointer; }
+.month-closure-add-collector:disabled { cursor: default; opacity: 0.55; }
+.collector-dialog select { min-height: 42px; padding: 8px; border: 1px solid #acc6b8; border-radius: 6px; background: #fff; color: #183a2a; font: inherit; }
+.collector-dialog label { display: grid; gap: 6px; min-width: 0; }
+.collector-dialog input, .collector-dialog select { width: 100%; min-width: 0; box-sizing: border-box; }
+.collector-saved { border-top: 1px solid #cdded7; padding-top: 12px; }
+.collector-saved h3 { margin: 0 0 8px; font-size: 16px; }
+.collector-saved-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e5eeea; }
+.collector-saved-row > span { min-width: 0; overflow-wrap: anywhere; }
+.collector-saved-row small { display: block; margin-top: 4px; }
+.collector-saved-row > button, .collector-saved-row > svg { flex-shrink: 0; }
+.collector-remove-confirm { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.collector-remove-confirm span { flex-basis: 100%; }
+@media (max-width: 540px) { .collector-saved-row { flex-wrap: wrap; } }

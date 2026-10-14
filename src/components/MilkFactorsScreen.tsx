@@ -61,7 +61,7 @@ export function MilkFactorsScreen() {
   async function saveSettings() {
     if (!settings || !draft || !canEdit) return
     const next = Object.fromEntries((['RECEPTION', 'DELIVERIES'] as const).map((workflow) => [workflow,
-      settings[workflow].map((item) => ({ code: item.code, densityFactor: Number(draft[workflow][item.code]) })),
+      settings[workflow].map((item) => ({ code: item.code, label: item.label, densityFactor: Number(draft[workflow][item.code]) })),
     ])) as Settings
     for (const workflow of ['RECEPTION', 'DELIVERIES'] as const) {
       for (const item of next[workflow]) {

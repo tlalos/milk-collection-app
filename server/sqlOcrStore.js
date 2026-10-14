@@ -1,4 +1,5 @@
 import sql from 'mssql'
+import { changedMonthlyInvoiceSources } from './monthlyJournalInvoiceLock.js'
 
 let poolPromise = null
 let initialized = false
@@ -207,12 +208,13 @@ ELSE
   }
 }
 
-export async function saveSqlJob(job) {
+export async function saveSqlJob(job, correctionTransaction = null) {
   await initializeSqlOcrStore()
   const pool = await getPool()
-  const tx = new sql.Transaction(pool)
-  await tx.begin()
+  const tx = correctionTransaction || new sql.Transaction(pool)
+  if (!correctionTransaction) await tx.begin()
   try {
+    if (!correctionTransaction) await guardMonthlyJournalWrite(tx, job.id, job)
     const summary = jobSummary(job)
     const jobJson = JSON.stringify(job)
     const request = new sql.Request(tx)
@@ -275,10 +277,10 @@ INSERT INTO dbo.OcrJobRows (
 `)
     }
 
-    await tx.commit()
+    if (!correctionTransaction) await tx.commit()
     return job
   } catch (error) {
-    await tx.rollback().catch(() => undefined)
+    if (!correctionTransaction) await tx.rollback().catch(() => undefined)
     throw error
   }
 }
@@ -302,10 +304,31 @@ export async function listSqlJobs() {
 export async function deleteSqlJob(id) {
   await initializeSqlOcrStore()
   const pool = await getPool()
-  const result = await pool.request()
-    .input('id', sql.NVarChar(64), id)
-    .query('DELETE FROM dbo.OcrJobs WHERE id = @id; SELECT @@ROWCOUNT AS deleted;')
-  return Number(result.recordset[0]?.deleted || 0) > 0
+  const tx = new sql.Transaction(pool)
+  await tx.begin()
+  try {
+    await guardMonthlyJournalWrite(tx, id, null)
+    const result = await new sql.Request(tx)
+      .input('id', sql.NVarChar(64), id)
+      .query('DELETE FROM dbo.OcrJobs WHERE id = @id; SELECT @@ROWCOUNT AS deleted;')
+    await tx.commit()
+    return Number(result.recordset[0]?.deleted || 0) > 0
+  } catch (error) { await tx.rollback().catch(() => {}); throw error }
+}
+
+async function guardMonthlyJournalWrite(tx, id, nextJob) {
+  const stored = await new sql.Request(tx).input('id', sql.NVarChar(64), id)
+    .query('SELECT jobJson FROM dbo.OcrJobs WITH (UPDLOCK,HOLDLOCK) WHERE id=@id')
+  const previous = stored.recordset[0] ? JSON.parse(stored.recordset[0].jobJson) : null
+  const changes = changedMonthlyInvoiceSources(previous, nextJob)
+  for (const source of changes) {
+    const locked = await new sql.Request(tx).input('month', sql.Char(7), source.month)
+      .input('producer', sql.NVarChar(80), source.producer).input('milk', sql.NVarChar(40), source.milk).query(`
+IF OBJECT_ID(N'dbo.MonthlyInvoices',N'U') IS NOT NULL
+ SELECT TOP(1) status FROM dbo.MonthlyInvoices WITH (UPDLOCK,HOLDLOCK)
+ WHERE monthKey=@month AND producerCode=@producer AND milkType IN (@milk,'') AND status<>'DRAFT';`)
+    if (locked.recordset?.length) throw Object.assign(new Error('This journal row belongs to a submitted invoice. An administrator must use Correct after ERP change in Month Closure. Sending or unconfirmed invoices must be resolved first.'), { status: 409 })
+  }
 }
 
 export async function upsertMonthlyProducerPricingRows(rows) {

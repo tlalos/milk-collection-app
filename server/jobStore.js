@@ -151,10 +151,9 @@ export async function deleteJob(id) {
   if (!job) return false
   const storedFilePath = getStoredFilePath(job)
   if (isSqlOcrStoreEnabled()) {
-    await Promise.all([
-      deleteSqlJob(id),
-      storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve(),
-    ])
+    // Keep the evidence file when SQL refuses deletion of an invoiced journal.
+    await deleteSqlJob(id)
+    if (storedFilePath) await rm(storedFilePath, { force: true })
     return true
   }
   await Promise.all([rm(jobPath(id), { force: true }), storedFilePath ? rm(storedFilePath, { force: true }) : Promise.resolve()])

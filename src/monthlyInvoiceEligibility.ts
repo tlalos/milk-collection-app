@@ -4,7 +4,7 @@ interface InvoiceSource {
   duplicateProducer?: boolean
   missingLiters?: boolean
   approvalReviewRequired?: boolean
-  source?: 'journal' | 'aviz'
+  source?: 'journal' | 'aviz' | 'collector'
   readyForPricing: boolean
   reconciliationStatus: string
   reconciliationDifferenceLiters: number | null
@@ -39,7 +39,7 @@ export function monthlyInvoiceBlockReason(row: InvoiceSource, finalAmount: numbe
   if (row.duplicateProducer) return 'Duplicate'
   if (row.approvalReviewRequired) return 'Approval needs review'
   if (row.missingLiters) return 'Missing liters'
-  if (row.source === 'aviz') {
+  if (row.source === 'aviz' || row.source === 'collector') {
     if (!row.readyForPricing) return 'Approval needs review'
   } else {
     if (row.reconciliationStatus === 'missing_aviz') return 'Missing aviz'
