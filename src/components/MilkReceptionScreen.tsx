@@ -1,4 +1,5 @@
 import { BackButton } from './BackButton'
+import { currentMilkDate, milkDocumentDateError } from '../../server/milkDocumentDate.js'
 import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './MilkReceptionScreen.css'
@@ -183,7 +184,7 @@ const defaultWeighbridgeConfig: WeighbridgeClientConfig = {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return currentMilkDate()
 }
 
 function numberValue(value: unknown) {
@@ -642,6 +643,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function addRow() {
+    const dateError = milkDocumentDateError(filterDate || today(), 'Reception')
+    if (dateError) { setError(dateError); return }
     const milk = options.milkTypes[0]
     const id = `new-${Date.now()}`
     setNotice('')
@@ -697,7 +700,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     revisionsRef.current.set(id, 1)
     savedRevisionsRef.current.set(id, 0)
     lastEditEpochRef.current.set(id, ++editEpochRef.current)
-    setRowSaveState(id, 'waiting', 'Choose a truck and enter a full weight to save.')
+    setRowSaveState(id, 'waiting', 'Choose a truck and read the full weight from the scale to save.')
   }
 
   function updateRecord(id: string, patch: Partial<MilkReceptionRecord>, saveImmediately = false) {
@@ -1178,6 +1181,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const full = numberValue(record.fullTruckWeightKg)
     const empty = numberValue(record.emptyTruckWeightKg)
     if (!record.receptionDate) return 'Reception date is required.'
+    const dateError = milkDocumentDateError(record.receptionDate, 'Reception')
+    if (dateError) return dateError
     if (!record.vehicleRegistration.trim()) return 'Truck number is required.'
     if (record.vehicleCategory === 'COLLECTION' && !record.routeId.trim()) return 'Route ID is required for collection trucks.'
     if (!record.milkType) return 'Milk type is required.'
@@ -1202,21 +1207,14 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
     const weighedAt = field === 'fullTruckWeightKg' ? record.fullTruckWeighedAt : record.emptyTruckWeighedAt
     const source = field === 'fullTruckWeightKg' ? record.fullTruckWeightSource : record.emptyTruckWeightSource
-    const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
-    const sourceField = field === 'fullTruckWeightKg' ? 'fullTruckWeightSource' : 'emptyTruckWeightSource'
-    const captureField = field === 'fullTruckWeightKg' ? 'fullTruckScaleCaptureId' : 'emptyTruckScaleCaptureId'
     return (
       <div className="reception-weight-entry">
         <div className="reception-weight-input-stack">
           <input
-            inputMode="decimal"
+            readOnly
+            aria-label={label}
+            title="Read from scale"
             value={record[field] ?? ''}
-            onChange={(event) => updateRecord(record.receptionId, {
-              [field]: event.target.value,
-              [timestampField]: '',
-              [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
-              [captureField]: '',
-            } as Partial<MilkReceptionRecord>)}
           />
           {numberValue(record[field]) !== null && <small title={source === 'SCALE' && weighedAt ? `Scale reading at ${formatWeightTime(weighedAt)}` : undefined}>
             {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown source'}
@@ -1477,7 +1475,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                             {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
                           </select>
                         </td>
-                        <td><input type="date" lang="en-US" value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
+                        <td><input type="date" lang="en-US" aria-label="Reception date" max={today()} value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
                         <td>
                           {record.vehicleCategory === 'OTHER' ? (
                             <input value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })} placeholder="Truck plates" />

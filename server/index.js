@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { parseHistoryDateRange } from './historyDateRange.js'
+import { parseReceptionHistoryDate } from './receptionHistoryFilter.js'
 import { installLocalCloneNetworkGuard, localCloneEnabled, localCloneHerdEditsEnabled, localCloneMiddleware } from './localCloneSafety.js'
 import express from 'express'
 import { erpConnectionStore, normalizeErpUrl } from './erpConnectionStore.js'
@@ -1135,6 +1136,8 @@ app.get('/api/web-users/activity-users', requirePermission('audit_log'), async (
 
 app.get('/api/web-users/activity', requirePermission('audit_log'), async (request, response, next) => {
   try {
+    const receptionFilter = parseReceptionHistoryDate(request.query.receptionDate)
+    if (receptionFilter.error) return response.status(400).json({ error: receptionFilter.error })
     const dateRange = parseHistoryDateRange(request.query)
     if (dateRange.error) return response.status(400).json({ error: dateRange.error })
     const area = String(request.query.area || '')
@@ -1142,6 +1145,7 @@ app.get('/api/web-users/activity', requirePermission('audit_log'), async (reques
     const cursor = String(request.query.beforeId || '')
     if (cursor && (!/^[1-9]\d*$/u.test(cursor) || !Number.isSafeInteger(Number(cursor)))) return response.status(400).json({ error: 'Invalid activity cursor.' })
     response.json(await listAuditActivity({
+      ...receptionFilter,
       ...dateRange,
       area,
       username: String(request.query.username || '').slice(0, 160),
@@ -1155,6 +1159,8 @@ app.get('/api/web-users/activity', requirePermission('audit_log'), async (reques
 
 app.get('/api/web-users/weight-history', requirePermission('audit_log'), async (request, response, next) => {
   try {
+    const receptionFilter = parseReceptionHistoryDate(request.query.receptionDate)
+    if (receptionFilter.error) return response.status(400).json({ error: receptionFilter.error })
     const dateRange = parseHistoryDateRange(request.query)
     if (dateRange.error) return response.status(400).json({ error: dateRange.error })
     const source = String(request.query.source || '')
@@ -1166,6 +1172,7 @@ app.get('/api/web-users/weight-history', requirePermission('audit_log'), async (
       return response.status(400).json({ error: 'Invalid weight history cursor.' })
     }
     response.json(await listMilkReceptionWeightHistoryForAdmin({
+      ...receptionFilter,
       ...dateRange,
       username: String(request.query.username || '').slice(0, 160),
       receptionId: String(request.query.receptionId || '').slice(0, 120),

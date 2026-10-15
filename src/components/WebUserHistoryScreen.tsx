@@ -76,6 +76,7 @@ export function WebUserHistoryScreen() {
   const [recordSearch, setRecordSearch] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [receptionDate, setReceptionDate] = useState('')
   const [area, setArea] = useState<ActivityArea>('')
   const [source, setSource] = useState<WeightSource>('')
   const [weightKind, setWeightKind] = useState<WeightKind>('')
@@ -111,6 +112,7 @@ export function WebUserHistoryScreen() {
       const range = historyDateRange(fromDate, toDate)
       if (range.from) params.set('from', range.from)
       if (range.until) params.set('until', range.until)
+      if (receptionDate && (tab === 'weights' || (tab === 'general' && area !== 'deliveries'))) params.set('receptionDate', receptionDate)
       if (username) params.set('username', username)
       if (recordSearch.trim()) params.set(tab === 'general' ? 'entityId' : tab === 'weights' ? 'receptionId' : 'deliveryId', recordSearch.trim())
       if (beforeId) params.set('beforeId', beforeId)
@@ -130,7 +132,7 @@ export function WebUserHistoryScreen() {
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
     }
-  }, [area, recordSearch, source, tab, username, weightKind, fromDate, toDate])
+  }, [area, recordSearch, source, tab, username, weightKind, fromDate, toDate, receptionDate])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadHistory(), recordSearch ? 300 : 0)
@@ -153,13 +155,16 @@ export function WebUserHistoryScreen() {
       </div>
       <section className="user-log-panel">
         <div className="user-log-filters">
-          <label className="user-log-date">From date
+          <label className="user-log-date">Changes from
             <input type="date" value={fromDate} max={toDate || '9999-12-30'} onChange={(event) => setFromDate(event.target.value)} />
           </label>
-          <label className="user-log-date">To date
+          <label className="user-log-date">Changes to
             <input type="date" value={toDate} min={fromDate || undefined} max="9999-12-30" onChange={(event) => setToDate(event.target.value)} />
           </label>
-          {(fromDate || toDate) && <button type="button" onClick={() => { setFromDate(''); setToDate('') }}>Clear dates</button>}
+          {(tab === 'weights' || (tab === 'general' && area !== 'deliveries')) && <label className="user-log-date">Reception date
+            <input type="date" value={receptionDate} max="9999-12-31" onChange={(event) => setReceptionDate(event.target.value)} />
+          </label>}
+          {(fromDate || toDate || (receptionDate && (tab === 'weights' || (tab === 'general' && area !== 'deliveries')))) && <button type="button" onClick={() => { setFromDate(''); setToDate(''); setReceptionDate('') }}>Clear dates</button>}
           <select aria-label="User" value={username} onChange={(event) => setUsername(event.target.value)}>
             <option value="">All users</option>
             {users.map((user) => <option key={user.userId} value={user.username}>{user.fullName || user.username}</option>)}

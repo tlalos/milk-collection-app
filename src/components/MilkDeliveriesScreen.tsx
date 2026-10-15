@@ -1,4 +1,5 @@
 import { BackButton } from './BackButton'
+import { currentMilkDate, milkDocumentDateError } from '../../server/milkDocumentDate.js'
 import { OcrNavigation } from './OcrNavigation'
 import { MilkDeliveriesHelp } from './MilkDeliveriesHelp'
 import { SaveIcon, ScaleIcon } from './MilkDeliveryIcons'
@@ -77,8 +78,7 @@ const defaultWeighbridgeConfig: WeighbridgeClientConfig = {
 }
 
 function localIsoDate(date = new Date()) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 10)
+  return currentMilkDate(date)
 }
 
 function emptyDelivery(deliveryDate: string, milkTypes: MilkTypeOption[]): MilkDelivery {
@@ -375,6 +375,8 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function addDelivery() {
+    const dateError = milkDocumentDateError(selectedDate || localIsoDate(), 'Delivery')
+    if (dateError) { setError(dateError); return }
     const record = emptyDelivery(selectedDate || localIsoDate(), milkTypes)
     commitRecords([record, ...recordsRef.current])
     revisionsRef.current.set(record.id, 0)
@@ -441,6 +443,8 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
 
   function validateDeliveryForSave(record: MilkDelivery, status: DeliveryStatus) {
     if (!record.deliveryDate) return 'Delivery date is required.'
+    const dateError = milkDocumentDateError(record.deliveryDate, 'Delivery')
+    if (dateError) return dateError
     if (status === 'DRAFT') return ''
     if (record.deliveryCategory === 'UNSPECIFIED') return 'Delivery category is required before marking the delivery as sent.'
     if (!record.truckNumber.trim()) return 'Truck number is required before marking the delivery as sent.'
@@ -637,7 +641,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                     <Fragment key={record.clientKey || record.id}>
                       <tr className={`delivery-register-row ${record.status.toLocaleLowerCase()}`}>
                         <td><button className="delivery-expand" type="button" onClick={() => setExpandedId(expanded ? '' : record.id)} aria-label={expanded ? 'Collapse delivery' : 'Expand delivery'}>{expanded ? '-' : '+'}</button></td>
-                        <td><input type="date" value={record.deliveryDate} onChange={(event) => updateRecord(record.id, { deliveryDate: event.target.value })} /></td>
+                        <td><input type="date" aria-label="Delivery date" max={localIsoDate()} value={record.deliveryDate} onChange={(event) => updateRecord(record.id, { deliveryDate: event.target.value })} /></td>
                         <td><input value={record.truckNumber} onChange={(event) => updateRecord(record.id, { truckNumber: event.target.value.toUpperCase() })} placeholder="Truck" /></td>
                         <td><input value={record.tractorNumber} onChange={(event) => updateRecord(record.id, { tractorNumber: event.target.value.toUpperCase() })} placeholder="Tractor" /></td>
                         <td><input value={record.aviz} onChange={(event) => updateRecord(record.id, { aviz: event.target.value.toUpperCase() })} placeholder="AVIZ" /></td>

@@ -1,5 +1,7 @@
 import sql from 'mssql'
-import { receptionWeightEvents } from './receptionWeightHistory.js'
+import { receptionWeightEvents, assertScaleOnlyReceptionWeights } from './receptionWeightHistory.js'
+import { receptionHistoryDateSql } from './receptionHistoryFilter.js'
+import { assertMilkDocumentDate, currentMilkDate } from './milkDocumentDate.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
 
@@ -533,10 +535,12 @@ ORDER BY receptionDate DESC, updatedAt DESC;
 }
 
 export async function createMilkReception(input, username = '') {
+  assertMilkDocumentDate(input.receptionDate ?? currentMilkDate(), 'Reception')
   await initializeMilkReceptionStore()
   const pool = await getPool()
   const milk = await getMilkDensityFactor('RECEPTION', input.milkType || 'MILK-COW')
   const record = normalizeReception({ ...input, densityFactor: milk.densityFactor, milkTypeLabel: milk.label })
+  assertScaleOnlyReceptionWeights(null, record, input)
   if (record.vehicleCategory === 'OTHER') record.routeId = ''
   await assertUniqueReceptionCombination(pool, record)
   record.receptionId = await nextReceptionId(pool, record)
@@ -567,6 +571,7 @@ export async function updateMilkReception(id, input, username = '') {
   await initializeMilkReceptionStore()
   const existing = await getMilkReception(id)
   if (!existing) return null
+  assertMilkDocumentDate(input.receptionDate === undefined ? existing.receptionDate : input.receptionDate, 'Reception')
   const milkType = input.milkType || existing.milkType
   const milk = milkType !== existing.milkType ? await getMilkDensityFactor('RECEPTION', milkType) : null
   const record = normalizeReception({
@@ -574,6 +579,7 @@ export async function updateMilkReception(id, input, username = '') {
     densityFactor: milk ? milk.densityFactor : existing.densityFactor,
     milkTypeLabel: milk ? milk.label : existing.milkTypeLabel,
   }, existing)
+  assertScaleOnlyReceptionWeights(existing, record, input)
   if (record.vehicleCategory === 'OTHER') {
     record.routeId = existing.vehicleCategory === 'OTHER' ? existing.routeId : ''
   }
@@ -642,7 +648,7 @@ ORDER BY eventId DESC;
   return { entries, nextBeforeId: hasMore ? entries.at(-1).eventId : null }
 }
 
-export async function listMilkReceptionWeightHistoryForAdmin({ username = '', receptionId = '', source = '', weightKind = '', beforeId = null, from = null, until = null } = {}) {
+export async function listMilkReceptionWeightHistoryForAdmin({ username = '', receptionId = '', source = '', weightKind = '', beforeId = null, from = null, until = null, receptionDate = null } = {}) {
   await initializeMilkReceptionStore()
   const result = await (await getPool()).request()
     .input('username', sql.NVarChar(160), username)
@@ -650,11 +656,12 @@ export async function listMilkReceptionWeightHistoryForAdmin({ username = '', re
     .input('source', sql.NVarChar(10), source)
     .input('weightKind', sql.NVarChar(10), weightKind)
     .input('beforeId', sql.BigInt, beforeId)
+    .input('receptionDate', sql.NVarChar(10), receptionDate)
     .input('from', sql.DateTimeOffset, from)
     .input('until', sql.DateTimeOffset, until)
     .query(`
 SELECT TOP (51) eventId, receptionId, weightKind, source, weightKg, previousWeightKg, previousSource, scaleCapturedAt, recordedAt, username
-FROM dbo.MilkReceptionWeightEvents
+FROM dbo.MilkReceptionWeightEvents e
 WHERE (@username = N'' OR username = @username)
   AND (@receptionId = N'' OR CHARINDEX(@receptionId, receptionId) > 0)
   AND (@source = N'' OR source = @source)
@@ -662,6 +669,7 @@ WHERE (@username = N'' OR username = @username)
   AND (@beforeId IS NULL OR eventId < @beforeId)
   AND (@from IS NULL OR recordedAt >= @from)
   AND (@until IS NULL OR recordedAt < @until)
+  AND ${receptionHistoryDateSql('e.receptionId')}
 ORDER BY eventId DESC;
 `)
   const hasMore = result.recordset.length > 50
@@ -874,7 +882,7 @@ function normalizeReception(input, existing = null) {
 
   return {
     receptionId: input.receptionId || '',
-    receptionDate: isoDateString(input.receptionDate) || isoDateString(new Date()),
+    receptionDate: isoDateString(input.receptionDate) || currentMilkDate(),
     vehicleRegistration: String(input.vehicleRegistration || '').trim().toUpperCase(),
     vehicleCategory: normalizeVehicleCategory(input.vehicleCategory),
     routeId: String(input.routeId || '').trim().toUpperCase(),

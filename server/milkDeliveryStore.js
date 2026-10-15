@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import sql from 'mssql'
+import { assertMilkDocumentDate, currentMilkDate } from './milkDocumentDate.js'
 import { deliveryWeightEvents } from './deliveryWeightHistory.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
@@ -160,6 +161,7 @@ export async function getMilkDelivery(id) {
 }
 
 export async function createMilkDelivery(input, username = '') {
+  assertMilkDocumentDate(input.deliveryDate ?? currentMilkDate(), 'Delivery')
   await initializeMilkDeliveryStore()
   const milk = await getMilkDensityFactor('DELIVERIES', input.milkType || 'MILK-COW')
   const record = normalizeDelivery({ ...input, densityFactor: milk.densityFactor, milkTypeLabel: milk.label })
@@ -202,6 +204,7 @@ export async function updateMilkDelivery(id, input, username = '') {
   await initializeMilkDeliveryStore()
   const existing = await getMilkDelivery(id)
   if (!existing) return null
+  assertMilkDocumentDate(input.deliveryDate === undefined ? existing.deliveryDate : input.deliveryDate, 'Delivery')
   const milkType = input.milkType || existing.milkType
   const milk = milkType !== existing.milkType ? await getMilkDensityFactor('DELIVERIES', milkType) : null
   const record = normalizeDelivery({
@@ -354,7 +357,7 @@ function normalizeDelivery(input, existing = null) {
   )
   return {
     deliveryId: text(input.deliveryId || input.id),
-    deliveryDate: isoDateString(input.deliveryDate) || isoDateString(new Date()),
+    deliveryDate: isoDateString(input.deliveryDate) || currentMilkDate(),
     deliveryTime: timeString(input.deliveryTime),
     truckNumber: upperText(input.truckNumber),
     tractorNumber: upperText(input.tractorNumber),
