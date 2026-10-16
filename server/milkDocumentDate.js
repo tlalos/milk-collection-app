@@ -24,3 +24,13 @@ export function assertMilkDocumentDate(value, label, now = new Date()) {
     throw error
   }
 }
+
+export function assertCurrentMilkDateAccess(existingDate, requestedDate, currentDateOnly, now = new Date()) {
+  if (!currentDateOnly) return
+  const today = currentMilkDate(now)
+  if ((existingDate !== undefined && existingDate !== today) || (requestedDate !== undefined && requestedDate !== today)) {
+    const error = new Error('Only administrators can change records outside the current day.')
+    error.status = 403
+    throw error
+  }
+}

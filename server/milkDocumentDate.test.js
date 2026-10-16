@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
-import { currentMilkDate, milkDocumentDateError, assertMilkDocumentDate } from './milkDocumentDate.js'
+import { currentMilkDate, milkDocumentDateError, assertMilkDocumentDate, assertCurrentMilkDateAccess } from './milkDocumentDate.js'
 
 const now = new Date('2026-10-15T12:00:00Z')
 test('today and earlier dates are allowed; tomorrow and invalid dates are rejected', () => {
@@ -38,6 +38,7 @@ for (const kind of ['Reception', 'Delivery']) {
       const fn = ast.statements.find(s => ts.isFunctionDeclaration(s) && s.name.text === name).getText(ast).replace(/^export /, '')
       let sqlAccess = 0
       const context = {
+        assertCurrentMilkDateAccess,
         currentMilkDate: () => currentMilkDate(now),
         assertMilkDocumentDate: (date, label) => assertMilkDocumentDate(date, label, now),
         [`initializeMilk${kind}Store`]: async () => {},

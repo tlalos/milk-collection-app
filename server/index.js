@@ -1578,7 +1578,7 @@ app.get('/api/daily-reconciliation/month', requirePermission('daily_reconciliati
 app.post('/api/milk-receptions', async (request, response, next) => {
   try {
     const user = request.authUser
-    const record = await createMilkReception(request.body, user?.username || '')
+    const record = await createMilkReception(request.body, user?.username || '', user?.isAdmin !== true)
     const linkWarning = await refreshSavedDailyLinks([record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
     await auditAction({ request, user, action: 'milk_reception.create', entityType: 'MilkReception', entityId: record.receptionId, after: record })
@@ -1593,7 +1593,7 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
   try {
     const user = request.authUser
     const before = await getMilkReception(request.params.id)
-    const record = await updateMilkReception(request.params.id, request.body, user?.username || '')
+    const record = await updateMilkReception(request.params.id, request.body, user?.username || '', user?.isAdmin !== true)
     if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
     const linkWarning = await refreshSavedDailyLinks([before?.receptionDate, record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
@@ -1608,7 +1608,7 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
 app.delete('/api/milk-receptions/:id', async (request, response, next) => {
   try {
     const before = await getMilkReception(request.params.id)
-    const deleted = await deleteMilkReception(request.params.id)
+    const deleted = await deleteMilkReception(request.params.id, request.authUser?.isAdmin !== true)
     if (!deleted) return response.status(404).json({ error: 'Milk reception record not found.' })
     const linkWarning = await refreshSavedDailyLinks([before?.receptionDate])
     await auditAction({ request, user: request.authUser, action: 'milk_reception.delete', entityType: 'MilkReception', entityId: request.params.id, before })
@@ -1638,7 +1638,7 @@ app.get('/api/milk-deliveries', async (request, response, next) => {
 app.post('/api/milk-deliveries', async (request, response, next) => {
   try {
     const user = request.authUser
-    const record = await createMilkDelivery(request.body, user?.username || '')
+    const record = await createMilkDelivery(request.body, user?.username || '', user?.isAdmin !== true)
     await auditAction({ request, user, action: 'milk_delivery.create', entityType: 'MilkDelivery', entityId: record.deliveryId, after: record })
     response.status(201).json({ record })
   } catch (error) {
@@ -1651,7 +1651,7 @@ app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
   try {
     const user = request.authUser
     const before = await getMilkDelivery(request.params.id)
-    const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '')
+    const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '', user?.isAdmin !== true)
     if (!record) return response.status(404).json({ error: 'Milk delivery record not found.' })
     await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
     response.json({ record })
@@ -1664,7 +1664,7 @@ app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
 app.delete('/api/milk-deliveries/:id', async (request, response, next) => {
   try {
     const before = await getMilkDelivery(request.params.id)
-    const deleted = await deleteMilkDelivery(request.params.id)
+    const deleted = await deleteMilkDelivery(request.params.id, request.authUser?.isAdmin !== true)
     if (!deleted) return response.status(404).json({ error: 'Milk delivery record not found.' })
     await auditAction({ request, user: request.authUser, action: 'milk_delivery.delete', entityType: 'MilkDelivery', entityId: request.params.id, before })
     response.json({ deleted: true })

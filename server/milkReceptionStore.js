@@ -1,7 +1,7 @@
 import sql from 'mssql'
 import { receptionWeightEvents, assertScaleOnlyReceptionWeights } from './receptionWeightHistory.js'
 import { receptionHistoryDateSql } from './receptionHistoryFilter.js'
-import { assertMilkDocumentDate, currentMilkDate } from './milkDocumentDate.js'
+import { assertMilkDocumentDate, currentMilkDate, assertCurrentMilkDateAccess } from './milkDocumentDate.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
 
@@ -534,7 +534,8 @@ ORDER BY receptionDate DESC, updatedAt DESC;
   return result.recordset.map((row) => rowToRecord(row, detailsByReceptionId.get(row.receptionId)))
 }
 
-export async function createMilkReception(input, username = '') {
+export async function createMilkReception(input, username = '', currentDateOnly = false) {
+  assertCurrentMilkDateAccess(undefined, input.receptionDate ?? currentMilkDate(), currentDateOnly)
   assertMilkDocumentDate(input.receptionDate ?? currentMilkDate(), 'Reception')
   await initializeMilkReceptionStore()
   const pool = await getPool()
@@ -567,10 +568,11 @@ export async function createMilkReception(input, username = '') {
   return getMilkReception(record.receptionId)
 }
 
-export async function updateMilkReception(id, input, username = '') {
+export async function updateMilkReception(id, input, username = '', currentDateOnly = false) {
   await initializeMilkReceptionStore()
   const existing = await getMilkReception(id)
   if (!existing) return null
+  assertCurrentMilkDateAccess(existing.receptionDate, input.receptionDate, currentDateOnly)
   assertMilkDocumentDate(input.receptionDate === undefined ? existing.receptionDate : input.receptionDate, 'Reception')
   const milkType = input.milkType || existing.milkType
   const milk = milkType !== existing.milkType ? await getMilkDensityFactor('RECEPTION', milkType) : null
@@ -594,7 +596,9 @@ export async function updateMilkReception(id, input, username = '') {
     .input('updatedAt', sql.DateTimeOffset, now)
     .input('updatedBy', sql.NVarChar(160), username || null)
   try {
-    await request.query(updateSql())
+    request.input('currentDateOnly', sql.Bit, currentDateOnly).input('editableDate', sql.Date, currentMilkDate())
+    const updated = await request.query(updateSql())
+    if (currentDateOnly && !updated.rowsAffected[0]) assertCurrentMilkDateAccess('', undefined, true)
     await saveWeightEvents(transaction, id, existing, record, input, username, now)
     await transaction.commit()
   } catch (error) {
@@ -692,11 +696,17 @@ function weightEventToClient(row) {
   }
 }
 
-export async function deleteMilkReception(id) {
+export async function deleteMilkReception(id, currentDateOnly = false) {
   await initializeMilkReceptionStore()
+  const existing = await getMilkReception(id)
+  if (!existing) return false
+  assertCurrentMilkDateAccess(existing.receptionDate, undefined, currentDateOnly)
   const result = await (await getPool()).request()
     .input('receptionId', sql.NVarChar(120), id)
-    .query('DELETE FROM dbo.MilkReceptions WHERE receptionId = @receptionId; SELECT @@ROWCOUNT AS deleted;')
+    .input('currentDateOnly', sql.Bit, currentDateOnly)
+    .input('editableDate', sql.Date, currentMilkDate())
+    .query('DELETE FROM dbo.MilkReceptions WHERE receptionId = @receptionId AND (@currentDateOnly = 0 OR receptionDate = @editableDate); SELECT @@ROWCOUNT AS deleted;')
+  if (currentDateOnly && !Number(result.recordset[0]?.deleted)) assertCurrentMilkDateAccess('', undefined, true)
   return Number(result.recordset[0]?.deleted || 0) > 0
 }
 
@@ -1127,7 +1137,8 @@ UPDATE dbo.MilkReceptions SET
   pcc1Observations = @pcc1Observations,
   updatedAt = @updatedAt,
   updatedBy = @updatedBy
-WHERE receptionId = @receptionId;`
+WHERE receptionId = @receptionId
+  AND (@currentDateOnly = 0 OR (receptionDate = @editableDate AND @receptionDate = @editableDate));`
 }
 
 function rowToRecord(row, qualityDetailsRows = []) {

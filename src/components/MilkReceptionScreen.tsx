@@ -1,4 +1,6 @@
 import { BackButton } from './BackButton'
+import { useMilkRecordAccess } from './useMilkRecordAccess'
+import { LockKeyhole } from 'lucide-react'
 import { currentMilkDate, milkDocumentDateError } from '../../server/milkDocumentDate.js'
 import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -312,6 +314,7 @@ function storedDateTimeInput(value: string) {
 }
 
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
+  const { isAdmin, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
   const [records, setRecords] = useState<MilkReceptionRecord[]>([])
   const recordsRef = useRef<MilkReceptionRecord[]>([])
   const tableWrapRef = useRef<HTMLDivElement>(null)
@@ -643,6 +646,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function addRow() {
+    if (!canEditDate(filterDate || today())) { setError(lockedMessage); return }
     const dateError = milkDocumentDateError(filterDate || today(), 'Reception')
     if (dateError) { setError(dateError); return }
     const milk = options.milkTypes[0]
@@ -704,6 +708,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function updateRecord(id: string, patch: Partial<MilkReceptionRecord>, saveImmediately = false) {
+    if (!canEditDate(recordsRef.current.find(row => row.receptionId === id)?.receptionDate)
+      || (patch.receptionDate !== undefined && !canEditDate(patch.receptionDate))) { setError(lockedMessage); return lockedMessage }
     if (!recordsRef.current.some((record) => record.receptionId === id)) return ''
     commitRecords(recordsRef.current.map((record) => {
       if (record.receptionId !== id) return record
@@ -747,6 +753,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function readScaleWeight(id: string, field: WeightField) {
+    if (!canEditDate(recordsRef.current.find(row => row.receptionId === id)?.receptionDate)) { setError(lockedMessage); return }
     const target = `${id}:${field}`
     const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
     setScaleReadingTarget(target)
@@ -782,6 +789,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
 
 
   function updateQualityDetail(id: string, detailType: QualityDetailType, patch: Partial<QualityDetail>) {
+    if (!canEditDate(recordsRef.current.find(row => row.receptionId === id)?.receptionDate)) { setError(lockedMessage); return }
     if (!recordsRef.current.some((record) => record.receptionId === id)) return
     commitRecords(recordsRef.current.map((record) => {
       if (record.receptionId !== id) return record
@@ -1036,6 +1044,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function deleteRecord(record: MilkReceptionRecord) {
+    if (!canEditDate(record.receptionDate)) { setError(lockedMessage); return }
     if (savingRowsRef.current.has(record.receptionId)) return
     const rowLabel = [record.vehicleRegistration, record.receptionDate].filter(Boolean).join(' / ') || 'this row'
     const confirmed = window.confirm(`Delete reception row ${rowLabel}?\n\nThis cannot be undone.`)
@@ -1081,7 +1090,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       >
         <summary className="detail-section-summary">{title}</summary>
         {detailType === 'ORIGINAL' && <button type="button" className="quality-picture-button" title="Picture OCR will be added later">Picture</button>}
-        <div className="quality-detail-grid">
+        <fieldset disabled={!canEditDate(record.receptionDate)} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}><div className="quality-detail-grid">
           <label className="detail-field-compact"><span>Temp. exterior (°C)</span><input inputMode="decimal" value={detail.exteriorTemperatureC ?? ''} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { exteriorTemperatureC: event.target.value })} /></label>
           <label className="detail-field-datetime"><span>Data/ora acces</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.accessAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { accessAt: storedDateTimeInput(event.target.value) })} /></label>
           <label className="detail-field-datetime"><span>Data/ora recepție</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.receptionAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { receptionAt: storedDateTimeInput(event.target.value) })} /></label>
@@ -1097,7 +1106,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
           <label className="detail-field-datetime"><span>Data/ora ieșire producție</span><input type="datetime-local" lang="en-GB" step="60" value={displayDateTimeInput(detail.productionExitAt)} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { productionExitAt: storedDateTimeInput(event.target.value) })} /></label>
           <label className="detail-field-select"><span>Responsabil</span><input value={detail.responsiblePerson} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { responsiblePerson: event.target.value })} /></label>
           <label className="wide"><span>Observații PCC1</span><textarea value={detail.pcc1Observations} onChange={(event) => updateQualityDetail(record.receptionId, detailType, { pcc1Observations: event.target.value })} /></label>
-        </div>
+        </div></fieldset>
       </details>
     )
   }
@@ -1178,6 +1187,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   function validate(record: MilkReceptionRecord) {
+    if (!canEditDate(record.receptionDate)) return lockedMessage
     const full = numberValue(record.fullTruckWeightKg)
     const empty = numberValue(record.emptyTruckWeightKg)
     if (!record.receptionDate) return 'Reception date is required.'
@@ -1224,7 +1234,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
           type="button"
           title={`Read scale into ${label}`}
           aria-label={`Read scale into ${label}`}
-          disabled={Boolean(scaleReadingTarget)}
+          disabled={!canEditDate(record.receptionDate) || Boolean(scaleReadingTarget)}
           onClick={() => void readScaleWeight(record.receptionId, field)}
         >
           {scaleReadingTarget === target ? '...' : <ScaleIcon />}
@@ -1263,7 +1273,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
             <span>Search</span>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Truck, route, milk type, status..." />
           </label>
-          <button type="button" onClick={addRow}>Add reception row</button>
+          <button type="button" onClick={addRow} disabled={!canEditDate(filterDate || editableDay)}>Add reception row</button>
           <button type="button" className="secondary" onClick={() => void loadRecords()}>Refresh</button>
         </section>
 
@@ -1459,6 +1469,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   )}
                 {visibleRecords.map((record) => {
                   const computed = withCalculations(record)
+                  const locked = !canEditDate(record.receptionDate)
                   const expanded = expandedId === record.receptionId
                   const filteredTruckOptions = truckOptionsForCategory(record.vehicleCategory)
                   const routeOptions = routeOptionsForVehicle(record.vehicleRegistration, record.vehicleCategory)
@@ -1471,16 +1482,16 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           </button>
                         </td>
                         <td>
-                          <select value={record.vehicleCategory} onChange={(event) => updateRecord(record.receptionId, { vehicleCategory: normalizeVehicleCategory(event.target.value) })}>
+                          <select disabled={locked} value={record.vehicleCategory} onChange={(event) => updateRecord(record.receptionId, { vehicleCategory: normalizeVehicleCategory(event.target.value) })}>
                             {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
                           </select>
                         </td>
-                        <td><input type="date" lang="en-US" aria-label="Reception date" max={today()} value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
+                        <td><input disabled={locked} type="date" lang="en-US" aria-label="Reception date" min={isAdmin ? undefined : editableDay} max={editableDay} value={record.receptionDate} onChange={(event) => updateRecord(record.receptionId, { receptionDate: event.target.value })} /></td>
                         <td>
                           {record.vehicleCategory === 'OTHER' ? (
-                            <input value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })} placeholder="Truck plates" />
+                            <input disabled={locked} value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })} placeholder="Truck plates" />
                           ) : (
-                            <select value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })}>
+                            <select disabled={locked} value={record.vehicleRegistration} onChange={(event) => updateRecord(record.receptionId, { vehicleRegistration: event.target.value })}>
                               <option value="">Select truck</option>
                               {record.vehicleRegistration && !filteredTruckOptions.some((truck) => truck.value === record.vehicleRegistration) && <option value={record.vehicleRegistration}>{record.vehicleRegistration}</option>}
                               {filteredTruckOptions.map((truck) => <option key={truck.value} value={truck.value}>{truck.label}</option>)}
@@ -1488,21 +1499,21 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           )}
                         </td>
                         <td>
-                          <select value={record.driverName} onChange={(event) => updateRecord(record.receptionId, { driverName: event.target.value })}>
+                          <select disabled={locked} value={record.driverName} onChange={(event) => updateRecord(record.receptionId, { driverName: event.target.value })}>
                             <option value="">Driver</option>
                             {record.driverName && !driverOptions.includes(record.driverName) && <option value={record.driverName}>{record.driverName}</option>}
                             {driverOptions.map((driver) => <option key={driver} value={driver}>{driver}</option>)}
                           </select>
                         </td>
                         <td>
-                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={record.vehicleCategory === 'OTHER'}>
+                          <select value={record.routeId} onChange={(event) => updateRecord(record.receptionId, { routeId: event.target.value })} disabled={locked || record.vehicleCategory === 'OTHER'}>
                             <option value="">{record.vehicleCategory === 'OTHER' ? 'No route' : 'Route'}</option>
                             {record.routeId && !routeOptions.includes(record.routeId) && <option value={record.routeId}>{record.routeId}</option>}
                             {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
                           </select>
                         </td>
                         <td>
-                          <select value={record.milkType} onChange={(event) => updateRecord(record.receptionId, { milkType: event.target.value })}>
+                          <select disabled={locked} value={record.milkType} onChange={(event) => updateRecord(record.receptionId, { milkType: event.target.value })}>
                             {options.milkTypes.map((milk) => <option key={milk.code} value={milk.code}>{milk.label}</option>)}
                           </select>
                         </td>
@@ -1512,14 +1523,15 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                         <td className="readonly-number">{formatNumber(computed.calculatedLiters)}</td>
                         <td className={`readonly-number ${computed.reconciliation?.differenceLiters && Math.abs(computed.reconciliation.differenceLiters) > 5 ? 'reconciliation-diff-warning' : ''}`}>{formatNumber(computed.reconciliation?.differenceLiters ?? null)}</td>
                         <td><span className={`reconciliation-status ${computed.reconciliation?.status || 'missing_info'}`}>{computed.reconciliation?.label || '-'}</span></td>
-                        <td><input value={record.comments} onChange={(event) => updateRecord(record.receptionId, { comments: event.target.value })} placeholder="Comments" /></td>
+                        <td><input disabled={locked} value={record.comments} onChange={(event) => updateRecord(record.receptionId, { comments: event.target.value })} placeholder="Comments" /></td>
                         <td><span className="reception-status">{computed.combinationDiagnosis}</span></td>
                         <td>
                           <div className="reception-actions">
-                            <button type="button" title="Save now" aria-label="Save reception row" onClick={() => void saveRecord(record.receptionId, 'manual')} disabled={saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}>
+                            {locked && <span title={lockedMessage} aria-label="Locked record"><LockKeyhole size={16} /></span>}
+                            <button type="button" title="Save now" aria-label="Save reception row" onClick={() => void saveRecord(record.receptionId, 'manual')} disabled={locked || saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}>
                               {saveStates[record.receptionId]?.status === 'saving' ? '...' : <SaveIcon />}
                             </button>
-                            <button type="button" className="danger" title="Delete" aria-label="Delete reception row" onClick={() => void deleteRecord(record)} disabled={saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}><TrashIcon /></button>
+                            <button type="button" className="danger" title="Delete" aria-label="Delete reception row" onClick={() => void deleteRecord(record)} disabled={locked || saveStates[record.receptionId]?.status === 'saving' || deletingId === record.receptionId}><TrashIcon /></button>
                             {saveStates[record.receptionId] && (
                               <span className={`reception-save-state ${saveStates[record.receptionId].status}`} role="status" title={saveStates[record.receptionId].message || undefined}>
                                 {saveStates[record.receptionId].status === 'waiting' ? 'Needs details' :

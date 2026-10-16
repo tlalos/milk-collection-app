@@ -1,10 +1,11 @@
 import { BackButton } from './BackButton'
+import { useMilkRecordAccess } from './useMilkRecordAccess'
 import { currentMilkDate, milkDocumentDateError } from '../../server/milkDocumentDate.js'
 import { OcrNavigation } from './OcrNavigation'
 import { MilkDeliveriesHelp } from './MilkDeliveriesHelp'
 import { SaveIcon, ScaleIcon } from './MilkDeliveryIcons'
 import { useOcrLanguage } from './OcrLanguage'
-import { MoveRight, Truck } from 'lucide-react'
+import { LockKeyhole, MoveRight, Truck } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { appPath } from '../ocrPaths'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
@@ -171,6 +172,7 @@ function TrashIcon() {
 }
 
 export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
+  const { isAdmin, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
   const { isRo } = useOcrLanguage()
   const [milkTypes, setMilkTypes] = useState<MilkTypeOption[]>(defaultMilkTypes)
   const [records, setRecords] = useState<MilkDelivery[]>([])
@@ -375,6 +377,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function addDelivery() {
+    if (!canEditDate(selectedDate || localIsoDate())) { setError(lockedMessage); return }
     const dateError = milkDocumentDateError(selectedDate || localIsoDate(), 'Delivery')
     if (dateError) { setError(dateError); return }
     const record = emptyDelivery(selectedDate || localIsoDate(), milkTypes)
@@ -388,6 +391,8 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function updateRecord(id: string, patch: Partial<MilkDelivery>, saveImmediately = false) {
+    if (!canEditDate(recordsRef.current.find(row => row.id === id)?.deliveryDate)
+      || (patch.deliveryDate !== undefined && !canEditDate(patch.deliveryDate))) { setError(lockedMessage); return }
     if (!recordsRef.current.some((record) => record.id === id)) return ''
     commitRecords(recordsRef.current.map((record) => {
       if (record.id !== id) return record
@@ -408,6 +413,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   async function readScaleWeight(record: MilkDelivery, field: WeightField) {
+    if (!canEditDate(record.deliveryDate)) { setError(lockedMessage); return }
     const target = `${record.id}:${field}`
     const label = field === 'loadedWeightKg' ? 'Loaded kg' : 'Empty kg'
     setScaleReadingTarget(target)
@@ -442,6 +448,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function validateDeliveryForSave(record: MilkDelivery, status: DeliveryStatus) {
+    if (!canEditDate(record.deliveryDate)) return lockedMessage
     if (!record.deliveryDate) return 'Delivery date is required.'
     const dateError = milkDocumentDateError(record.deliveryDate, 'Delivery')
     if (dateError) return dateError
@@ -542,6 +549,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   async function deleteRecord(record: MilkDelivery) {
+    if (!canEditDate(record.deliveryDate)) { setError(lockedMessage); return }
     if (savingRowsRef.current.has(record.id) || deletingRowsRef.current.has(record.id)) return
     const reference = record.aviz || record.truckNumber || (record.isNew ? 'new draft' : record.id)
     if (!window.confirm(`Are you sure you want to delete this milk delivery (${reference})?\n\nThis cannot be undone.`)) return
@@ -584,7 +592,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     return (
       <div className="delivery-weight-entry">
         <div className="delivery-weight-input-stack">
-          <input inputMode="decimal" value={record[field] ?? ''} onChange={(event) => updateRecord(record.id, {
+          <input disabled={!canEditDate(record.deliveryDate)} inputMode="decimal" value={record[field] ?? ''} onChange={(event) => updateRecord(record.id, {
             [field]: event.target.value,
             [timestampField]: '',
             [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
@@ -594,7 +602,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
             {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown'}
           </small>}
         </div>
-        <button type="button" title={`Read scale into ${label}`} aria-label={`Read scale into ${label}`} disabled={Boolean(scaleReadingTarget)} onClick={() => void readScaleWeight(record, field)}>
+        <button type="button" title={`Read scale into ${label}`} aria-label={`Read scale into ${label}`} disabled={!canEditDate(record.deliveryDate) || Boolean(scaleReadingTarget)} onClick={() => void readScaleWeight(record, field)}>
           {scaleReadingTarget === target ? '...' : <ScaleIcon />}
         </button>
       </div>
@@ -616,7 +624,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
           <label className="delivery-search-field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isRo ? 'AVIZ, camion, tip de lapte sau destinație...' : 'AVIZ, truck, milk type or destination...'} /></label>
           <label><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'ALL' | DeliveryStatus)}><option value="ALL">{isRo ? 'Toate stările' : 'All statuses'}</option><option value="DRAFT">Draft</option><option value="AWAITING_GREECE">Awaiting Greece</option><option value="COMPLETE">Complete</option></select></label>
           <label className="delivery-sent-filter"><input type="checkbox" checked={sentToGreeceOnly} onChange={(event) => setSentToGreeceOnly(event.target.checked)} /><span>{isRo ? 'Trimise în Grecia' : 'Sent to Greece'}</span></label>
-          <button type="button" onClick={addDelivery}>Add delivery</button>
+          <button type="button" onClick={addDelivery} disabled={!canEditDate(selectedDate || editableDay)}>Add delivery</button>
           <button className="secondary" type="button" onClick={() => setSelectedDate(selectedDate ? '' : localIsoDate())}>{selectedDate ? 'Show all dates' : 'Today'}</button>
         </section>
 
@@ -635,45 +643,46 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                 {!visibleRecords.length && <tr><td className="milk-deliveries-empty" colSpan={14}>{isRo ? 'Nicio livrare nu corespunde filtrelor selectate.' : 'No deliveries match the selected filters.'}</td></tr>}
                 {visibleRecords.map((record) => {
                   const expanded = expandedId === record.id
+                  const locked = !canEditDate(record.deliveryDate)
                   const arrivalEnabled = record.status !== 'DRAFT'
                   const saveState = saveStates[record.id]
                   return (
                     <Fragment key={record.clientKey || record.id}>
                       <tr className={`delivery-register-row ${record.status.toLocaleLowerCase()}`}>
                         <td><button className="delivery-expand" type="button" onClick={() => setExpandedId(expanded ? '' : record.id)} aria-label={expanded ? 'Collapse delivery' : 'Expand delivery'}>{expanded ? '-' : '+'}</button></td>
-                        <td><input type="date" aria-label="Delivery date" max={localIsoDate()} value={record.deliveryDate} onChange={(event) => updateRecord(record.id, { deliveryDate: event.target.value })} /></td>
-                        <td><input value={record.truckNumber} onChange={(event) => updateRecord(record.id, { truckNumber: event.target.value.toUpperCase() })} placeholder="Truck" /></td>
-                        <td><input value={record.tractorNumber} onChange={(event) => updateRecord(record.id, { tractorNumber: event.target.value.toUpperCase() })} placeholder="Tractor" /></td>
-                        <td><input value={record.aviz} onChange={(event) => updateRecord(record.id, { aviz: event.target.value.toUpperCase() })} placeholder="AVIZ" /></td>
-                        <td><select value={record.milkType} onChange={(event) => updateRecord(record.id, { milkType: event.target.value })}>{milkTypes.map((milk) => <option key={milk.code} value={milk.code}>{milk.label}</option>)}</select></td>
+                        <td><input disabled={locked} type="date" aria-label="Delivery date" min={isAdmin ? undefined : editableDay} max={editableDay} value={record.deliveryDate} onChange={(event) => updateRecord(record.id, { deliveryDate: event.target.value })} /></td>
+                        <td><input disabled={locked} value={record.truckNumber} onChange={(event) => updateRecord(record.id, { truckNumber: event.target.value.toUpperCase() })} placeholder="Truck" /></td>
+                        <td><input disabled={locked} value={record.tractorNumber} onChange={(event) => updateRecord(record.id, { tractorNumber: event.target.value.toUpperCase() })} placeholder="Tractor" /></td>
+                        <td><input disabled={locked} value={record.aviz} onChange={(event) => updateRecord(record.id, { aviz: event.target.value.toUpperCase() })} placeholder="AVIZ" /></td>
+                        <td><select disabled={locked} value={record.milkType} onChange={(event) => updateRecord(record.id, { milkType: event.target.value })}>{milkTypes.map((milk) => <option key={milk.code} value={milk.code}>{milk.label}</option>)}</select></td>
                         <td>{renderWeightInput(record, 'loadedWeightKg')}</td>
                         <td>{renderWeightInput(record, 'emptyWeightKg')}</td>
                         <td><output className="delivery-readonly-value" aria-label="Net kg">{formatNumber(record.netQuantityKg)}</output></td>
                         <td><output className="delivery-readonly-value" aria-label="Liters">{formatNumber(record.calculatedLiters)}</output></td>
-                        <td><select value={record.deliveryCategory} onChange={(event) => updateRecord(record.id, { deliveryCategory: event.target.value })}><option value="UNSPECIFIED">Unspecified</option><option value="SALES">Sales</option><option value="OTHERS">Others</option></select></td>
-                        <td><input value={record.departureComments} onChange={(event) => updateRecord(record.id, { departureComments: event.target.value })} placeholder="Comments..." /></td>
+                        <td><select disabled={locked} value={record.deliveryCategory} onChange={(event) => updateRecord(record.id, { deliveryCategory: event.target.value })}><option value="UNSPECIFIED">Unspecified</option><option value="SALES">Sales</option><option value="OTHERS">Others</option></select></td>
+                        <td><input disabled={locked} value={record.departureComments} onChange={(event) => updateRecord(record.id, { departureComments: event.target.value })} placeholder="Comments..." /></td>
                         <td><span className={`delivery-status ${record.status.toLocaleLowerCase()}`}>{statusLabel(record.status)}</span></td>
-                        <td><div className="delivery-row-actions">{record.status === 'DRAFT' && (
+                        <td><div className="delivery-row-actions">{locked && <span title={lockedMessage} aria-label="Locked record"><LockKeyhole size={16} /></span>}{record.status === 'DRAFT' && (
                           <button className="send" type="button" title="Truck departed for Greece (mark sent)" aria-label="Truck departed for Greece (mark sent)"
-                            disabled={saveState?.status === 'saving' || deletingId === record.id}
+                            disabled={locked || saveState?.status === 'saving' || deletingId === record.id}
                             onClick={() => void saveRecord(record.id, 'manual', 'AWAITING_GREECE')}>
                             <span className="delivery-departure-icon" aria-hidden="true"><Truck /><MoveRight viewBox="0 6 24 12" /></span>
                             <span>Greece</span>
                           </button>
-                        )}<button type="button" title="Save now" aria-label="Save delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
+                        )}<button type="button" title="Save now" aria-label="Save delivery row" disabled={locked || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={locked || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
                       </tr>
 
                       {expanded && <tr className="milk-delivery-detail-row"><td colSpan={14}><div className="milk-delivery-inline-form">
                         <section className={`milk-delivery-stage arrival-stage ${arrivalEnabled ? '' : 'locked'}`}>
                           <div className="milk-delivery-stage-heading"><span>2</span><div><h3>{isRo ? 'Sosire în Grecia' : 'Arrival in Greece'}</h3><p>{isRo ? 'Coloanele M-P din Excel' : 'Excel columns M-P'}</p></div><strong>{record.status === 'COMPLETE' ? 'Recorded' : arrivalEnabled ? 'Awaiting details' : 'Available after sending'}</strong></div>
-                          <fieldset disabled={!arrivalEnabled}><div className="milk-delivery-fields arrival-fields">
+                          <fieldset disabled={locked || !arrivalEnabled}><div className="milk-delivery-fields arrival-fields">
                             <label><span>{isRo ? 'Greutate din Grecia *' : 'Weight from Greece *'}</span><input inputMode="decimal" value={record.greeceWeight ?? ''} onChange={(event) => updateRecord(record.id, { greeceWeight: event.target.value })} placeholder="0" /></label>
                             <label><span>{isRo ? 'Număr factură *' : 'Invoice number *'}</span><input value={record.invoiceNumber} onChange={(event) => updateRecord(record.id, { invoiceNumber: event.target.value.toUpperCase() })} placeholder={isRo ? 'Număr factură' : 'Invoice number'} /></label>
                             <label className="calculated-field"><span>{isRo ? 'Diferență' : 'Difference'}</span><output>{formatNumber(record.differenceAmount)}</output></label>
                             <label className="comments-field"><span>{isRo ? 'Comentarii / destinație' : 'Comments / destination'}</span><textarea rows={2} value={record.arrivalComments} onChange={(event) => updateRecord(record.id, { arrivalComments: event.target.value })} placeholder={isRo ? 'Observații despre destinație și sosire...' : 'Destination and arrival notes...'} /></label>
                           </div></fieldset>
                         </section>
-                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status !== 'DRAFT' && <button type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
+                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button disabled={locked} className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status !== 'DRAFT' && <button disabled={locked} type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
                       </div></td></tr>}
                     </Fragment>
                   )

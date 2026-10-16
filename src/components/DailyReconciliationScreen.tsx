@@ -6,6 +6,7 @@ import {
   buildDailyReconciliation,
   dateKey,
   documentLiters,
+  groupReconciliationDays,
   numberOrNull,
   type AvizDocument,
   type CollectionComparison,
@@ -126,17 +127,19 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
   }
   const otherVisible = (reception: ReceptionRow) => (status === 'all' || status === 'others') && matchesSearch(query,
     reception.receptionDate, reception.receptionId, reception.vehicleRegistration, reception.driverName, reception.milkTypeLabel, reception.comments)
-  const visibleDays = monthData.days.filter((day) =>
-    day.comparisons.some(comparisonVisible) || day.unmatched.some(unmatchedVisible) || day.others.some(otherVisible))
-  const monthDocumentCount = monthData.days.reduce((total, day) => total + day.documentCount, 0)
-  const attentionCount = monthData.days.reduce((total, day) => total + day.attentionCount, 0)
-  const scaleLiters = monthData.days.some(day => day.scaleLiters === null)
-    ? null : monthData.days.reduce((total, day) => total + (day.scaleLiters ?? 0), 0)
-  const avizLiters = monthData.days.some(day => day.avizLiters === null)
-    ? null : monthData.days.reduce((total, day) => total + (day.avizLiters ?? 0), 0)
-  const monthDifference = scaleLiters === null || avizLiters === null ? null : scaleLiters - avizLiters
-  const otherScaleLiters = monthData.others.some(row => numberOrNull(row.calculatedLiters) === null)
-    ? null : monthData.others.reduce((total, row) => total + (numberOrNull(row.calculatedLiters) ?? 0), 0)
+  const visibleComparisons = monthData.comparisons.filter(comparisonVisible)
+  const visibleUnmatched = monthData.unmatched.filter(unmatchedVisible)
+  const visibleOthers = monthData.others.filter(otherVisible)
+  const visibleDays = groupReconciliationDays(visibleComparisons, visibleUnmatched, visibleOthers)
+  const documentCount = visibleDays.reduce((total, day) => total + day.documentCount, 0)
+  const attentionCount = visibleDays.reduce((total, day) => total + day.attentionCount, 0)
+  const scaleLiters = visibleDays.some(day => day.scaleLiters === null)
+    ? null : visibleDays.reduce((total, day) => total + (day.scaleLiters ?? 0), 0)
+  const avizLiters = visibleDays.some(day => day.avizLiters === null)
+    ? null : visibleDays.reduce((total, day) => total + (day.avizLiters ?? 0), 0)
+  const differenceLiters = scaleLiters === null || avizLiters === null ? null : scaleLiters - avizLiters
+  const otherScaleLiters = visibleOthers.some(row => numberOrNull(row.calculatedLiters) === null)
+    ? null : visibleOthers.reduce((total, row) => total + (numberOrNull(row.calculatedLiters) ?? 0), 0)
 
   return <div className="daily-recon-screen app-shell">
     <header className="app-topbar daily-recon-topbar">
@@ -150,22 +153,22 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
     </header>
 
     <main className="daily-recon-content">
-      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Month liter totals">
-        <div title="Collection receptions only; excludes Other receptions"><span>Scale liters</span><strong>{loading ? '-' : formatLiters(scaleLiters)}</strong></div>
-        <div title="All aviz documents for this month, including unmatched documents"><span>Aviz liters</span><strong>{loading ? '-' : formatLiters(avizLiters)}</strong></div>
-        <div title="Monthly scale liters minus monthly aviz liters. Unavailable when quantities are missing."><span>Difference</span><strong>{loading ? '-' : formatLiters(monthDifference)}</strong></div>
+      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Filtered liter totals">
+        <div title="Filtered collection receptions only; excludes Other receptions"><span>Scale liters</span><strong>{loading ? '-' : formatLiters(scaleLiters)}</strong></div>
+        <div title="Aviz documents matching the filters, including unmatched documents"><span>Aviz liters</span><strong>{loading ? '-' : formatLiters(avizLiters)}</strong></div>
+        <div title="Filtered scale liters minus filtered aviz liters. Unavailable when quantities are missing."><span>Difference</span><strong>{loading ? '-' : formatLiters(differenceLiters)}</strong></div>
       </div>
-      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Other receptions month liter totals">
-        <div title="Other receptions only for the selected month"><span>Others scale liters</span><strong>{loading ? '-' : formatLiters(otherScaleLiters)}</strong></div>
+      <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Filtered Other receptions liter totals">
+        <div title="Other receptions matching the filters"><span>Others scale liters</span><strong>{loading ? '-' : formatLiters(otherScaleLiters)}</strong></div>
         <div title="No aviz comparison available for Other receptions"><span>Others aviz liters</span><strong>-</strong></div>
         <div title="No aviz comparison available for Other receptions"><span>Others difference</span><strong>-</strong></div>
       </div>
-      <div className="daily-recon-summary" aria-label="Month totals">
-        <div><span>Scale receptions</span><strong>{monthData.comparisons.length}</strong></div>
-        <div><span>Aviz documents</span><strong>{monthDocumentCount}</strong></div>
-        <div><span>Scale without aviz</span><strong>{monthData.comparisons.filter((item) => item.status === 'no_aviz').length}</strong></div>
-        <div><span>Aviz unmatched</span><strong>{monthData.unmatched.length}</strong></div>
-        <div><span>Other receptions</span><strong>{monthData.others.length}</strong></div>
+      <div className="daily-recon-summary" aria-label="Filtered record totals">
+        <div><span>Scale receptions</span><strong>{visibleComparisons.length}</strong></div>
+        <div><span>Aviz documents</span><strong>{documentCount}</strong></div>
+        <div><span>Scale without aviz</span><strong>{visibleComparisons.filter((item) => item.status === 'no_aviz').length}</strong></div>
+        <div><span>Aviz unmatched</span><strong>{visibleUnmatched.length}</strong></div>
+        <div><span>Other receptions</span><strong>{visibleOthers.length}</strong></div>
         <div><span>Collection attention</span><strong>{attentionCount}</strong></div>
       </div>
 
@@ -209,9 +212,7 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
         </div>
         {!loading && !error && !visibleDays.length && <div className="daily-recon-empty">No records match this month and filters.</div>}
         {visibleDays.map((day) => {
-          const comparisons = day.comparisons.filter(comparisonVisible)
-          const unmatched = day.unmatched.filter(unmatchedVisible)
-          const others = day.others.filter(otherVisible)
+          const { comparisons, unmatched, others } = day
           const expanded = !collapsedDays.has(day.date)
           const differences = comparisons.flatMap(item => item.differenceLiters === null ? [] : [item.differenceLiters])
           const collectionDifference = differences.length ? differences.reduce((sum, value) => sum + value, 0) : null

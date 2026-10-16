@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildDailyReconciliation,
+  groupReconciliationDays,
   type AvizDocument,
   type ReceptionRow,
   type SavedLink,
@@ -76,4 +77,26 @@ test('does not match OTHER receptions to aviz documents', () => {
   assert.equal(result.others.length, 1)
   assert.equal(result.comparisons.length, 0)
   assert.equal(result.unmatched[0].status, 'no_scale')
+})
+
+test('regrouping filtered rows excludes hidden quantities, documents and missing values on the same day', () => {
+  const result = buildDailyReconciliation([
+    reception('shown', '2026-09-09'),
+    reception('hidden', '2026-09-09', { routeId: 'R21', calculatedLiters: null }),
+    reception('other', '2026-09-09', { vehicleCategory: 'OTHER', calculatedLiters: 500 }),
+  ], [document('matched', '2026-09-09'), document('unmatched', '2026-09-09', { route: 'R22', rows: [] })], [], '2026-09')
+  assert.equal(result.days[0].scaleLiters, null)
+  assert.equal(result.days[0].avizLiters, null)
+  const days = groupReconciliationDays(result.comparisons.filter(row => row.reception.receptionId === 'shown'), [], [])
+  assert.equal(days.length, 1)
+  assert.equal(days[0].scaleLiters, 8737.9)
+  assert.equal(days[0].avizLiters, 8737.9)
+  assert.equal(days[0].documentCount, 1)
+  assert.equal(days[0].attentionCount, 0)
+  assert.equal(days[0].others.length, 0)
+  const otherDays = groupReconciliationDays([], [], result.others)
+  assert.equal(otherDays[0].scaleLiters, 0)
+  assert.equal(otherDays[0].avizLiters, 0)
+  assert.equal(otherDays[0].others[0].calculatedLiters, 500)
+  assert.deepEqual(groupReconciliationDays([], [], []), [])
 })
