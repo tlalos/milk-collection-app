@@ -1,0 +1,21 @@
+.reception-message-trigger { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+.reception-message-count { position: absolute; top: -6px; right: -6px; min-width: 20px; padding: 2px 5px; border-radius: 12px; background: #ffe2a3; color: #653b00; font-size: 11px; font-weight: 800; }
+.reception-messages-dialog { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid #cddbd3; border-radius: 8px; color: #173c29; background: white; }
+.reception-messages-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.reception-messages-dialog[open] { display: flex; flex-direction: column; }
+.reception-messages-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #dce6df; }
+.reception-messages-dialog h2 { font-size: 18px; margin: 0; }
+.reception-messages-dialog header > div { display: flex; gap: 6px; flex-shrink: 0; }
+.reception-messages-dialog button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #bfd4c6; border-radius: 5px; padding: 8px; background: #f7faf8; color: #165734; font: inherit; cursor: pointer; }
+.reception-messages-dialog button:disabled { opacity: .5; cursor: default; }
+.reception-messages-body { overflow-y: auto; padding: 0 16px 16px; }
+.reception-messages-summary, .reception-message-meta { color: #64766b; font-size: 12px; }
+.reception-messages-body ul { list-style: none; padding: 0; margin: 0; }
+.reception-messages-body li { padding: 14px 0; border-top: 1px solid #dce6df; overflow-wrap: anywhere; }
+.reception-message-title, .reception-message-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.reception-message-title time { font-size: 12px; }
+.reception-messages-body p { margin: 8px 0; line-height: 1.5; }
+.reception-messages-body small { color: #875d10; }
+.reception-message-actions { justify-content: flex-start; margin-top: 10px; font-size: 12px; }
+.reception-message-actions a { color: #165734; }
+.reception-messages-body [role="alert"] { color: #a03127; }

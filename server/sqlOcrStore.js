@@ -1,5 +1,26 @@
 import sql from 'mssql'
 import { changedMonthlyInvoiceSources } from './monthlyJournalInvoiceLock.js'
+import { initializeCmrSqlStore, writeCmrData, hydrateCmrJob } from './cmrSqlStore.js'
+import { readCmrReceptionMatch, writeCmrReceptionMatch } from './cmrReceptionMatching.js'
+
+export async function getCmrReceptionMatch(id) {
+  if (!isSqlOcrStoreEnabled()) throw Object.assign(new Error('CMR reception matching requires SQL storage.'), { status: 503 })
+  await initializeSqlOcrStore()
+  return readCmrReceptionMatch(await getPool(), id)
+}
+
+export async function listCmrReconciliationLinks() {
+  if (!isSqlOcrStoreEnabled()) return []
+  await initializeSqlOcrStore()
+  const pool = await getPool()
+  return (await pool.request().query('SELECT jobId,receptionId,status FROM dbo.CmrReceptionLinks;')).recordset
+}
+
+export async function saveCmrReceptionMatch(id, input, user) {
+  if (!isSqlOcrStoreEnabled()) throw Object.assign(new Error('CMR reception matching requires SQL storage.'), { status: 503 })
+  await initializeSqlOcrStore()
+  return writeCmrReceptionMatch(await getPool(), id, input, user)
+}
 
 let poolPromise = null
 let initialized = false
@@ -163,6 +184,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MonthlyProducerPricin
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MonthlyProducerPricing_Producer' AND object_id = OBJECT_ID(N'dbo.MonthlyProducerPricing'))
   CREATE INDEX IX_MonthlyProducerPricing_Producer ON dbo.MonthlyProducerPricing(producerCode, milkType, monthKey);
 `)
+  await initializeCmrSqlStore(pool)
   initialized = true
 }
 
@@ -208,15 +230,21 @@ ELSE
   }
 }
 
-export async function saveSqlJob(job, correctionTransaction = null) {
+export async function saveSqlJob(job, correctionTransaction = null, { expectedUpdatedAt } = {}) {
   await initializeSqlOcrStore()
   const pool = await getPool()
   const tx = correctionTransaction || new sql.Transaction(pool)
   if (!correctionTransaction) await tx.begin()
   try {
+    if (job.documentCategory === 'cmr' && expectedUpdatedAt !== undefined) {
+      const stored = (await new sql.Request(tx).input('id', sql.NVarChar(64), job.id)
+        .query('SELECT jobJson FROM dbo.OcrJobs WITH (UPDLOCK,HOLDLOCK) WHERE id=@id;')).recordset[0]
+      if (!stored || JSON.parse(stored.jobJson).updatedAt !== expectedUpdatedAt) throw Object.assign(new Error('This CMR has changed. Reload it before saving.'), { status: 409 })
+    }
     if (!correctionTransaction) await guardMonthlyJournalWrite(tx, job.id, job)
     const summary = jobSummary(job)
-    const jobJson = JSON.stringify(job)
+    // CMR fields are authoritative in CmrDocuments; JSON retains file/OCR metadata only.
+    const jobJson = JSON.stringify(job.documentCategory === 'cmr' ? { ...job, data: null } : job)
     const request = new sql.Request(tx)
     bindJob(request, job, summary, jobJson)
     await request.query(`
@@ -259,6 +287,8 @@ BEGIN
 END;
 `)
 
+    if (job.documentCategory === 'cmr') job = { ...job, data: await writeCmrData(tx, job) }
+
     await new sql.Request(tx)
       .input('jobId', sql.NVarChar(64), job.id)
       .query('DELETE FROM dbo.OcrJobRows WHERE jobId = @jobId;')
@@ -290,15 +320,15 @@ export async function getSqlJob(id) {
   const pool = await getPool()
   const result = await pool.request()
     .input('id', sql.NVarChar(64), id)
-    .query('SELECT jobJson FROM dbo.OcrJobs WHERE id = @id;')
-  return result.recordset[0] ? JSON.parse(result.recordset[0].jobJson) : null
+    .query('SELECT j.jobJson,c.* FROM dbo.OcrJobs j LEFT JOIN dbo.CmrDocuments c ON c.jobId=j.id WHERE j.id = @id;')
+  return result.recordset[0] ? hydrateCmrJob(result.recordset[0]) : null
 }
 
 export async function listSqlJobs() {
   await initializeSqlOcrStore()
   const pool = await getPool()
-  const result = await pool.request().query('SELECT jobJson FROM dbo.OcrJobs ORDER BY createdAt DESC;')
-  return result.recordset.map((row) => JSON.parse(row.jobJson))
+  const result = await pool.request().query('SELECT j.jobJson,c.* FROM dbo.OcrJobs j LEFT JOIN dbo.CmrDocuments c ON c.jobId=j.id ORDER BY j.createdAt DESC;')
+  return result.recordset.map(hydrateCmrJob)
 }
 
 export async function deleteSqlJob(id) {

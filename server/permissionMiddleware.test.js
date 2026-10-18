@@ -47,6 +47,12 @@ test('herd-count editing requires the shared Exports permission', async () => {
   assert.equal(await check({ permissions: ['ocr_documents'] }, '/exports/producer-herd-counts', { method: 'PUT' }), 403)
 })
 
+test('contract editing requires the shared Exports permission', async () => {
+  assert.equal(await check({ permissions: ['exports'] }, '/exports/producer-contracts', { method: 'PUT' }), 200)
+  assert.equal(await check(null, '/exports/producer-contracts', { method: 'PUT' }), 401)
+  assert.equal(await check({ permissions: ['ocr_documents'] }, '/exports/producer-contracts', { method: 'PUT' }), 403)
+})
+
 test('subpage data uses its parent permission and rejects unrelated grants', async () => {
   assert.equal(await check({ permissions: ['month_closure'] }, '/reference-suppliers'), 200)
   assert.equal(await check({ permissions: ['month_closure'] }, '/', { permission: 'month_closure' }), 200)

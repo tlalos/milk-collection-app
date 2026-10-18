@@ -5,6 +5,7 @@ import { clearReferenceCaches, enrichMissingRowValues, matchCentersForRows, matc
 import { matchDailyOcrDriver, matchDailyOcrVehicle, resolveDailyOcrRoute } from './dailyOcrReferenceService.js'
 import { rebuildVerificationWarnings } from './verification.js'
 import { getOcrSettings } from './ocrSettingsStore.js'
+import { normalizeCmrExtraction } from './cmrOcr.js'
 
 const pendingIds = []
 const queuedIds = new Set()
@@ -32,13 +33,23 @@ async function processNext() {
 
     attemptSettings = await getOcrSettings()
     attemptStartedAt = Date.now()
-    await updateJob(id, { status: 'processing', startedAt: new Date(attemptStartedAt).toISOString(), error: null, openai: { provider: attemptSettings.provider, model: attemptSettings.model, usage: null, cost: null, durationMs: null } })
+    const processingJob = await updateJob(id, { status: 'processing', startedAt: new Date(attemptStartedAt).toISOString(), error: null, openai: { provider: attemptSettings.provider, model: attemptSettings.model, usage: null, cost: null, durationMs: null } })
     const buffer = await readFile(getStoredFilePath(job))
     const extraction = await extractMilkCollectionDocument({
       buffer,
       mimetype: job.mimeType,
       originalname: job.sourceFile,
-    }, job.documentCategory || 'daily_routes')
+    }, job.documentCategory || 'daily_routes', attemptSettings)
+    if (job.documentCategory === 'cmr') {
+      const recognized = normalizeCmrExtraction(extraction.data, job.data?.date || '')
+      await updateJob(id, {
+        ...recognized, status: 'completed', reviewStatus: 'pending', reviewedAt: null,
+        ocrOriginalData: extraction.data,
+        openai: { ...extraction.openai, provider: attemptSettings.provider, durationMs: extraction.openai?.durationMs ?? Date.now() - attemptStartedAt },
+        completedAt: new Date().toISOString(), error: null,
+      }, { expectedUpdatedAt: processingJob.updatedAt })
+      return
+    }
     if (job.documentCategory === 'journal_monthly_settlement') {
       clearReferenceCaches()
       let data = extraction.data

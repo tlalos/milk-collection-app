@@ -6,6 +6,7 @@ import { prepareFinalColumnCrop } from './ocrImageProcessing.js'
 import { MilkCollectionDocumentSchema, MonthlySettlementDocumentSchema } from './ocrSchema.js'
 import { calculateOpenAiCost } from './openaiCost.js'
 import { getOcrSettings, OCR_PROVIDERS } from './ocrSettingsStore.js'
+import { CmrOcrSchema, CMR_PROMPT, CMR_JSON_PROMPT } from './cmrOcr.js'
 
 const EXTRACTION_PROMPT = `Extract this Romanian milk-collection daily driver statement into the supplied schema.
 
@@ -206,8 +207,8 @@ export async function extractMilkCollectionDocument(file, documentCategory = 'da
   if (settings.provider === 'mistral' && settings.model.startsWith('mistral-ocr-')) return extractWithMistralDocumentAi(file, settings, documentCategory)
   if (settings.provider !== 'openai') return extractWithCompatibleProvider(file, settings, documentCategory)
   const isMonthly = documentCategory === 'journal_monthly_settlement'
-  const schema = isMonthly ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
-  const prompt = isMonthly ? MONTHLY_SETTLEMENT_PROMPT : EXTRACTION_PROMPT
+  const schema = documentCategory === 'cmr' ? CmrOcrSchema : isMonthly ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const prompt = documentCategory === 'cmr' ? CMR_PROMPT : isMonthly ? MONTHLY_SETTLEMENT_PROMPT : EXTRACTION_PROMPT
   const model = settings.model
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const response = await client.responses.parse({
@@ -222,7 +223,7 @@ export async function extractMilkCollectionDocument(file, documentCategory = 'da
       ],
     }],
     text: {
-      format: zodTextFormat(schema, isMonthly ? 'monthly_settlement_document' : 'milk_collection_document'),
+      format: zodTextFormat(schema, documentCategory === 'cmr' ? 'cmr_document' : isMonthly ? 'monthly_settlement_document' : 'milk_collection_document'),
     },
   })
 
@@ -231,7 +232,7 @@ export async function extractMilkCollectionDocument(file, documentCategory = 'da
   }
 
   const accounting = calculateOpenAiCost(model, response.usage)
-  const rawData = isMonthly ? response.output_parsed : prepareDailyRawData(response.output_parsed)
+  const rawData = isMonthly || documentCategory === 'cmr' ? response.output_parsed : prepareDailyRawData(response.output_parsed)
   return {
     data: normalizeMonthlyData(schema.parse(rawData)),
     openai: {
@@ -252,6 +253,7 @@ const compatibleProviderTimeoutMs = Math.max(300_000, Number(process.env.COMPATI
 const { agent: compatibleProviderAgent, fetchJson: fetchProviderJson } = createOcrProviderClient(compatibleProviderTimeoutMs)
 
 function jsonPrompt(documentCategory) {
+  if (documentCategory === 'cmr') return CMR_JSON_PROMPT
   if (documentCategory === 'journal_monthly_settlement') {
     return `${MONTHLY_SETTLEMENT_PROMPT}\n\nReturn only valid JSON with this exact shape: {"documentType":"journal_monthly_settlement","layoutType":"detailed"|"overview","date":string|null,"documentMonth":number|null,"milkType":string,"headerCenterName":string|null,"totalLiters":number|null,"rows":[{"rowNumber":number,"producer":string|null,"centerName":string|null,"milkType":string|null,"liters":number|null,"ugPercent":number|null,"gValue":number|null,"confidence":number,"uncertainFields":string[]}],"warnings":string[],"rawTranscription":string}`
   }
@@ -344,7 +346,10 @@ async function extractWithMistralDocumentAi(file, settings, documentCategory) {
   const finalColumnCheck = documentCategory === 'journal_monthly_settlement'
     ? '\n\nMANDATORY FINAL-COLUMN CHECK FOR DETAILED JOURNALS: Trace each row horizontally to the extreme right. Ignore the first/near TOTAL L and U.G. group completely. `liters` is the value under the second/final TOTAL L header; `gValue` is the value under the extreme-right final U.G. Total header. If a final cell cannot be read, return null—never copy the nearer value. Before returning JSON, verify this rule independently for every row.'
     : ''
-  const structuringPrompt = `${jsonPrompt(documentCategory)}${finalColumnCheck}\n\nCompleteness check: inspect the whole source from the first grid row to the last. Before returning JSON, compare the number of output rows with all visibly populated rows and add any omitted row. Use the original document as the primary source and this OCR transcription as supporting evidence:\n${recognisedText}`
+  const completenessCheck = documentCategory === 'cmr'
+    ? 'Check every numbered CMR box. Return one document, not collection rows.'
+    : 'Inspect the whole source from the first grid row to the last. Before returning JSON, compare the number of output rows with all visibly populated rows and add any omitted row.'
+  const structuringPrompt = `${jsonPrompt(documentCategory)}${finalColumnCheck}\n\nCompleteness check: ${completenessCheck} Use the original document as the primary source and this OCR transcription as supporting evidence:\n${recognisedText}`
   const structuringContent = file.mimetype === 'application/pdf'
     ? structuringPrompt
     : [{ type: 'text', text: structuringPrompt }, { type: 'image_url', image_url: dataUrl }]
@@ -361,7 +366,7 @@ async function extractWithMistralDocumentAi(file, settings, documentCategory) {
   if (!text) throw new Error('Mistral did not convert the OCR transcription into review data.')
   const rawData = JSON.parse(String(text).replace(/^```(?:json)?\s*|\s*```$/gu, '').trim())
   if (documentCategory === 'journal_monthly_settlement') prepareMonthlyRawData(rawData)
-  if (documentCategory !== 'journal_monthly_settlement') prepareDailyRawData(rawData)
+  if (documentCategory === 'daily_routes') prepareDailyRawData(rawData)
   if (documentCategory === 'journal_monthly_settlement' && rawData.layoutType === 'detailed' && file.mimetype !== 'application/pdf') {
     const verification = await verifyMistralFinalColumns(file, rawData, headers, structuringModel)
     const verifiedByRow = new Map(verification.rows.map((row) => [Number(row.rowNumber), row]))
@@ -388,7 +393,7 @@ async function extractWithMistralDocumentAi(file, settings, documentCategory) {
     ]
   }
   if (documentCategory === 'journal_monthly_settlement') prepareMonthlyRawData(rawData)
-  const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const schema = documentCategory === 'cmr' ? CmrOcrSchema : documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
   const data = normalizeMonthlyData(schema.parse(rawData))
   const usage = structuredPayload.usage ? {
     inputTokens: structuredPayload.usage.prompt_tokens || 0,
@@ -522,12 +527,12 @@ async function extractWithCompatibleProvider(file, settings, documentCategory) {
   const text = payload.choices?.[0]?.message?.content
   if (!text) throw new Error(`${provider.label} did not return OCR data.`)
   const cleaned = String(text).replace(/^```(?:json)?\s*|\s*```$/gu, '').trim()
-  const schema = documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
+  const schema = documentCategory === 'cmr' ? CmrOcrSchema : documentCategory === 'journal_monthly_settlement' ? MonthlySettlementDocumentSchema : MilkCollectionDocumentSchema
   const rawData = JSON.parse(cleaned)
   if (documentCategory === 'journal_monthly_settlement' && !rawData.milkType) rawData.milkType = 'MILK-COW'
   if (documentCategory === 'journal_monthly_settlement' && rawData.documentMonth === undefined) rawData.documentMonth = null
   if (documentCategory === 'journal_monthly_settlement' && rawData.totalLiters === undefined) rawData.totalLiters = null
-  if (documentCategory !== 'journal_monthly_settlement') prepareDailyRawData(rawData)
+  if (documentCategory === 'daily_routes') prepareDailyRawData(rawData)
   const data = normalizeMonthlyData(schema.parse(rawData))
   const usage = payload.usage ? {
     inputTokens: payload.usage.prompt_tokens || 0,

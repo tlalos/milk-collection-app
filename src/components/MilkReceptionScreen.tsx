@@ -9,6 +9,7 @@ import { appPath } from '../ocrPaths'
 import { db } from '../db/database'
 import type { LocalTruck } from '../types/trucks'
 import { FloatingHorizontalScrollbar } from './FloatingHorizontalScrollbar'
+import { ReceptionMessages } from './ReceptionMessages'
 
 interface MilkReceptionScreenProps {
   onBack: () => void
@@ -351,6 +352,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   const [weighbridgeConfig, setWeighbridgeConfig] = useState<WeighbridgeClientConfig>(defaultWeighbridgeConfig)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [messagesRevision, setMessagesRevision] = useState(0)
   const [detailSectionOpen, setDetailSectionOpen] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
@@ -993,6 +995,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       if (!response.ok) throw new Error(payload.error || 'Could not save milk reception.')
       if (payload.linkWarning) setError(`Reception saved, but Daily Aviz links could not be updated: ${payload.linkWarning}`)
       const savedRecord = { ...payload.record, qualityDetails: normalizeQualityDetails(payload.record.qualityDetails), isNew: false }
+      setMessagesRevision(value => value + 1)
       savedId = savedRecord.receptionId
       const currentRevision = revisionsRef.current.get(id) || 0
       needsResave = currentRevision !== revisionAtStart
@@ -1063,6 +1066,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
       const response = await fetch(appPath(`/api/milk-receptions/${encodeURIComponent(record.receptionId)}`), { method: 'DELETE' })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || 'Could not delete milk reception.')
+      setMessagesRevision(value => value + 1)
       commitRecords(recordsRef.current.filter((item) => item.receptionId !== record.receptionId))
       forgetRecord(record.receptionId)
       setNotice(`Reception ${record.receptionId} deleted.`)
@@ -1255,6 +1259,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
           </div>
         </div>
         <div className="reception-header-actions">
+          <ReceptionMessages revision={messagesRevision} onViewReception={date => { setFilterDate(date); setSearch('') }} />
           <button className="reception-factors-button" type="button" onClick={() => { window.location.href = appPath('/milk-factors?from=reception') }}>Milk factors</button>
           <button className="reception-settings-tile" type="button" onClick={() => setSettingsOpen((open) => !open)}>
             <span>Settings</span>

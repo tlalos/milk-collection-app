@@ -100,3 +100,31 @@ test('regrouping filtered rows excludes hidden quantities, documents and missing
   assert.equal(otherDays[0].others[0].calculatedLiters, 500)
   assert.deepEqual(groupReconciliationDays([], [], []), [])
 })
+
+test('day headers total net kilograms separately for collection and others and respect filtered rows', () => {
+  const result = buildDailyReconciliation([
+    reception('first', '2026-09-09', { netQuantityKg: 1030 }),
+    reception('second', '2026-09-09', { routeId: 'R21', netQuantityKg: 2060.5 }),
+    reception('other', '2026-09-09', { vehicleCategory: 'OTHER', netQuantityKg: 515 }),
+    reception('next-day', '2026-09-10', { netQuantityKg: 999 }),
+  ], [], [], '2026-09')
+  assert.equal(result.days[1].collectionNetKg, 3090.5)
+  assert.equal(result.days[1].othersNetKg, 515)
+  assert.equal(result.days[0].collectionNetKg, 999)
+  assert.equal(result.days[0].othersNetKg, null)
+  const filtered = groupReconciliationDays(result.comparisons.filter(row => row.reception.receptionId === 'first'), [], [])
+  assert.equal(filtered[0].collectionNetKg, 1030)
+  assert.equal(filtered[0].othersNetKg, null)
+})
+
+test('missing net weights never display a misleading partial total, and real zero remains zero', () => {
+  const result = buildDailyReconciliation([
+    reception('known', '2026-09-09'),
+    reception('missing', '2026-09-09', { routeId: 'R21', netQuantityKg: null }),
+    reception('other', '2026-09-09', { vehicleCategory: 'OTHER', netQuantityKg: null }),
+    reception('zero', '2026-09-10', { netQuantityKg: 0 }),
+  ], [], [], '2026-09')
+  assert.equal(result.days[1].collectionNetKg, null)
+  assert.equal(result.days[1].othersNetKg, null)
+  assert.equal(result.days[0].collectionNetKg, 0)
+})

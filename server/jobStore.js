@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { emptyCmrData } from './cmrDocument.js'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,8 +37,8 @@ function jobPath(id) {
   return path.join(jobsDir, `${id}.json`)
 }
 
-async function writeJob(job) {
-  if (isSqlOcrStoreEnabled()) return saveSqlJob(job)
+async function writeJob(job, options = {}) {
+  if (isSqlOcrStoreEnabled()) return saveSqlJob(job, null, options)
   const target = jobPath(job.id)
   const temporary = `${target}.${randomUUID()}.tmp`
   await writeFile(temporary, JSON.stringify(job, null, 2), 'utf8')
@@ -88,7 +89,7 @@ export async function createJob(file, documentCategory = 'daily_routes') {
     startedAt: null,
     completedAt: null,
     reviewedAt: null,
-    data: null,
+    data: documentCategory === 'cmr' ? emptyCmrData() : null,
     ocrOriginalData: null,
     openai: null,
     excelExport: { status: 'not_ready', error: null },
@@ -125,10 +126,11 @@ export async function getJob(id) {
   }
 }
 
-export async function updateJob(id, updates) {
+export async function updateJob(id, updates, options = {}) {
   const job = await getJob(id)
   if (!job) return null
-  return writeJob({ ...job, ...updates, updatedAt: new Date().toISOString() })
+  return writeJob({ ...job, ...updates, updatedAt: new Date().toISOString() }, job.documentCategory === 'cmr'
+    ? { expectedUpdatedAt: options.expectedUpdatedAt ?? job.updatedAt } : options)
 }
 
 export async function listJobs() {
@@ -167,11 +169,11 @@ export function toPublicJob(job, includeData = true) {
   const rowLitersTotal = Array.isArray(job.data?.rows)
     ? job.data.rows.reduce((total, row) => total + (typeof row.liters === 'number' && Number.isFinite(row.liters) ? row.liters : 0), 0)
     : null
-  const uncertainFieldCount = job.data?.rows?.reduce(
+  const uncertainFieldCount = job.documentCategory === 'cmr' ? (job.cmrOcr?.uncertainFields || []).filter(field => !(job.cmrOcr?.verifiedFields || []).includes(field)).length : job.data?.rows?.reduce(
     (total, row) => total + (row.uncertainFields?.length ?? 0),
     0,
   ) ?? 0
-  const warningCount = job.data?.warnings?.length ?? 0
+  const warningCount = (job.documentCategory === 'cmr' ? job.cmrOcr?.warnings?.length : job.data?.warnings?.length) ?? 0
   return {
     ...publicJob,
     summary: {

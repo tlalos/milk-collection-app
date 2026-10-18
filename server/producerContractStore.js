@@ -1,4 +1,5 @@
 import sql from 'mssql'
+import { createHash } from 'node:crypto'
 
 let poolPromise
 let initializationPromise
@@ -56,6 +57,8 @@ BEGIN
     CONSTRAINT CK_ProducerContracts_SourceRow CHECK (sourceRow >= 2)
   );
 END;
+IF COL_LENGTH(N'dbo.ProducerContracts', N'rowVersion') IS NULL
+  ALTER TABLE dbo.ProducerContracts ADD rowVersion ROWVERSION NOT NULL;
 `)
   })().catch(error => { initializationPromise = null; throw error })
   return initializationPromise
@@ -63,7 +66,8 @@ END;
 
 export const selectProducerContractsSql = `SELECT contractId, producerCode, milkType, contractNumber,
   CONVERT(char(10), contractStartDate, 23) AS contractStartDate,
-  CONVERT(char(10), contractEndDate, 23) AS contractEndDate, contractedKg
+  CONVERT(char(10), contractEndDate, 23) AS contractEndDate, contractedKg,
+  CONVERT(varchar(18),CONVERT(binary(8),rowVersion),1) AS version
 FROM dbo.ProducerContracts`
 
 export async function listProducerContracts() {
@@ -131,4 +135,73 @@ export async function insertProducerContract(transaction, row, source, username)
     .query(`INSERT INTO dbo.ProducerContracts
       (producerCode,milkType,contractNumber,contractStartDate,contractEndDate,contractedKg,sourceFile,sourceSheet,sourceRow,sourceSha256,updatedBy)
       VALUES (@producerCode,@milkType,@contractNumber,@start,@end,@kg,@file,@sheet,@row,@hash,@user);`)
+}
+
+const editError = (message, status = 400) => Object.assign(new Error(message), { status })
+
+export function validateProducerContractEdit(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw editError('Invalid contract.')
+  const contractId = input.contractId == null ? null : String(input.contractId)
+  if (contractId !== null && !/^[1-9]\d{0,17}$/u.test(contractId)) throw editError('Invalid contract ID.')
+  if (contractId === null ? input.expectedVersion !== null : typeof input.expectedVersion !== 'string' || !/^0x[0-9a-f]{16}$/iu.test(input.expectedVersion)) throw editError('Reload the contracts before saving.')
+  let row
+  try {
+    row = validateProducerContracts([{ producerCode: input.producerCode, milkType: input.milkType,
+      contractNumber: input.contractNumber, contractStartDate: input.contractStartDate,
+      contractEndDate: input.contractEndDate, contractedKg: input.contractedKg, sourceRow: 2 }])[0]
+  } catch (error) { throw editError(error.message.replace(/^Excel row .*?: /u, '')) }
+  return { ...row, contractId, expectedVersion: input.expectedVersion }
+}
+
+export function checkProducerContractEdit(edit, existing) {
+  const current = edit.contractId === null ? null : existing.find(row => String(row.contractId) === edit.contractId)
+  if (edit.contractId !== null && !current) throw editError('Contract no longer exists for this producer and milk type. Refresh the list.', 409)
+  if (current && (current.version?.toLowerCase() !== edit.expectedVersion.toLowerCase()
+    || code(current.producerCode) !== edit.producerCode || current.milkType !== edit.milkType)) throw editError('Contract changed since this page was loaded. Refresh and review before saving.', 409)
+  if (existing.some(row => String(row.contractId) !== edit.contractId && identity(row) === identity(edit)
+    && row.contractStartDate <= edit.contractEndDate && row.contractEndDate >= edit.contractStartDate)) throw editError('These dates overlap another contract for this producer and milk type.', 409)
+  return current
+}
+
+export async function saveProducerContract(input, user) {
+  const edit = validateProducerContractEdit(input)
+  await initializeProducerContracts()
+  const transaction = new sql.Transaction(await getProducerContractPool())
+  await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
+  try {
+    const request = () => new sql.Request(transaction)
+      .input('code', sql.NVarChar(80), edit.producerCode).input('milk', sql.NVarChar(40), edit.milkType)
+    const existing = (await request().query(`${selectProducerContractsSql} WITH (UPDLOCK,HOLDLOCK)
+      WHERE producerCode=@code AND milkType=@milk;`)).recordset
+    const before = checkProducerContractEdit(edit, existing)
+    if (!before) {
+      const snapshot = (await new sql.Request(transaction).query("SELECT producersJson FROM dbo.OcrErpReferenceSnapshot WHERE snapshotKey=N'suppliers';")).recordset[0]
+      const producers = JSON.parse(snapshot?.producersJson || '[]')
+      if (!producers.some(producer => code(producer.producerCode) === edit.producerCode)) throw editError('Choose a producer from the saved ERP list.')
+      // The legacy source row is required; manual provenance is explicit in the file and sheet fields.
+      await insertProducerContract(transaction, edit, { file: 'manual-entry', sheet: 'APIA contract editor', sha256: createHash('sha256').update(JSON.stringify(edit)).digest('hex') }, user.username)
+    } else {
+      await request().input('id', sql.BigInt, edit.contractId)
+        .input('number', sql.NVarChar(100), edit.contractNumber)
+        .input('start', sql.Date, edit.contractStartDate).input('end', sql.Date, edit.contractEndDate)
+        .input('kg', sql.Decimal(18, 3), edit.contractedKg).input('user', sql.NVarChar(120), user.username)
+        .query(`UPDATE dbo.ProducerContracts SET contractNumber=@number,contractStartDate=@start,
+          contractEndDate=@end,contractedKg=@kg,updatedAt=SYSDATETIMEOFFSET(),updatedBy=@user
+          WHERE contractId=@id AND producerCode=@code AND milkType=@milk;`)
+    }
+    const saved = (await request().input('start', sql.Date, edit.contractStartDate)
+      .query(`${selectProducerContractsSql} WHERE producerCode=@code AND milkType=@milk AND contractStartDate=@start;`)).recordset[0]
+    await new sql.Request(transaction)
+      .input('userId', sql.NVarChar(64), user.id || null).input('username', sql.NVarChar(160), user.username)
+      .input('entity', sql.NVarChar(240), String(saved.contractId))
+      .input('before', sql.NVarChar(sql.MAX), before ? JSON.stringify(before) : null)
+      .input('after', sql.NVarChar(sql.MAX), JSON.stringify(saved))
+      .query(`INSERT INTO dbo.AppAuditLog (occurredAt,userId,username,action,entityType,entityId,beforeJson,afterJson)
+        VALUES (SYSDATETIMEOFFSET(),@userId,@username,N'apia.contract.save',N'ProducerContracts',@entity,@before,@after);`)
+    await transaction.commit()
+    return saved
+  } catch (error) {
+    await transaction.rollback().catch(() => undefined)
+    throw error
+  }
 }

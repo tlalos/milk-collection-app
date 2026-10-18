@@ -1,3 +1,4 @@
+import type { CmrComparison } from './cmrReconciliationModel'
 export type ReceptionCategory = 'COLLECTION' | 'OTHER'
 export type MatchStatus = 'within_range' | 'difference' | 'no_aviz' | 'awaiting_weight' | 'review' | 'missing_info' | 'conflict'
 export type UnmatchedStatus = 'no_scale' | 'missing_info' | 'conflict'
@@ -64,6 +65,7 @@ export interface UnmatchedDocument {
 }
 
 export interface ReconciliationDay {
+  cmrComparisons: CmrComparison[]
   date: string
   comparisons: CollectionComparison[]
   unmatched: UnmatchedDocument[]
@@ -71,6 +73,8 @@ export interface ReconciliationDay {
   documentCount: number
   scaleLiters: number | null
   avizLiters: number | null
+  collectionNetKg: number | null
+  othersNetKg: number | null
   missingAvizCount: number
   unmatchedAvizCount: number
   differenceCount: number
@@ -178,12 +182,14 @@ export function buildDailyReconciliation(
 
 export function groupReconciliationDays(
   comparisons: CollectionComparison[], unmatched: UnmatchedDocument[], others: ReceptionRow[],
+  cmrComparisons: CmrComparison[] = [],
 ): ReconciliationDay[] {
   const dayMap = new Map<string, ReconciliationDay>()
   const dayFor = (date: string) => {
     if (!dayMap.has(date)) dayMap.set(date, {
-      date, comparisons: [], unmatched: [], others: [], documentCount: 0,
+      date, comparisons: [], unmatched: [], others: [], cmrComparisons: [], documentCount: 0,
       scaleLiters: 0, avizLiters: 0, missingAvizCount: 0, unmatchedAvizCount: 0,
+      collectionNetKg: null, othersNetKg: null,
       differenceCount: 0, attentionCount: 0,
     })
     return dayMap.get(date)!
@@ -191,6 +197,7 @@ export function groupReconciliationDays(
   for (const comparison of comparisons) dayFor(dateKey(comparison.reception.receptionDate)).comparisons.push(comparison)
   for (const item of unmatched) dayFor(documentDay(item.document)).unmatched.push(item)
   for (const reception of others) dayFor(dateKey(reception.receptionDate)).others.push(reception)
+  for (const comparison of cmrComparisons) dayFor(comparison.date).cmrComparisons.push(comparison)
 
   const days = [...dayMap.values()].sort((left, right) => right.date.localeCompare(left.date))
   for (const day of days) {
@@ -198,6 +205,10 @@ export function groupReconciliationDays(
     day.documentCount = allDocuments.length
     day.scaleLiters = totalIfComplete(day.comparisons.map((comparison) => numberOrNull(comparison.reception.calculatedLiters)))
     day.avizLiters = totalIfComplete(allDocuments.map(documentLiters))
+    day.collectionNetKg = day.comparisons.length
+      ? totalIfComplete(day.comparisons.map(comparison => numberOrNull(comparison.reception.netQuantityKg))) : null
+    day.othersNetKg = day.others.length
+      ? totalIfComplete(day.others.map(reception => numberOrNull(reception.netQuantityKg))) : null
     day.missingAvizCount = day.comparisons.filter((comparison) => comparison.status === 'no_aviz').length
     day.unmatchedAvizCount = day.unmatched.length
     day.differenceCount = day.comparisons.filter((comparison) => comparison.status === 'difference').length

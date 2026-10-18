@@ -33,6 +33,11 @@ import {
   userHasPermission,
 } from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
+import { registerCmrRoutes } from './cmrDocument.js'
+import { getCmrReceptionMatch, saveCmrReceptionMatch, listCmrReconciliationLinks } from './sqlOcrStore.js'
+import { cmrReconciliationDocuments } from './cmrReceptionMatching.js'
+import { registerCmrReceptionMessages } from './cmrReceptionMessages.js'
+import { normalizeReconciliationDate, normalizeReconciliationKey } from './reconciliationKeys.js'
 import { createPermissionMiddleware } from './permissionMiddleware.js'
 import { archiveOcrJobNow, startOcrArchiveCleanup } from './ocrArchiveCleanup.js'
 import { readArchiveHistory } from './ocrArchiveHistory.js'
@@ -103,7 +108,7 @@ import {
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getMilkDensitySettings, initializeMilkDensitySettingsStore, saveMilkDensitySettings, validateMilkDensitySettings } from './milkDensitySettingsStore.js'
-import { initializeProducerContracts, listProducerContracts } from './producerContractStore.js'
+import { initializeProducerContracts, listProducerContracts, saveProducerContract } from './producerContractStore.js'
 import { initializeProducerHerdCounts, listProducerHerdCounts, saveProducerHerdCounts } from './producerHerdStore.js'
 import { initializeMonthlyAvizPricingApprovals } from './monthlyAvizPricingApprovalStore.js'
 import { initializeMonthlyInvoices, listMonthlyInvoices, saveMonthlyInvoiceDate, saveMonthlyInvoiceDates, invoiceIdentity, claimMonthlyInvoice, finishMonthlyInvoiceAttempt, getMonthlyInvoiceHistory, resolveMonthlyInvoice, validateInvoiceResolution } from './monthlyInvoiceStore.js'
@@ -186,32 +191,6 @@ function restorePreviouslyDerivedValues(submittedData, originalData, rowValueSou
     }
   }
   return restored
-}
-
-function normalizeReconciliationKey(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/gu, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/gu, '')
-}
-
-function normalizeReconciliationDate(value) {
-  if (!value) return ''
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    const two = (part) => String(part).padStart(2, '0')
-    return `${value.getFullYear()}-${two(value.getMonth() + 1)}-${two(value.getDate())}`
-  }
-  const text = String(value || '').trim()
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/u.exec(text)
-  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
-  const displayMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/u.exec(text)
-  if (displayMatch) return `${displayMatch[3]}-${displayMatch[2].padStart(2, '0')}-${displayMatch[1].padStart(2, '0')}`
-  const timestamp = Date.parse(text)
-  if (!Number.isFinite(timestamp)) return ''
-  const date = new Date(timestamp)
-  const two = (part) => String(part).padStart(2, '0')
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
 }
 
 function finiteNumber(value) {
@@ -1278,6 +1257,7 @@ app.get('/api/ocr/health', async (_request, response) => {
 })
 
 app.use('/api/ocr', requireOcrPermission)
+registerCmrRoutes(app, { getJob, listJobs, updateJob, deleteJob, toPublicJob, auditAction, listMilkReceptions, getCmrReceptionMatch, saveCmrReceptionMatch, enqueueOcrJob, getOcrSettings, isOcrProviderConfigured, OCR_PROVIDERS })
 
 app.post('/api/ocr/reference-centers', async (request, response, next) => {
   try {
@@ -1363,6 +1343,7 @@ app.put('/api/milk-factors', requirePermission('app_admin'), async (request, res
 })
 
 app.use('/api/milk-receptions', requirePermission('milk_reception'))
+registerCmrReceptionMessages(app, { requirePermission, listJobs, listMilkReceptions, listCmrReconciliationLinks })
 
 app.get('/api/milk-receptions/options', async (_request, response) => {
   const warnings = []
@@ -1543,10 +1524,11 @@ app.get('/api/daily-reconciliation/month', requirePermission('daily_reconciliati
   try {
     const month = String(request.query.month || '')
     if (!/^\d{4}-(0[1-9]|1[0-2])$/u.test(month)) return response.status(400).json({ error: 'Choose a valid month.' })
-    const [receptions, jobs, links] = await Promise.all([
+    const [receptions, jobs, links, allCmrLinks] = await Promise.all([
       listMilkReceptions({ month, includeQualityDetails: false }),
       listJobs(),
       listDailyReconciliationLinks(month),
+      listCmrReconciliationLinks(),
     ])
     const documents = jobs
       .filter((job) => (job.documentCategory || 'daily_routes') === 'daily_routes')
@@ -1569,7 +1551,10 @@ app.get('/api/daily-reconciliation/month', requirePermission('daily_reconciliati
           liters: row.liters ?? null,
         })),
       }))
-    response.json({ receptions, documents, links })
+    const cmrDocuments = cmrReconciliationDocuments(jobs, allCmrLinks, receptions, month)
+    const cmrIds = new Set(cmrDocuments.map(document => document.id))
+    const cmrLinks = allCmrLinks.filter(link => cmrIds.has(link.jobId))
+    response.json({ receptions, documents, links, cmrDocuments, cmrLinks })
   } catch (error) {
     next(error)
   }
@@ -1741,21 +1726,24 @@ app.post('/api/ocr/compare', upload.single('document'), async (request, response
 
 app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, response, next) => {
   try {
-    const settings = await getOcrSettings()
-    const provider = OCR_PROVIDERS[settings.provider]
-    if (!isOcrProviderConfigured(provider)) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
     if (!request.files?.length) {
       return response.status(400).json({ error: 'Add at least one document.' })
     }
     const documentCategory = String(request.body?.documentCategory || '')
-    if (!['daily_routes', 'journal_monthly_settlement'].includes(documentCategory)) {
+    if (!['daily_routes', 'journal_monthly_settlement', 'cmr'].includes(documentCategory)) {
       return response.status(400).json({ error: 'Select a valid document type.' })
+    }
+    {
+      const settings = await getOcrSettings()
+      const provider = OCR_PROVIDERS[settings.provider]
+      if (!isOcrProviderConfigured(provider)) return response.status(503).json({ error: `${provider?.label || settings.provider} OCR is not configured on the server.` })
     }
 
     const jobs = []
     for (const file of request.files) {
       const job = await createJob(file, documentCategory)
       jobs.push(toPublicJob(job, false))
+      if (documentCategory === 'cmr') await auditAction({ request, user: request.authUser, action: 'cmr.create', entityType: 'CmrDocument', entityId: job.id, after: { sourceFile: job.sourceFile, data: job.data } })
       enqueueOcrJob(job.id)
     }
 
@@ -1896,13 +1884,19 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
 app.get('/api/ocr/exports/producer-contracts', async (_request, response, next) => {
   try {
     const contracts = await listProducerContracts()
-    response.set('Cache-Control', 'no-store').json({ contracts })
+    response.set('Cache-Control', 'no-store').json({ contracts, canEdit: !localCloneEnabled })
   } catch (error) { next(error) }
 })
 
 app.get('/api/ocr/exports/producer-herd-counts', async (_request, response, next) => {
   try {
     response.set('Cache-Control', 'no-store').json({ counts: await listProducerHerdCounts(), canEdit: !localCloneEnabled || localCloneHerdEditsEnabled })
+  } catch (error) { next(error) }
+})
+
+app.put('/api/ocr/exports/producer-contracts', async (request, response, next) => {
+  try {
+    response.set('Cache-Control', 'no-store').json({ saved: await saveProducerContract(request.body, request.authUser) })
   } catch (error) { next(error) }
 })
 

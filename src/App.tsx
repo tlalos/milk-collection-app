@@ -18,6 +18,7 @@ import { DailyReconciliationScreen } from './components/DailyReconciliationScree
 import { MonthClosureScreen } from './components/MonthClosureScreen'
 import { MonthlyReconciliationScreen } from './components/MonthlyReconciliationScreen'
 import { OcrDocumentScreen } from './components/OcrDocumentScreen'
+import { CmrReviewScreen } from './components/CmrReviewScreen'
 import { OcrArchiveHistoryScreen } from './components/OcrArchiveHistoryScreen'
 import { OcrReviewScreen } from './components/OcrReviewScreen'
 import { OcrSettingsScreen } from './components/OcrSettingsScreen'
@@ -74,6 +75,7 @@ type Screen =
   | 'suppliers'
   | 'entry'
   | 'ocrDocuments'
+  | 'cmrReview'
   | 'ocrArchiveHistory'
   | 'ocrReview'
   | 'ocrSettings'
@@ -115,9 +117,10 @@ function formatRefreshTime(value: string) {
 function initialScreen(): Screen {
   if (routePathname() === '/milk-collection') return 'home'
   if (routePathname() === '/ocr') return 'home'
-  if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'].includes(routePathname())) return 'exports'
+  if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/apia/contracts', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'].includes(routePathname())) return 'exports'
   if (routePathname() === '/home') return 'home'
   if (routePathname() === '/ocr/upload') return 'ocrDocuments'
+  if (routePathname() === '/ocr/cmr-review') return 'cmrReview'
   if (routePathname() === '/ocr/archive-history') return 'ocrArchiveHistory'
   if (routePathname() === '/ocr/review') return 'ocrReview'
   if (routePathname() === '/ocr/settings') return 'ocrSettings'
@@ -738,6 +741,10 @@ export function App() {
 
       {screen === 'ocrDocuments' && (
         <OcrAuthGate requiredPermission="ocr_documents"><OcrDocumentScreen onBack={openOcrMenu} /></OcrAuthGate>
+      )}
+
+      {screen === 'cmrReview' && (
+        <OcrAuthGate requiredPermission="ocr_documents"><CmrReviewScreen /></OcrAuthGate>
       )}
 
       {screen === 'ocrArchiveHistory' && (

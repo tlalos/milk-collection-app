@@ -5,7 +5,7 @@ import { appPath, routePathname } from '../ocrPaths'
 import './OcrNavigation.css'
 
 const pages = [
-  { path: '/ocr/upload', label: 'OCR documents', permission: 'ocr_documents', icon: FileScan, children: ['/ocr/review', '/ocr/monthly-review', '/ocr/compare'] },
+  { path: '/ocr/upload', label: 'OCR documents', permission: 'ocr_documents', icon: FileScan, children: ['/ocr/review', '/ocr/monthly-review', '/ocr/cmr-review', '/ocr/compare'] },
   { path: '/ocr/settings', label: 'OCR settings', permission: 'ocr_settings', icon: Settings },
   { path: '/ocr/archive-history', label: 'Backup history', permission: 'backup_history', icon: Archive },
   { path: '/milk-reception', label: 'Milk Reception', permission: 'milk_reception', icon: Scale },
@@ -14,7 +14,7 @@ const pages = [
   { path: '/daily-reconciliation', label: 'Daily Reconciliation', permission: 'daily_reconciliation', icon: CalendarCheck },
   { path: '/monthly-reconciliation', label: 'Monthly Reconciliation', permission: 'monthly_reconciliation', icon: CalendarCheck },
   { path: '/month-closure', label: 'Month Closure & Payments', permission: 'month_closure', icon: Landmark, children: ['/bank-note'] },
-  { path: '/ocr/exports', label: 'Exports', permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'] },
+  { path: '/ocr/exports', label: 'Exports', permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/apia/contracts', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'] },
 ]
 
 export function hasOcrNavigation() {

@@ -15,8 +15,10 @@ import {
   type SavedLink,
 } from './dailyReconciliationModel'
 import './DailyReconciliationScreen.css'
+import { buildCmrReconciliation, cmrTotals, type CmrDocument, type CmrLink, type CmrComparison } from './cmrReconciliationModel'
+import { CmrReconciliationRows, formatCmrTotals } from './CmrReconciliationRows'
 
-type StatusFilter = 'all' | 'collection' | 'attention' | 'no_scale' | 'others' | MatchStatus
+type StatusFilter = 'all' | 'collection' | 'attention' | 'no_scale' | 'others' | 'only_cmr' | 'only_scale' | 'match_available' | 'needs_review' | 'cmr_linked' | MatchStatus
 
 const statusLabels: Record<MatchStatus, string> = {
   within_range: 'Within 5 L',
@@ -83,6 +85,8 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
   const [receptions, setReceptions] = useState<ReceptionRow[]>([])
   const [documents, setDocuments] = useState<AvizDocument[]>([])
   const [savedLinks, setSavedLinks] = useState<SavedLink[]>([])
+  const [cmrDocuments, setCmrDocuments] = useState<CmrDocument[]>([])
+  const [cmrLinks, setCmrLinks] = useState<CmrLink[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -101,11 +105,15 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
         setReceptions(Array.isArray(payload.receptions) ? payload.receptions as ReceptionRow[] : [])
         setDocuments(Array.isArray(payload.documents) ? payload.documents as AvizDocument[] : [])
         setSavedLinks(Array.isArray(payload.links) ? payload.links as SavedLink[] : [])
+        setCmrDocuments(Array.isArray(payload.cmrDocuments) ? payload.cmrDocuments : [])
+        setCmrLinks(Array.isArray(payload.cmrLinks) ? payload.cmrLinks : [])
       } catch (loadError) {
         if (controller.signal.aborted) return
         setReceptions([])
         setDocuments([])
         setSavedLinks([])
+        setCmrDocuments([])
+        setCmrLinks([])
         setError(loadError instanceof Error ? loadError.message : 'Could not load daily reconciliation.')
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -115,7 +123,14 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
     return () => controller.abort()
   }, [month, refreshKey])
 
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') setRefreshKey(value => value + 1) }
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [])
+
   const monthData = useMemo(() => buildDailyReconciliation(receptions, documents, savedLinks, month), [receptions, documents, savedLinks, month])
+  const cmrData = useMemo(() => buildCmrReconciliation(receptions, cmrDocuments, cmrLinks, month), [receptions, cmrDocuments, cmrLinks, month])
   const query = search.trim().toLocaleLowerCase()
   const comparisonVisible = (comparison: CollectionComparison) => {
     const statusMatches = status === 'all' || status === 'collection' || (status === 'attention' && comparison.status !== 'within_range') || comparison.status === status
@@ -125,12 +140,19 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
     const statusMatches = status === 'all' || status === 'collection' || status === 'attention' || item.status === status
     return statusMatches && documentMatchesSearch(item.document, query)
   }
-  const otherVisible = (reception: ReceptionRow) => (status === 'all' || status === 'others') && matchesSearch(query,
-    reception.receptionDate, reception.receptionId, reception.vehicleRegistration, reception.driverName, reception.milkTypeLabel, reception.comments)
+  const otherVisible = (row: CmrComparison) => {
+    const statusMatches = status === 'all' || status === 'others' || status === row.status
+      || (status === 'attention' && row.status !== 'linked') || (status === 'cmr_linked' && row.reception !== null && row.documents.length > 0)
+      || (status === 'only_cmr' && row.reception === null) || (status === 'only_scale' && row.reception !== null && row.documents.length === 0)
+    return statusMatches && matchesSearch(query, row.date, row.reception?.receptionId, row.reception?.vehicleRegistration,
+      row.reception?.driverName, row.reception?.milkTypeLabel, row.reception?.comments,
+      ...[...row.documents, ...row.suggestions].flatMap(doc => [doc.sourceFile, doc.supplier, doc.driver, doc.avizNumber, doc.vehicleRegistration]))
+  }
   const visibleComparisons = monthData.comparisons.filter(comparisonVisible)
   const visibleUnmatched = monthData.unmatched.filter(unmatchedVisible)
-  const visibleOthers = monthData.others.filter(otherVisible)
-  const visibleDays = groupReconciliationDays(visibleComparisons, visibleUnmatched, visibleOthers)
+  const visibleCmrRows = cmrData.filter(otherVisible)
+  const visibleOthers = visibleCmrRows.flatMap(row => row.reception ? [row.reception] : [])
+  const visibleDays = groupReconciliationDays(visibleComparisons, visibleUnmatched, visibleOthers, visibleCmrRows)
   const documentCount = visibleDays.reduce((total, day) => total + day.documentCount, 0)
   const attentionCount = visibleDays.reduce((total, day) => total + day.attentionCount, 0)
   const scaleLiters = visibleDays.some(day => day.scaleLiters === null)
@@ -160,8 +182,8 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
       </div>
       <div className="daily-recon-summary daily-recon-volume-summary" aria-label="Filtered Other receptions liter totals">
         <div title="Other receptions matching the filters"><span>Others scale liters</span><strong>{loading ? '-' : formatLiters(otherScaleLiters)}</strong></div>
-        <div title="No aviz comparison available for Other receptions"><span>Others aviz liters</span><strong>-</strong></div>
-        <div title="No aviz comparison available for Other receptions"><span>Others difference</span><strong>-</strong></div>
+        <div title="Filtered CMR quantities, kept in their original units"><span>Others CMR quantity</span><strong>{loading ? '-' : formatCmrTotals(cmrTotals(visibleCmrRows, 'document'))}</strong></div>
+        <div title="Available confirmed comparisons only; kilograms and liters are totaled separately"><span>Others difference</span><strong>{loading ? '-' : formatCmrTotals(cmrTotals(visibleCmrRows, 'difference'))}</strong></div>
       </div>
       <div className="daily-recon-summary" aria-label="Filtered record totals">
         <div><span>Scale receptions</span><strong>{visibleComparisons.length}</strong></div>
@@ -170,6 +192,8 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
         <div><span>Aviz unmatched</span><strong>{visibleUnmatched.length}</strong></div>
         <div><span>Other receptions</span><strong>{visibleOthers.length}</strong></div>
         <div><span>Collection attention</span><strong>{attentionCount}</strong></div>
+        <div><span>CMR documents</span><strong>{new Set(visibleCmrRows.flatMap(row => row.documents.map(doc => doc.id))).size}</strong></div>
+        <div><span>Others attention</span><strong>{visibleCmrRows.filter(row => row.status !== 'linked').length}</strong></div>
       </div>
 
       <div className="daily-recon-toolbar">
@@ -179,6 +203,11 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
           <option value="all">All records</option>
           <option value="collection">Collection only</option>
           <option value="others">Others only</option>
+          <option value="only_cmr">CMR without scale</option>
+          <option value="only_scale">Others scale without CMR</option>
+          <option value="match_available">CMR match available</option>
+          <option value="needs_review">CMR needs review</option>
+          <option value="cmr_linked">Linked CMRs</option>
           <option value="attention">Needs attention</option>
           <option value="no_aviz">Scale without aviz</option>
           <option value="no_scale">Aviz without scale</option>
@@ -226,22 +255,29 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
               })}>
               <span className="daily-recon-day-title"><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{weekday(day.date)} <time dateTime={day.date}>{displayDate(day.date)}</time></span>
               <span className="daily-recon-day-totals">
-                <span title={`Sum of ${differences.length} available collection differences in the shown records`}>
-                  Collection: <strong>{collectionDifference === null ? '-' : formatLiters(collectionDifference)}</strong>
+                <span title="Total net scale weight of the collection receptions matching the filters; unavailable if any weight is missing">
+                  Collection kilos: <strong>{day.collectionNetKg === null ? '-' : `${formatNumber(day.collectionNetKg)} kg`}</strong>
                 </span>
-                <span title="No comparison available for other receptions">Others: <strong>-</strong></span>
+                <span title={`Sum of ${differences.length} available collection differences in the shown records`}>
+                  Collection diff: <strong>{collectionDifference === null ? '-' : formatLiters(collectionDifference)}</strong>
+                </span>
+                <span title="Total net scale weight of the other receptions matching the filters; unavailable if any weight is missing">
+                  Others kilos: <strong>{day.othersNetKg === null ? '-' : `${formatNumber(day.othersNetKg)} kg`}</strong>
+                </span>
+                <span title="Available confirmed CMR differences, grouped by unit">Others diff: <strong>{formatCmrTotals(cmrTotals(day.cmrComparisons, 'difference'))}</strong></span>
               </span>
               <span className="daily-recon-day-counts">
                 <span>Scale <strong>{comparisons.length}</strong></span>
                 <span>Aviz <strong>{comparisons.reduce((total, item) => total + item.documents.length, 0) + unmatched.length}</strong></span>
                 <span>Others <strong>{others.length}</strong></span>
+                <span>CMR <strong>{new Set(day.cmrComparisons.flatMap(row => row.documents.map(doc => doc.id))).size}</strong></span>
               </span>
             </button>
             <div id={`daily-recon-day-${day.date}`} hidden={!expanded} className="daily-recon-day-grid" role="table" aria-label={`Daily records for ${displayDate(day.date)}`}>
               <div className="daily-recon-grid-head" role="row">
                 <span role="columnheader">Truck / route and details</span>
                 <span role="columnheader">Scale final</span>
-                <span role="columnheader">Aviz</span>
+                <span role="columnheader">Aviz / CMR</span>
                 <span role="columnheader">Difference</span>
               </div>
               {comparisons.map((comparison) => {
@@ -292,26 +328,7 @@ export function DailyReconciliationScreen({ onBack }: { onBack: () => void }) {
                 <div className="daily-recon-measure" role="cell" data-label="Aviz"><strong>{formatLiters(documentLiters(document))}</strong></div>
                 <div className="daily-recon-measure" role="cell" data-label="Difference"><strong>—</strong></div>
               </div>)}
-              {others.length > 0 && <div className="daily-recon-other-heading" role="row"><span role="cell">Other receptions <strong>{others.length}</strong></span></div>}
-              {others.map((row) => <div className="daily-recon-grid-row daily-recon-other-row" role="row" key={row.receptionId}>
-                <div className="daily-recon-identity" role="cell">
-                  <div className="daily-recon-identity-top">
-                    <strong>{row.vehicleRegistration || 'Truck missing'}</strong>
-                    <span className="daily-recon-presence other">Other</span>
-                  </div>
-                  <span>{row.receptionId}</span>
-                  <span>{row.milkTypeLabel || 'Milk type missing'}{row.driverName ? ` · ${row.driverName}` : ''}</span>
-                  {row.comments && <span>{row.comments}</span>}
-                </div>
-                <div className="daily-recon-measure" role="cell" data-label="Scale final">
-                  <strong>{formatLiters(row.calculatedLiters)}</strong>
-                  <span>Net {formatNumber(row.netQuantityKg)} kg</span>
-                  <span>Loaded {formatNumber(row.fullTruckWeightKg)} kg</span>
-                  <span>Empty {formatNumber(row.emptyTruckWeightKg)} kg</span>
-                </div>
-                <div className="daily-recon-measure" role="cell" data-label="Aviz"><strong>—</strong></div>
-                <div className="daily-recon-measure" role="cell" data-label="Difference"><strong>—</strong></div>
-              </div>)}
+              <CmrReconciliationRows rows={day.cmrComparisons} />
             </div>
           </article>
         })}

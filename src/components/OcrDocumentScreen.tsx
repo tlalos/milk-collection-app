@@ -20,7 +20,7 @@ interface QueuedDocument {
 interface UploadedJob {
   id: string
   sourceFile: string
-  status: 'queued'
+  status: 'queued' | 'completed'
   createdAt: string
 }
 
@@ -137,7 +137,11 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
       setUploadedJobs(jobs)
       documents.forEach((document) => URL.revokeObjectURL(document.previewUrl))
       setDocuments([])
-      setNotice(isRo ? `${jobs.length} document${jobs.length === 1 ? '' : 'e'} încărcat${jobs.length === 1 ? '' : 'e'}. Puteți închide pagina; procesarea continuă pe server.` : `${jobs.length} document${jobs.length === 1 ? '' : 's'} uploaded. You may close this page; processing will continue on the server.`)
+      if (documentCategory === 'cmr' && jobs.length) {
+        window.location.href = appPath(`/ocr/cmr-review?id=${encodeURIComponent(jobs[0].id)}`)
+      } else {
+        setNotice(isRo ? `${jobs.length} document${jobs.length === 1 ? '' : 'e'} încărcat${jobs.length === 1 ? '' : 'e'}. Puteți închide pagina; procesarea continuă pe server.` : `${jobs.length} document${jobs.length === 1 ? '' : 's'} uploaded. You may close this page; processing will continue on the server.`)
+      }
     } catch (error) {
       setNotice((error as Error).message || 'OCR extraction failed.')
     } finally {
@@ -184,6 +188,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             <span>{isRo ? 'Tip document *' : 'Document type *'}</span>
             <select
               value={documentCategory}
+              disabled={isProcessing}
               onChange={(event) => {
                 setDocumentCategory(event.target.value)
                 setNotice('')
@@ -193,6 +198,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
               <option value="">{isRo ? 'Selectați tipul documentului…' : 'Select document type…'}</option>
               <option value="daily_routes">{isRo ? 'RUTE ZILNICE' : 'DAILY ROUTES'}</option>
               <option value="journal_monthly_settlement">{isRo ? 'JURNAL DECONT LUNAR' : 'JOURNAL MONTHLY SETTLEMENT'}</option>
+              <option value="cmr">CMR</option>
             </select>
           </label>
 
@@ -290,7 +296,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
               {uploadedJobs.map((job) => (
                 <li key={job.id}>
                   <span aria-hidden="true">✓</span>
-                  <div><strong>{job.sourceFile}</strong><small>{isRo ? 'În așteptarea procesării' : 'Queued for processing'}</small></div>
+                  <div><strong>{job.sourceFile}</strong><small>{job.status === 'completed' ? (isRo ? 'Salvat' : 'Saved') : (isRo ? 'În așteptarea procesării' : 'Queued for processing')}</small></div>
                 </li>
               ))}
             </ul>
@@ -299,6 +305,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
         <div className="ocr-review-links">
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/review') }}>{isRo ? 'Verificare rute zilnice' : 'Review Daily Routes'}</button>
           <button type="button" onClick={() => { window.location.href = appPath('/ocr/monthly-review') }}>{isRo ? 'Verificare decont lunar' : 'Review Monthly Settlement'}</button>
+          <button type="button" onClick={() => { window.location.href = appPath('/ocr/cmr-review') }}>{isRo ? 'Documente CMR' : 'Review CMR'}</button>
         </div>
       </main>
     </div>
