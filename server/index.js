@@ -105,6 +105,7 @@ import {
   listMilkDeliveries,
   listMilkDeliveryWeightHistoryForAdmin,
   updateMilkDelivery,
+  updateMilkDeliveryArrival,
 } from './milkDeliveryStore.js'
 import { isSqlOcrStoreEnabled, listMonthlyProducerPricingRows, upsertMonthlyProducerPricingRows } from './sqlOcrStore.js'
 import { getMilkDensitySettings, initializeMilkDensitySettingsStore, saveMilkDensitySettings, validateMilkDensitySettings } from './milkDensitySettingsStore.js'
@@ -1637,6 +1638,20 @@ app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
     const user = request.authUser
     const before = await getMilkDelivery(request.params.id)
     const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '', user?.isAdmin !== true)
+    if (!record) return response.status(404).json({ error: 'Milk delivery record not found.' })
+    await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
+    response.json({ record })
+  } catch (error) {
+    await auditAction({ request, user: request.authUser, action: 'milk_delivery.update.failed', entityType: 'MilkDelivery', entityId: request.params.id, metadata: { reason: auditFailureReason(error) } })
+    next(error)
+  }
+})
+
+app.patch('/api/milk-deliveries/:id/arrival', async (request, response, next) => {
+  try {
+    const user = request.authUser
+    const before = await getMilkDelivery(request.params.id)
+    const record = await updateMilkDeliveryArrival(request.params.id, request.body, user?.username || '')
     if (!record) return response.status(404).json({ error: 'Milk delivery record not found.' })
     await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
     response.json({ record })

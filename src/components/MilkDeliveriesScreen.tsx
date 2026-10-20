@@ -390,8 +390,16 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     setError('')
   }
 
+  function canEditArrival(record: MilkDelivery) {
+    return !record.isNew && record.status !== 'DRAFT' && !milkDocumentDateError(record.deliveryDate, 'Delivery')
+  }
+
   function updateRecord(id: string, patch: Partial<MilkDelivery>, saveImmediately = false) {
-    if (!canEditDate(recordsRef.current.find(row => row.id === id)?.deliveryDate)
+    const current = recordsRef.current.find(row => row.id === id)
+    if (!current) return ''
+    const arrivalOnly = canEditArrival(current)
+      && Object.keys(patch).every(key => ['greeceWeight', 'invoiceNumber', 'arrivalComments'].includes(key))
+    if ((!canEditDate(current.deliveryDate) && !arrivalOnly)
       || (patch.deliveryDate !== undefined && !canEditDate(patch.deliveryDate))) { setError(lockedMessage); return }
     if (!recordsRef.current.some((record) => record.id === id)) return ''
     commitRecords(recordsRef.current.map((record) => {
@@ -448,10 +456,16 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function validateDeliveryForSave(record: MilkDelivery, status: DeliveryStatus) {
-    if (!canEditDate(record.deliveryDate)) return lockedMessage
+    const arrivalOnly = !canEditDate(record.deliveryDate)
+    if (arrivalOnly && (!canEditArrival(record) || status === 'DRAFT')) return lockedMessage
     if (!record.deliveryDate) return 'Delivery date is required.'
     const dateError = milkDocumentDateError(record.deliveryDate, 'Delivery')
     if (dateError) return dateError
+    if (arrivalOnly) {
+      if (status === 'COMPLETE' && (numericValue(record.greeceWeight) ?? 0) <= 0) return 'Weight from Greece is required before completing the delivery.'
+      if (status === 'COMPLETE' && !record.invoiceNumber.trim()) return 'Invoice number is required before completing the delivery.'
+      return ''
+    }
     if (status === 'DRAFT') return ''
     if (record.deliveryCategory === 'UNSPECIFIED') return 'Delivery category is required before marking the delivery as sent.'
     if (!record.truckNumber.trim()) return 'Truck number is required before marking the delivery as sent.'
@@ -494,10 +508,14 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     let needsResave = false
     let succeeded = false
     try {
-      const response = await fetch(current.isNew ? appPath('/api/milk-deliveries') : appPath(`/api/milk-deliveries/${encodeURIComponent(id)}`), {
+      const arrivalOnly = !canEditDate(current.deliveryDate)
+      const body = arrivalOnly
+        ? { greeceWeight: prepared.greeceWeight, invoiceNumber: prepared.invoiceNumber, arrivalComments: prepared.arrivalComments, status }
+        : prepared
+      const response = await fetch(current.isNew ? appPath('/api/milk-deliveries') : appPath(`/api/milk-deliveries/${encodeURIComponent(id)}${arrivalOnly ? '/arrival' : ''}`), {
         method: current.isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prepared),
+        body: JSON.stringify(body),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not save milk delivery.')
@@ -644,7 +662,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                 {visibleRecords.map((record) => {
                   const expanded = expandedId === record.id
                   const locked = !canEditDate(record.deliveryDate)
-                  const arrivalEnabled = record.status !== 'DRAFT'
+                  const arrivalEnabled = canEditArrival(record)
                   const saveState = saveStates[record.id]
                   return (
                     <Fragment key={record.clientKey || record.id}>
@@ -669,20 +687,20 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                             <span className="delivery-departure-icon" aria-hidden="true"><Truck /><MoveRight viewBox="0 6 24 12" /></span>
                             <span>Greece</span>
                           </button>
-                        )}<button type="button" title="Save now" aria-label="Save delivery row" disabled={locked || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={locked || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
+                        )}<button type="button" title="Save now" aria-label="Save delivery row" disabled={(locked && !arrivalEnabled) || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void saveRecord(record.id, 'manual')}>{saveState?.status === 'saving' ? '...' : <SaveIcon />}</button><button className="danger" type="button" title="Delete" aria-label="Delete delivery row" disabled={locked || saveState?.status === 'saving' || deletingId === record.id} onClick={() => void deleteRecord(record)}><TrashIcon /></button>{saveState && <span className={`delivery-save-state ${saveState.status}`} role="status" title={saveState.message || undefined}>{saveState.status === 'waiting' ? record.isNew ? 'Not saved' : 'Needs details' : saveState.status === 'pending' ? 'Unsaved' : saveState.status === 'saving' ? 'Saving...' : saveState.status === 'saved' ? 'Saved' : 'Save failed'}</span>}</div></td>
                       </tr>
 
                       {expanded && <tr className="milk-delivery-detail-row"><td colSpan={14}><div className="milk-delivery-inline-form">
                         <section className={`milk-delivery-stage arrival-stage ${arrivalEnabled ? '' : 'locked'}`}>
                           <div className="milk-delivery-stage-heading"><span>2</span><div><h3>{isRo ? 'Sosire în Grecia' : 'Arrival in Greece'}</h3><p>{isRo ? 'Coloanele M-P din Excel' : 'Excel columns M-P'}</p></div><strong>{record.status === 'COMPLETE' ? 'Recorded' : arrivalEnabled ? 'Awaiting details' : 'Available after sending'}</strong></div>
-                          <fieldset disabled={locked || !arrivalEnabled}><div className="milk-delivery-fields arrival-fields">
+                          <fieldset disabled={!arrivalEnabled}><div className="milk-delivery-fields arrival-fields">
                             <label><span>{isRo ? 'Greutate din Grecia *' : 'Weight from Greece *'}</span><input inputMode="decimal" value={record.greeceWeight ?? ''} onChange={(event) => updateRecord(record.id, { greeceWeight: event.target.value })} placeholder="0" /></label>
                             <label><span>{isRo ? 'Număr factură *' : 'Invoice number *'}</span><input value={record.invoiceNumber} onChange={(event) => updateRecord(record.id, { invoiceNumber: event.target.value.toUpperCase() })} placeholder={isRo ? 'Număr factură' : 'Invoice number'} /></label>
                             <label className="calculated-field"><span>{isRo ? 'Diferență' : 'Difference'}</span><output>{formatNumber(record.differenceAmount)}</output></label>
                             <label className="comments-field"><span>{isRo ? 'Comentarii / destinație' : 'Comments / destination'}</span><textarea rows={2} value={record.arrivalComments} onChange={(event) => updateRecord(record.id, { arrivalComments: event.target.value })} placeholder={isRo ? 'Observații despre destinație și sosire...' : 'Destination and arrival notes...'} /></label>
                           </div></fieldset>
                         </section>
-                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button disabled={locked} className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status !== 'DRAFT' && <button disabled={locked} type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
+                        <div className="milk-delivery-inline-actions"><button className="secondary" type="button" onClick={() => setExpandedId('')}>Close</button>{record.status === 'DRAFT' && <button disabled={locked} className="secondary" type="button" onClick={() => void saveRecord(record.id, 'manual', 'DRAFT')}>Save draft</button>}{record.status !== 'DRAFT' && <button disabled={!arrivalEnabled || saveState?.status === 'saving'} type="button" onClick={() => void saveRecord(record.id, 'manual', 'COMPLETE')}>{record.status === 'COMPLETE' ? 'Save changes' : 'Mark complete'}</button>}</div>
                       </div></td></tr>}
                     </Fragment>
                   )

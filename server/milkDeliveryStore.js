@@ -4,6 +4,7 @@ import { assertMilkDocumentDate, currentMilkDate, assertCurrentMilkDateAccess } 
 import { deliveryWeightEvents } from './deliveryWeightHistory.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
+import { prepareDeliveryArrival } from './milkDeliveryArrival.js'
 
 let poolPromise = null
 let initialized = false
@@ -263,6 +264,48 @@ WHERE deliveryId = @deliveryId
     throw error
   }
   return getMilkDelivery(id)
+}
+
+export async function updateMilkDeliveryArrival(id, input, username = '') {
+  await initializeMilkDeliveryStore()
+  const transaction = new sql.Transaction(await getPool())
+  await transaction.begin()
+  try {
+    // Lock the row so completion validation uses the same departure data as the update.
+    const selected = await new sql.Request(transaction)
+      .input('id', sql.NVarChar(120), id)
+      .query('SELECT * FROM dbo.MilkDeliveries WITH (UPDLOCK, HOLDLOCK) WHERE deliveryId = @id;')
+    if (!selected.recordset[0]) {
+      await transaction.commit()
+      return null
+    }
+    const before = rowToDelivery(selected.recordset[0])
+    const arrival = prepareDeliveryArrival(before, input)
+    const result = await new sql.Request(transaction)
+      .input('id', sql.NVarChar(120), id)
+      .input('weight', sql.Decimal(18, 3), arrival.greeceWeight)
+      .input('invoice', sql.NVarChar(160), arrival.invoiceNumber || null)
+      .input('comments', sql.NVarChar(1200), arrival.arrivalComments || null)
+      .input('status', sql.NVarChar(40), arrival.status)
+      .input('user', sql.NVarChar(160), username || null)
+      .input('now', sql.DateTimeOffset, new Date())
+      .query(`
+UPDATE dbo.MilkDeliveries SET
+  greeceWeight = @weight,
+  invoiceNumber = @invoice,
+  arrivalComments = @comments,
+  differenceAmount = @weight - netQuantityKg,
+  status = @status,
+  updatedBy = @user,
+  updatedAt = @now
+OUTPUT inserted.*, CONVERT(varchar(5), inserted.deliveryTime, 108) AS deliveryTimeText
+WHERE deliveryId = @id;`)
+    await transaction.commit()
+    return rowToDelivery(result.recordset[0])
+  } catch (error) {
+    await transaction.rollback().catch(() => undefined)
+    throw error
+  }
 }
 
 async function saveDeliveryWeightEvents(transaction, deliveryId, before, after, input, username, recordedAt) {
