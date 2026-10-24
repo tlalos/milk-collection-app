@@ -115,7 +115,7 @@
 
 .month-closure-summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 
@@ -1153,6 +1153,19 @@
 }
 
 @media (max-width: 980px) {
+  .month-closure-card-title {
+    flex-wrap: wrap;
+  }
+
+  .month-closure-card-title > div:first-child {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+
+  .month-closure-tabs {
+    max-width: 100%;
+  }
+
   .month-closure-summary,
   .month-closure-toolbar {
     grid-template-columns: 1fr 1fr;

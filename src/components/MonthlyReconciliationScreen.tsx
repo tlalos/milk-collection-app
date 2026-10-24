@@ -868,7 +868,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                               </div>
                             )}
                             {approved ? null : row.avizPricing.centerMatchWarning ? <small role="alert">{row.avizPricing.centerMatchWarning}</small>
-                              : row.avizPricing.reason ? null
+                              : row.avizPricing.reason ? <small className="monthly-aviz-pricing-blocked" role="alert">Approval blocked: {row.avizPricing.reason}</small>
                               : avizApprovals.some(a => a.monthKey === row.month && a.centerCode.toLowerCase() === row.avizPricing?.centerCode && a.milkType === row.milkType)
                                 ? <small>See aviz pricing approval above</small>
                                 : canApproveAviz && <button className="monthly-aviz-pricing-button" type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}

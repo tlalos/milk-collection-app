@@ -50,6 +50,27 @@ days, including the full To date. SQL filters the entire history before paginati
 Load older retains the selected range. This update requires no schema migration
 or data import. Deploy both the frontend and server files and restart the pool.
 
+## Aviz approval safeguards (October 24, 2026)
+
+Deploy the frontend and server together and restart the application pool. Startup
+adds a source-line lookup index and two reservation triggers on
+`dbo.MonthlyAvizPricingApprovals` and `dbo.MonthlyAvizPricingApprovalLines`.
+The application SQL account needs permission to create the index and create or
+alter triggers on these tables. No separate data import is required.
+
+An aviz source line cannot be reused by another active approval, even when its
+center or producer changes. Approvals marked Needs review retain their reservation
+until explicitly cancelled. Monthly Reconciliation shows the blocking reason;
+Month Closure separates ready-for-pricing liters from blocked/needs-review liters.
+
+Existing approvals and source lines are not rewritten or cancelled by this
+migration, including pre-existing overlaps. Check related ERP invoices before
+using Cancel approval with a reason on an unnecessary approval. Cancellation
+preserves the audit history and does not reverse an ERP invoice or payment.
+
+Keep the production `.env` and data directories. Do not copy the local
+`LOCAL_PRODUCTION_CLONE=true` configuration to production.
+
 ## Local production-data copies
 
 Before replacing a local database, create and verify a full local rollback backup.

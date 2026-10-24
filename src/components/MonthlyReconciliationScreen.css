@@ -956,6 +956,7 @@
 .monthly-aviz-approval { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #dce7e0; }
 .monthly-aviz-approval p { margin: 4px 0; }
 .monthly-aviz-pricing-action { white-space: normal; margin-top: 6px; font-size: 12px; }
+.monthly-aviz-pricing-blocked { display: block; margin-top: 4px; color: #9a480c; line-height: 1.4; overflow-wrap: anywhere; }
 .monthly-aviz-pricing-button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; max-width: 100%; margin-top: 4px; padding: 7px 12px; border: 1px solid #b3d4c3; border-radius: 6px; background: #e8f4ed; color: #155b3b; font: inherit; font-weight: 700; line-height: 1.4; white-space: normal; text-align: center; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
 .monthly-aviz-pricing-button:hover { background: #d6ebdf; border-color: #6da88a; }
 .monthly-aviz-pricing-button:active { background: #c5e1d1; }

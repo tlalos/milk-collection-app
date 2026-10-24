@@ -3,6 +3,54 @@ import { getMilkReceptionPool } from './milkReceptionStore.js'
 
 let initializePromise = null
 
+// Prospective guards: legacy overlaps stay available for audited cancellation.
+// Both triggers share the service lock and use locking reads even under RCSI.
+export const approvalSourceGuardBatches = [
+  `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MonthlyAvizPricingApprovalLines') AND name=N'IX_MonthlyAvizPricingApprovalLines_Source')
+    CREATE INDEX IX_MonthlyAvizPricingApprovalLines_Source ON dbo.MonthlyAvizPricingApprovalLines(jobId,rowNumber) INCLUDE(approvalId);`,
+  `CREATE OR ALTER TRIGGER dbo.TR_MonthlyAvizPricingApprovalLines_Reserve
+  ON dbo.MonthlyAvizPricingApprovalLines AFTER INSERT, UPDATE AS
+  BEGIN
+    SET NOCOUNT ON;
+    IF NOT EXISTS (SELECT 1 FROM inserted i LEFT JOIN deleted d ON d.approvalLineId=i.approvalLineId
+      WHERE d.approvalLineId IS NULL OR i.approvalId<>d.approvalId OR i.jobId<>d.jobId OR i.rowNumber<>d.rowNumber) RETURN;
+    DECLARE @lockResult INT;
+    EXEC @lockResult=sp_getapplock @Resource=N'MonthlyAvizPricingApprovals',
+      @LockMode=N'Exclusive',@LockOwner=N'Transaction',@LockTimeout=15000;
+    IF @lockResult<0 THROW 51001,'Approval is busy. Try again.',1;
+    IF EXISTS (
+      SELECT 1 FROM inserted i
+      LEFT JOIN deleted d ON d.approvalLineId=i.approvalLineId
+      JOIN dbo.MonthlyAvizPricingApprovals a WITH (UPDLOCK,HOLDLOCK) ON a.approvalId=i.approvalId AND a.status<>N'CANCELLED'
+      JOIN dbo.MonthlyAvizPricingApprovalLines otherLine WITH (UPDLOCK,HOLDLOCK)
+        ON otherLine.jobId=i.jobId AND otherLine.rowNumber=i.rowNumber AND otherLine.approvalId<>i.approvalId
+      JOIN dbo.MonthlyAvizPricingApprovals otherApproval WITH (UPDLOCK,HOLDLOCK)
+        ON otherApproval.approvalId=otherLine.approvalId AND otherApproval.status<>N'CANCELLED'
+      WHERE d.approvalLineId IS NULL OR i.approvalId<>d.approvalId OR i.jobId<>d.jobId OR i.rowNumber<>d.rowNumber
+    ) THROW 51001,'An aviz source line is reserved by another active approval, including approvals needing review. Cancel the conflicting approval before reusing its lines.',1;
+  END;`,
+  `CREATE OR ALTER TRIGGER dbo.TR_MonthlyAvizPricingApprovals_Reserve
+  ON dbo.MonthlyAvizPricingApprovals AFTER INSERT, UPDATE AS
+  BEGIN
+    SET NOCOUNT ON;
+    IF NOT EXISTS (SELECT 1 FROM inserted i LEFT JOIN deleted d ON d.approvalId=i.approvalId
+      WHERE i.status<>N'CANCELLED' AND (d.approvalId IS NULL OR d.status=N'CANCELLED')) RETURN;
+    DECLARE @lockResult INT;
+    EXEC @lockResult=sp_getapplock @Resource=N'MonthlyAvizPricingApprovals',
+      @LockMode=N'Exclusive',@LockOwner=N'Transaction',@LockTimeout=15000;
+    IF @lockResult<0 THROW 51001,'Approval is busy. Try again.',1;
+    IF EXISTS (
+      SELECT 1 FROM inserted i LEFT JOIN deleted d ON d.approvalId=i.approvalId
+      JOIN dbo.MonthlyAvizPricingApprovalLines ownLine WITH (UPDLOCK,HOLDLOCK) ON ownLine.approvalId=i.approvalId
+      JOIN dbo.MonthlyAvizPricingApprovalLines otherLine WITH (UPDLOCK,HOLDLOCK)
+        ON otherLine.jobId=ownLine.jobId AND otherLine.rowNumber=ownLine.rowNumber AND otherLine.approvalId<>i.approvalId
+      JOIN dbo.MonthlyAvizPricingApprovals otherApproval WITH (UPDLOCK,HOLDLOCK)
+        ON otherApproval.approvalId=otherLine.approvalId AND otherApproval.status<>N'CANCELLED'
+      WHERE i.status<>N'CANCELLED' AND (d.approvalId IS NULL OR d.status=N'CANCELLED')
+    ) THROW 51001,'An aviz source line is reserved by another active approval. This approval cannot be reactivated until the conflicting approval is cancelled.',1;
+  END;`,
+]
+
 export async function initializeMonthlyAvizPricingApprovals() {
   if (!initializePromise) {
     initializePromise = (async () => {
@@ -63,6 +111,7 @@ BEGIN
   );
 END;
 `)
+      for (const batch of approvalSourceGuardBatches) await pool.request().batch(batch)
     })().catch((error) => {
       initializePromise = null
       throw error

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { approvalCandidates, approvalReviewReason } from './monthlyAvizPricingService.js'
+import { approvalCandidates, approvalReviewReason, approvalSourceConflict } from './monthlyAvizPricingService.js'
 
 const refs = { centers: [{code:'c1',name:'Single center'}], producers:[{producerCode:'p1',producerName:'Producer',centerCode:'c1'}] }
 function group() { return {id:'aug',month:'2026-08',center:'Single center',milkType:'MILK-COW',monthlyRowCount:0,monthlyRows:[],
@@ -82,4 +82,43 @@ test('split aliases and mixed center codes do not silently approve partial total
  assert.ok(approvalCandidates([row,other],refs).every(c=>c.reason))
  row.avizRows.push({...row.avizRows[0],jobId:'j2',centerCode:'c2'})
  assert.ok(approvalCandidates([row],refs)[0].reason)
+})
+
+test('source reservations follow aviz lines across centers, producers, months and milk types', () => {
+ const candidate = approvalCandidates([group()], refs)[0]
+ for (const status of ['APPROVED', 'NEEDS_REVIEW']) {
+  const owner = { approvalId: 'old', centerName: 'Original center', producerName: 'Original producer',
+   monthKey: '2026-07', milkType: 'MILK-GOAT', status }
+  const lines = [{ approvalId: 'OLD', jobId: 'J1', rowNumber: 1, noticeNumber: '001' }]
+  const reason = approvalSourceConflict(candidate, [owner], lines)
+  assert.match(reason, /Original center \/ Original producer/)
+  assert.match(reason, /approval old/)
+  assert.match(reason, /Cancel that approval/)
+  if (status === 'NEEDS_REVIEW') assert.match(reason, /needs review/)
+  assert.equal(approvalSourceConflict(candidate, [{ ...owner, status: 'CANCELLED' }], lines), null)
+  assert.equal(approvalSourceConflict(candidate, [owner], lines, 'old'), null)
+  assert.equal(approvalSourceConflict(candidate, [owner], [{ ...lines[0], rowNumber: 2 }]), null)
+  assert.equal(approvalSourceConflict(candidate, [owner], [{ ...lines[0], jobId: 'different' }]), null)
+ }
+})
+
+test('cancelling one legacy overlap does not release the other active reservation', () => {
+ const candidate = approvalCandidates([group()], refs)[0]
+ const owners = ['old', 'current'].map(approvalId => ({ approvalId, status: 'APPROVED' }))
+ const lines = owners.map(a => ({ approvalId: a.approvalId, jobId: 'j1', rowNumber: 1 }))
+ owners[0].status = 'CANCELLED'
+ assert.match(approvalSourceConflict(candidate, owners, lines), /approval current/)
+ assert.equal(approvalSourceConflict(candidate, owners, lines, 'current'), null)
+ owners[1].status = 'CANCELLED'
+ assert.equal(approvalSourceConflict(candidate, owners, lines), null)
+})
+
+test('reservation checks do not modify candidates or invalidate an unchanged approved snapshot', () => {
+ const candidate = approvalCandidates([group()], refs)[0]
+ const before = structuredClone(candidate)
+ const approval = { ...candidate, approvalId: 'owner', status: 'APPROVED' }
+ const lines = candidate.lines.map(line => ({ ...line, approvalId: 'owner' }))
+ assert.ok(approvalSourceConflict(candidate, [approval], lines))
+ assert.deepEqual(candidate, before)
+ assert.equal(approvalReviewReason(approval, [candidate]), null)
 })

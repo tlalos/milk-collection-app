@@ -68,6 +68,16 @@ export function approvalReviewReason(approval, candidates) {
 
 function conflict(message) { return Object.assign(new Error(message), { status: 409 }) }
 
+export function approvalSourceConflict(candidate, approvals, lines, excludeApprovalId = null) {
+  const owners = new Map(approvals.filter(a => a.status !== 'CANCELLED' && code(a.approvalId) !== code(excludeApprovalId))
+    .map(a => [code(a.approvalId), a]))
+  const sources = new Set((candidate.lines || []).map(line => JSON.stringify([code(line.jobId), line.rowNumber])))
+  const line = lines.find(line => owners.has(code(line.approvalId)) && sources.has(JSON.stringify([code(line.jobId), line.rowNumber])))
+  if (!line) return null
+  const owner = owners.get(code(line.approvalId))
+  return `Aviz ${line.noticeNumber || line.jobId}, row ${line.rowNumber}, is already reserved by ${owner.centerName} / ${owner.producerName} (${owner.monthKey}, ${owner.status === 'NEEDS_REVIEW' ? 'needs review' : 'approved'}; approval ${owner.approvalId}). Cancel that approval with a reason before reusing its lines.`
+}
+
 // Read source documents and write approvals within one serialized transaction.
 // No OCR foreign keys: approved evidence survives deletion of a source document.
 export async function monthlyAvizApprovalContext(groupBuilder, action = null, user = null) {
@@ -83,13 +93,16 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       IF @result<0 THROW 51000,'Approval is busy. Try again.',1;`)
     const records = await query(`SELECT jobJson FROM dbo.OcrJobs; SELECT centersJson,producersJson FROM dbo.OcrErpReferenceSnapshot WHERE snapshotKey='suppliers';
       SELECT * FROM dbo.MonthlyAvizPricingApprovals WHERE status <> 'CANCELLED';
-      SELECT * FROM dbo.MonthlyCollectors;`)
+      SELECT * FROM dbo.MonthlyCollectors;
+      SELECT l.* FROM dbo.MonthlyAvizPricingApprovalLines l
+      JOIN dbo.MonthlyAvizPricingApprovals a ON a.approvalId=l.approvalId WHERE a.status <> 'CANCELLED';`)
     const jobs = records.recordsets[0].map(row => JSON.parse(row.jobJson))
     const reference = records.recordsets[1][0]
     const references = reference ? { centers: JSON.parse(reference.centersJson), producers: JSON.parse(reference.producersJson) } : null
     const reconciliation = groupBuilder(jobs)
     const candidates = approvalCandidates(reconciliation.rows, references)
     const approvals = records.recordsets[2]
+    const approvalLines = records.recordsets[4]
     const actor = String(user?.username || user?.id || 'system').slice(0,120)
     const audit = async (event, id, data) => {
       await new sql.Request(tx).input('actor',sql.NVarChar(160),actor).input('event',sql.NVarChar(160),event)
@@ -113,6 +126,8 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       if (!candidate || candidate.reason) throw conflict(candidate?.reason || 'The reconciliation row no longer exists.')
       if (candidate.sourceFingerprint !== action.fingerprint) throw conflict('Data changed since the confirmation opened. Refresh and confirm again.')
       if (approvals.some(a => a.monthKey === candidate.monthKey && code(a.centerCode) === candidate.centerCode && a.milkType === candidate.milkType)) throw conflict('An active approval already exists. Cancel it before approving again.')
+      const sourceConflict = approvalSourceConflict(candidate, approvals, approvalLines)
+      if (sourceConflict) throw conflict(sourceConflict)
       saved = { ...candidate, approvalId: randomUUID(), approvedBy: actor, status: 'APPROVED' }
       await new sql.Request(tx).input('data',sql.NVarChar(sql.MAX),JSON.stringify(saved)).query(`
         INSERT dbo.MonthlyAvizPricingApprovals(approvalId,monthKey,centerCode,producerCode,milkType,centerName,producerName,approvedLiters,sourceFingerprint,approvedBy)
@@ -124,6 +139,7 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
         FROM OPENJSON(@data,'$.lines') WITH (jobId nvarchar(64),rowNumber int,noticeNumber nvarchar(80),documentDate date,approvedLiters decimal(18,3),sourceFingerprint char(64));`)
       await audit('monthly_aviz_pricing.approve',saved.approvalId,saved)
       approvals.push(saved)
+      approvalLines.push(...saved.lines.map(line => ({ ...line, approvalId: saved.approvalId })))
     } else if (action?.type === 'cancel') {
       const approval = approvals.find(a => code(a.approvalId) === code(action.approvalId))
       if (!approval) throw conflict('No active approval found.')
@@ -136,6 +152,18 @@ export async function monthlyAvizApprovalContext(groupBuilder, action = null, us
       await audit('monthly_aviz_pricing.cancel',approval.approvalId,{...approval,cancellationReason:reason})
     }
     await tx.commit()
-    return { jobs, reconciliation, candidates, references, approvals: approvals.filter(a => a.status !== 'CANCELLED'), collectors: records.recordsets[3], saved }
-  } catch (error) { await tx.rollback(); throw error }
+    // Reservation warnings must not change the source fingerprints used above for review checks.
+    const availableCandidates = candidates.map(candidate => {
+      if (candidate.reason) return candidate
+      const ownApproval = approvals.find(a => a.status !== 'CANCELLED' && a.monthKey === candidate.monthKey && code(a.centerCode) === candidate.centerCode && a.milkType === candidate.milkType)
+      const reason = approvalSourceConflict(candidate, approvals, approvalLines, ownApproval?.approvalId)
+      return reason ? { ...candidate, reason } : candidate
+    })
+    return { jobs, reconciliation, candidates: availableCandidates, references, approvals: approvals.filter(a => a.status !== 'CANCELLED'), collectors: records.recordsets[3], saved }
+  } catch (error) {
+    // A SQL trigger can already have rolled the transaction back.
+    try { await tx.rollback() } catch { /* Preserve the original failure. */ }
+    if (error.number === 51001) throw conflict(error.message)
+    throw error
+  }
 }

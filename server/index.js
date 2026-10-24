@@ -790,6 +790,8 @@ function monthClosureSummary(rows) {
     centerCount: new Set(rows.map((row) => `${row.month}|${row.centerKey}`)).size,
     producerCount: new Set(rows.map((row) => `${row.month}|${row.producerKey}`)).size,
     totalLiters: Number(rows.reduce((total, row) => total + row.liters, 0).toFixed(3)),
+    readyLiters: Number(rows.filter((row) => row.readyForPricing).reduce((total, row) => total + row.liters, 0).toFixed(3)),
+    blockedLiters: Number(rows.filter((row) => !row.readyForPricing).reduce((total, row) => total + row.liters, 0).toFixed(3)),
     readyRowCount: rows.filter((row) => row.readyForPricing).length,
     blockedRowCount: rows.filter((row) => !row.readyForPricing).length,
   }

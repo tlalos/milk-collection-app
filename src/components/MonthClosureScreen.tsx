@@ -69,6 +69,8 @@ interface MonthClosureSummary {
   centerCount: number
   producerCount: number
   totalLiters: number
+  readyLiters: number
+  blockedLiters: number
   readyRowCount: number
   blockedRowCount: number
 }
@@ -100,6 +102,8 @@ const emptySummary: MonthClosureSummary = {
   centerCount: 0,
   producerCount: 0,
   totalLiters: 0,
+  readyLiters: 0,
+  blockedLiters: 0,
   readyRowCount: 0,
   blockedRowCount: 0,
 }
@@ -725,7 +729,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     closeBulkCenterPrice()
   }
 
-  const filteredLiters = filteredRows.reduce((total, row) => total + row.liters, 0)
+  const filteredReadyLiters = filteredRows.filter(row => row.readyForPricing).reduce((total, row) => total + row.liters, 0)
+  const filteredBlockedLiters = filteredRows.filter(row => !row.readyForPricing).reduce((total, row) => total + row.liters, 0)
   const filteredReady = filteredRows.filter((row) => row.readyForPricing).length
   const filteredBlocked = filteredRows.length - filteredReady
   const invoiceRows = filteredRows.map((row) => {
@@ -985,9 +990,10 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               <div><span>Pricing rows</span><strong>{summary.rowCount}</strong></div>
               <div><span>Centers</span><strong>{summary.centerCount}</strong></div>
               <div><span>Producers</span><strong>{summary.producerCount}</strong></div>
-              <div><span>Total liters</span><strong>{formatNumber(summary.totalLiters)}</strong></div>
-              <div><span>Ready</span><strong>{summary.readyRowCount}</strong></div>
-              <div><span>Blocked</span><strong>{summary.blockedRowCount}</strong></div>
+              <div><span>Ready for pricing liters</span><strong>{formatNumber(summary.readyLiters)}</strong></div>
+              <div><span>Blocked / needs-review liters</span><strong>{formatNumber(summary.blockedLiters)}</strong></div>
+              <div><span>Ready rows</span><strong>{summary.readyRowCount}</strong></div>
+              <div><span>Blocked rows</span><strong>{summary.blockedRowCount}</strong></div>
             </>
           )}
         </section>
@@ -1090,7 +1096,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               <h2>{view === 'pricing' ? 'Pricing' : view === 'erpInvoices' ? 'ERP invoices' : 'Bank note'}</h2>
               <p>
                 {view === 'pricing'
-                  ? `${filteredRows.length} filtered rows · ${formatNumber(filteredLiters)} L · ${filteredReady} ready · ${filteredBlocked} blocked`
+                  ? `${filteredRows.length} filtered rows · ${formatNumber(filteredReadyLiters)} L ready for pricing · ${formatNumber(filteredBlockedLiters)} L blocked · ${filteredReady} ready rows · ${filteredBlocked} blocked rows`
                   : view === 'erpInvoices'
                     ? `${invoiceRows.length} invoice lines · ${formatNumber(invoiceTotals.qty)} L · ${formatMoney(invoiceTotals.final)} final preview`
                     : `${visibleBankRows.length} transfers · ${pendingBankRows.length} pending · ${sentBankRows.length} exported · ${formatMoney(bankTotal)} total`}
