@@ -40,8 +40,10 @@ interface MonthClosurePricingRow {
   id: string
   month: string
   center: string
+  centerKey?: string
   milkType: string
   producer: string
+  producerKey?: string
   producerCode: string
   liters: number
   sourceRowCount: number
@@ -217,7 +219,6 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const access = useContext(OcrNavigationContext)?.user
   const canOpenPage = (permission: string) => Boolean(access?.isAdmin || access?.permissions?.includes(permission))
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
-  const [summary, setSummary] = useState<MonthClosureSummary>(emptySummary)
   const [journalProducers, setJournalProducers] = useState<JournalProducer[]>([])
   const [receptionFactors, setReceptionFactors] = useState<ReceptionFactor[]>([])
   const [monthOptions, setMonthOptions] = useState<string[]>([])
@@ -297,7 +298,6 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       const payload = text ? JSON.parse(text) as MonthClosurePayload & { error?: string } : { rows: [], summary: emptySummary, monthOptions: [], selectedMonth: '' }
       if (!response.ok) throw new Error(payload.error || 'Could not load month closure pricing rows.')
       setRows(payload.rows || [])
-      setSummary(payload.summary || emptySummary)
       setJournalProducers(payload.journalProducers || [])
       setReceptionFactors(payload.receptionFactors || [])
       setMonthOptions(payload.monthOptions || [])
@@ -762,6 +762,16 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     return { row, erpProducer, price, adjustedPrice, roundingDifference, commission, electricity, result, vatStatus, vatStatusAmount, extraAmount, finalResult, sendBlockReason, series }
   }).filter(invoiceRow => view !== 'erpInvoices' || !seriesFilter
     || (seriesFilter === 'missing' ? invoiceRow.series === null : String(invoiceRow.series) === seriesFilter))
+  const summaryRows = view === 'erpInvoices' ? invoiceRows.map(item => item.row) : filteredRows
+  const summary = {
+    rowCount: summaryRows.length,
+    centerCount: new Set(summaryRows.map(row => `${row.month}|${row.centerKey ?? normalizedSearch(row.center)}`)).size,
+    producerCount: new Set(summaryRows.map(row => `${row.month}|${row.producerKey ?? normalizedSearch(row.producer)}`)).size,
+    readyLiters: summaryRows.filter(row => row.readyForPricing).reduce((total, row) => total + row.liters, 0),
+    blockedLiters: summaryRows.filter(row => !row.readyForPricing).reduce((total, row) => total + row.liters, 0),
+    readyRowCount: summaryRows.filter(row => row.readyForPricing).length,
+    blockedRowCount: summaryRows.filter(row => !row.readyForPricing).length,
+  }
   const invoiceTotals = invoiceRows.reduce((totals, invoiceRow) => ({
     qty: totals.qty + invoiceRow.row.liters,
     result: totals.result + (invoiceRow.result ?? 0),
