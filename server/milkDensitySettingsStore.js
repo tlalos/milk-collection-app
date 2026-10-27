@@ -1,4 +1,5 @@
 import sql from 'mssql'
+import { isKgOnlyDelivery } from './milkDeliveryQuantity.js'
 
 export const defaultMilkDensitySettings = {
   RECEPTION: [
@@ -11,6 +12,8 @@ export const defaultMilkDensitySettings = {
     { code: 'MILK-COW', label: 'Cow', densityFactor: 1.029 },
     { code: 'MILK-SHEEP', label: 'Sheep', densityFactor: 1.036 },
     { code: 'MILK-COW-GREECE', label: 'Standardized', densityFactor: 1.037 },
+    { code: 'WHEY', label: 'Whey', densityFactor: 1 },
+    { code: 'LACTOSE', label: 'Lactose', densityFactor: 1 },
   ],
 }
 
@@ -97,6 +100,9 @@ export function validateMilkDensitySettings(input) {
       if (!defaultEntry || !Number.isFinite(factor) || factor < 0.9 || factor > 1.2 || Math.round(factor * 1e6) / 1e6 !== factor) {
         throw new Error(`Invalid density factor for ${entry?.code || workflow}. Enter a value from 0.9 to 1.2 with up to 6 decimals.`)
       }
+      if (workflow === 'DELIVERIES' && isKgOnlyDelivery(entry.code) && factor !== 1) {
+        throw new Error(`${defaultEntry.label} is kg only and does not use a conversion factor.`)
+      }
       return { code: entry.code, densityFactor: factor }
     })
     if (new Set(values.map((entry) => entry.code)).size !== defaults.length) throw new Error(`Duplicate ${workflow.toLowerCase()} milk type.`)
@@ -111,7 +117,7 @@ export async function getMilkDensitySettings() {
     workflow,
     defaults.map((entry) => {
       const row = result.recordset.find((item) => item.workflow === workflow && item.milkType === entry.code)
-      return { ...entry, densityFactor: Number(row?.densityFactor ?? entry.densityFactor), updatedAt: row?.updatedAt || null, updatedBy: row?.updatedBy || '' }
+      return { ...entry, densityFactor: workflow === 'DELIVERIES' && isKgOnlyDelivery(entry.code) ? 1 : Number(row?.densityFactor ?? entry.densityFactor), updatedAt: row?.updatedAt || null, updatedBy: row?.updatedBy || '' }
     }),
   ]))
 }
@@ -131,6 +137,7 @@ export async function saveMilkDensitySettings(input, username = '') {
   try {
     for (const [workflow, entries] of Object.entries(settings)) {
       for (const entry of entries) {
+        if (workflow === 'DELIVERIES' && isKgOnlyDelivery(entry.code)) continue
         await new sql.Request(transaction)
           .input('workflow', sql.NVarChar(20), workflow)
           .input('milkType', sql.NVarChar(60), entry.code)

@@ -1224,6 +1224,11 @@
   font-weight: 700;
 }
 .bank-note-summary-dialog { width: 640px; }
+.center-summary-dialog { width: 900px; }
+.center-summary-table-wrap { max-height: 55vh; overflow: auto; }
+.center-summary-table { min-width: 730px; }
+.center-summary-table th:first-child { min-width: 180px; overflow-wrap: anywhere; }
+.center-summary-table thead th { position: sticky; top: 0; background: #e8f0ec; z-index: 1; }
 .bank-export-dialog { width: 1160px; }
 .bank-export-content { padding: 20px; display: grid; gap: 12px; }
 .bank-export-content p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }

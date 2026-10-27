@@ -2,6 +2,7 @@ import { BackButton } from './BackButton'
 import { OcrNavigation, OcrNavigationContext } from './OcrNavigation'
 import { useContext, useEffect, useState } from 'react'
 import { appPath } from '../ocrPaths'
+import { isKgOnlyDelivery } from '../../server/milkDeliveryQuantity.js'
 import './MilkFactorsScreen.css'
 
 type Workflow = 'RECEPTION' | 'DELIVERIES'
@@ -109,14 +110,15 @@ export function MilkFactorsScreen() {
                 <thead><tr><th>Milk type</th><th>Factor (kg/L)</th><th>Liters from 1,000 kg</th></tr></thead>
                 <tbody>{settings[workflow].map((item) => {
                   const factor = Number(draft[workflow][item.code])
+                  const kgOnly = workflow === 'DELIVERIES' && isKgOnlyDelivery(item.code)
                   return <tr key={item.code}>
                     <th scope="row">{item.label}</th>
-                    <td><input aria-label={`${workflow === 'RECEPTION' ? 'Reception' : 'Deliveries'} ${item.label} factor`} type="number" min="0.9" max="1.2" step="0.000001" value={draft[workflow][item.code]} disabled={!canEdit || status === 'saving'} onChange={(event) => {
+                    <td>{kgOnly ? 'Kg only' : <input aria-label={`${workflow === 'RECEPTION' ? 'Reception' : 'Deliveries'} ${item.label} factor`} type="number" min="0.9" max="1.2" step="0.000001" value={draft[workflow][item.code]} disabled={!canEdit || status === 'saving'} onChange={(event) => {
                       setDraft({ ...draft, [workflow]: { ...draft[workflow], [item.code]: event.target.value } })
                       setStatus('idle')
                       setError('')
-                    }} /></td>
-                    <td>{Number.isFinite(factor) && factor > 0 ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(1000 / factor) : '-'}</td>
+                    }} />}</td>
+                    <td>{!kgOnly && Number.isFinite(factor) && factor > 0 ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(1000 / factor) : '\u2014'}</td>
                   </tr>
                 })}</tbody>
               </table>

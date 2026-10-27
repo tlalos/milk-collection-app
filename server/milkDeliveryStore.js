@@ -5,9 +5,21 @@ import { deliveryWeightEvents } from './deliveryWeightHistory.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
 import { prepareDeliveryArrival } from './milkDeliveryArrival.js'
+import { deliveryLiters, isKgOnlyDelivery } from './milkDeliveryQuantity.js'
 
 let poolPromise = null
 let initialized = false
+
+export const kgOnlyDeliveryMigrationSql = `
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+UPDATE dbo.MilkDeliveries SET calculatedLiters = NULL
+WHERE milkType IN (N'WHEY', N'LACTOSE') AND calculatedLiters IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'dbo.MilkDeliveries') AND name=N'CK_MilkDeliveries_KgOnly')
+  ALTER TABLE dbo.MilkDeliveries ADD CONSTRAINT CK_MilkDeliveries_KgOnly
+  CHECK (milkType NOT IN (N'WHEY', N'LACTOSE') OR calculatedLiters IS NULL);
+COMMIT TRANSACTION;
+`
 
 function sqlConfig() {
   const server = process.env.SQL_SERVER || process.env.MSSQL_SERVER || 'localhost'
@@ -122,6 +134,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MilkDeliveryWeightEve
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MilkDeliveryWeightEvents_Capture' AND object_id = OBJECT_ID(N'dbo.MilkDeliveryWeightEvents'))
   CREATE UNIQUE INDEX UX_MilkDeliveryWeightEvents_Capture ON dbo.MilkDeliveryWeightEvents(captureId) WHERE captureId IS NOT NULL;
 `)
+  await pool.request().batch(kgOnlyDeliveryMigrationSql)
   initialized = true
 }
 
@@ -391,16 +404,17 @@ export async function deleteMilkDelivery(id, currentDateOnly = false) {
 }
 
 function normalizeDelivery(input, existing = null) {
+  const milkType = text(input.milkType) || 'MILK-COW'
   const densityFactor = positiveNumber(input.densityFactor) || 1.029
   const loadedWeightKg = decimalValue(input.loadedWeightKg)
   const emptyWeightKg = decimalValue(input.emptyWeightKg)
   const netQuantityKg = loadedWeightKg !== null && emptyWeightKg !== null && emptyWeightKg <= loadedWeightKg
     ? round(loadedWeightKg - emptyWeightKg, 3)
     : null
-  const calculatedLiters = netQuantityKg !== null ? round(netQuantityKg / densityFactor, 3) : null
+  const liters = deliveryLiters(milkType, netQuantityKg, densityFactor)
+  const calculatedLiters = liters === null ? null : round(liters, 3)
   const greeceWeight = decimalValue(input.greeceWeight)
   const differenceAmount = netQuantityKg !== null && greeceWeight !== null ? round(greeceWeight - netQuantityKg, 3) : null
-  const milkType = text(input.milkType) || 'MILK-COW'
   const loadedWeight = resolveReceptionWeightSource(
     loadedWeightKg, dateTimeLocalText(input.loadedWeighedAt), input.loadedWeightSource,
     existing && { weight: existing.loadedWeightKg, weighedAt: existing.loadedWeighedAt },
@@ -502,7 +516,7 @@ function rowToDelivery(row) {
     emptyWeighedAt: dateTimeSqlLocalString(row.emptyWeighedAt),
     emptyWeightSource: row.emptyWeightSource || null,
     netQuantityKg: numberOrNull(row.netQuantityKg),
-    calculatedLiters: numberOrNull(row.calculatedLiters),
+    calculatedLiters: isKgOnlyDelivery(row.milkType) ? null : numberOrNull(row.calculatedLiters),
     deliveryCategory: row.deliveryCategory,
     departureComments: row.departureComments || '',
     greeceWeight: numberOrNull(row.greeceWeight),

@@ -34,3 +34,17 @@ test('rejects out-of-range or excessive-precision values', () => {
     assert.throws(() => validateMilkDensitySettings(input), /Invalid density factor/)
   }
 })
+
+test('Whey and Lactose are deliveries-only options with no editable conversion factor', () => {
+  for (const [code, label] of [['WHEY', 'Whey'], ['LACTOSE', 'Lactose']]) {
+    const input = settings()
+    assert.deepEqual(defaultMilkDensitySettings.DELIVERIES.find(item => item.code === code), { code, label, densityFactor: 1 })
+    assert.equal(defaultMilkDensitySettings.RECEPTION.some(item => item.code === code), false)
+    assert.equal(validateMilkDensitySettings(input).DELIVERIES.find(item => item.code === code).densityFactor, 1)
+    input.DELIVERIES.find(item => item.code === code).densityFactor = 1.025
+    assert.throws(() => validateMilkDensitySettings(input), /kg only/)
+    const missing = settings()
+    missing.DELIVERIES = missing.DELIVERIES.filter(item => item.code !== code)
+    assert.throws(() => validateMilkDensitySettings(missing), /required/)
+  }
+})

@@ -1,3 +1,5 @@
+import { isKgOnlyDelivery } from './milkDeliveryQuantity.js'
+
 export const deliveryColumns = [
   'deliveryId', 'deliveryDate', 'deliveryTime', 'truckNumber', 'tractorNumber', 'aviz',
   'milkType', 'milkTypeLabel', 'densityFactor', 'loadedWeightKg', 'loadedWeighedAt',
@@ -33,6 +35,7 @@ export function validateMilkDeliverySnapshot(rows) {
       throw new Error(`Invalid delivery in snapshot: ${row.deliveryId || '(missing id)'}.`)
     }
     if (ids.has(row.deliveryId)) throw new Error(`Duplicate delivery ID in snapshot: ${row.deliveryId}.`)
+    if (isKgOnlyDelivery(row.milkType) && row.calculatedLiters !== null) throw new Error(`Kg-only delivery ${row.deliveryId} must not contain liters.`)
     const key = naturalKey(row)
     if (keys.has(key)) throw new Error(`Duplicate delivery details in snapshot: ${row.deliveryId}.`)
     ids.add(row.deliveryId)

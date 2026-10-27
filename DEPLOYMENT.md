@@ -71,6 +71,22 @@ preserves the audit history and does not reverse an ERP invoice or payment.
 Keep the production `.env` and data directories. Do not copy the local
 `LOCAL_PRODUCTION_CLONE=true` configuration to production.
 
+## Center summary and kg-only deliveries (October 27, 2026)
+
+Deploy the frontend and server together using the upgrade steps above. Month
+Closure now includes a center summary with filtered liters, estimated kilograms
+using current Reception factors, and distinct producers from each center's
+journals for the full selected month. Producer counts exclude aviz-only and
+collector-only entries; estimated kilograms are not scale weights.
+
+Milk Deliveries adds Whey and Lactose as kg-only products. Their liters are blank
+and their Milk factors entries are marked Kg only. On delivery-store initialization,
+the application clears previously calculated liters for WHEY and LACTOSE rows and
+adds the CK_MilkDeliveries_KgOnly check constraint. Kilogram weights, arrival
+details, and other milk types are unchanged. The SQL account needs UPDATE and
+ALTER permissions on dbo.MilkDeliveries. Back up SQL before upgrading; no separate
+data import is required.
+
 ## Local production-data copies
 
 Before replacing a local database, create and verify a full local rollback backup.

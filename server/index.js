@@ -2062,7 +2062,12 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
     const pricingRows = isSqlOcrStoreEnabled() && basePricing.selectedMonth
       ? await listMonthlyProducerPricingRows([basePricing.selectedMonth, previousMonthKey(basePricing.selectedMonth)])
       : []
-    response.json(monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals, context?.references, context?.collectors))
+    const result = monthClosurePricingFromJobs(jobs, { month: request.query.month }, pricingRows, approvals, context?.references, context?.collectors)
+    const reconciliation = context?.reconciliation || monthlyReconciliationFromJobs(jobs)
+    const journalProducers = reconciliation.rows.filter(row => row.month === result.selectedMonth)
+      .flatMap(row => row.monthlyRows.map(producer => ({ id: producer.id, center: row.center, producerCode: producer.producerCode || '', producer: producer.producer || '' })))
+    const receptionFactors = (await getMilkDensitySettings()).RECEPTION.map(({ code, densityFactor }) => ({ code, densityFactor }))
+    response.json({ ...result, journalProducers, receptionFactors })
   } catch (error) {
     next(error)
   }

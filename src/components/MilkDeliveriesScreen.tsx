@@ -1,6 +1,7 @@
 import { BackButton } from './BackButton'
 import { useMilkRecordAccess } from './useMilkRecordAccess'
 import { currentMilkDate, milkDocumentDateError } from '../../server/milkDocumentDate.js'
+import { deliveryLiters, isKgOnlyDelivery } from '../../server/milkDeliveryQuantity.js'
 import { OcrNavigation } from './OcrNavigation'
 import { MilkDeliveriesHelp } from './MilkDeliveriesHelp'
 import { SaveIcon, ScaleIcon } from './MilkDeliveryIcons'
@@ -71,6 +72,8 @@ const defaultMilkTypes: MilkTypeOption[] = [
   { code: 'MILK-COW', label: 'Cow', densityFactor: 1.029 },
   { code: 'MILK-SHEEP', label: 'Sheep', densityFactor: 1.036 },
   { code: 'MILK-COW-GREECE', label: 'Standardized', densityFactor: 1.037 },
+  { code: 'WHEY', label: 'Whey', densityFactor: 1 },
+  { code: 'LACTOSE', label: 'Lactose', densityFactor: 1 },
 ]
 
 const defaultWeighbridgeConfig: WeighbridgeClientConfig = {
@@ -125,7 +128,7 @@ function withCalculations(delivery: MilkDelivery) {
   const empty = numericValue(delivery.emptyWeightKg)
   const greece = numericValue(delivery.greeceWeight)
   const netQuantityKg = loaded !== null && empty !== null && loaded >= empty ? loaded - empty : null
-  const calculatedLiters = netQuantityKg !== null && delivery.densityFactor > 0 ? netQuantityKg / delivery.densityFactor : null
+  const calculatedLiters = deliveryLiters(delivery.milkType, netQuantityKg, delivery.densityFactor)
   const differenceAmount = netQuantityKg !== null && greece !== null ? greece - netQuantityKg : null
   return { ...delivery, netQuantityKg, calculatedLiters, differenceAmount }
 }
@@ -676,7 +679,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
                         <td>{renderWeightInput(record, 'loadedWeightKg')}</td>
                         <td>{renderWeightInput(record, 'emptyWeightKg')}</td>
                         <td><output className="delivery-readonly-value" aria-label="Net kg">{formatNumber(record.netQuantityKg)}</output></td>
-                        <td><output className="delivery-readonly-value" aria-label="Liters">{formatNumber(record.calculatedLiters)}</output></td>
+                        <td><output className="delivery-readonly-value" aria-label="Liters" title={isKgOnlyDelivery(record.milkType) ? 'Kg only' : undefined}>{isKgOnlyDelivery(record.milkType) ? '\u2014' : formatNumber(record.calculatedLiters)}</output></td>
                         <td><select disabled={locked} value={record.deliveryCategory} onChange={(event) => updateRecord(record.id, { deliveryCategory: event.target.value })}><option value="UNSPECIFIED">Unspecified</option><option value="SALES">Sales</option><option value="OTHERS">Others</option></select></td>
                         <td><input disabled={locked} value={record.departureComments} onChange={(event) => updateRecord(record.id, { departureComments: event.target.value })} placeholder="Comments..." /></td>
                         <td><span className={`delivery-status ${record.status.toLocaleLowerCase()}`}>{statusLabel(record.status)}</span></td>

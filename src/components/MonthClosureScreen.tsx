@@ -5,6 +5,8 @@ import { usePinnedTableHeader } from './usePinnedTableHeader'
 import { CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CircleDollarSign, DollarSign, History, LockKeyhole, RefreshCw, Save, Zap, LockKeyholeOpen, UserRoundPlus } from 'lucide-react'
 import { pageBounds, selectPage } from '../monthClosurePagination'
 import { BankNoteSummary } from './BankNoteSummary'
+import { MonthClosureCenterSummary } from './MonthClosureCenterSummary'
+import type { JournalProducer, ReceptionFactor } from '../monthClosureCenterSummary'
 import { MonthClosureHelp } from './MonthClosureHelp'
 import { BankExportDialog, type BankExportDialogHandle } from './BankExportDialog'
 import { prepareBankExport, type BankExportRow } from '../bankNoteExport'
@@ -76,6 +78,8 @@ interface MonthClosureSummary {
 }
 
 interface MonthClosurePayload {
+  journalProducers?: JournalProducer[]
+  receptionFactors?: ReceptionFactor[]
   rows: MonthClosurePricingRow[]
   summary: MonthClosureSummary
   monthOptions: string[]
@@ -214,6 +218,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const canOpenPage = (permission: string) => Boolean(access?.isAdmin || access?.permissions?.includes(permission))
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
   const [summary, setSummary] = useState<MonthClosureSummary>(emptySummary)
+  const [journalProducers, setJournalProducers] = useState<JournalProducer[]>([])
+  const [receptionFactors, setReceptionFactors] = useState<ReceptionFactor[]>([])
   const [monthOptions, setMonthOptions] = useState<string[]>([])
   const [pricingDrafts, setPricingDrafts] = useState<PricingDrafts>({})
   const [pricingSaveStatus, setPricingSaveStatus] = useState<PricingSaveStatus>('idle')
@@ -292,6 +298,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       if (!response.ok) throw new Error(payload.error || 'Could not load month closure pricing rows.')
       setRows(payload.rows || [])
       setSummary(payload.summary || emptySummary)
+      setJournalProducers(payload.journalProducers || [])
+      setReceptionFactors(payload.receptionFactors || [])
       setMonthOptions(payload.monthOptions || [])
       setMonthFilter(payload.selectedMonth || month || '')
       const selectedMonth = payload.selectedMonth || month
@@ -1104,6 +1112,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               </p>
             </div>
             {view === 'bankNote' && <BankNoteSummary month={monthFilter} volumes={rows} payments={visibleBankRows} filtered={hasActiveFilters} loading={loading} />}
+            {view !== 'bankNote' && <MonthClosureCenterSummary month={monthFilter} rows={view === 'erpInvoices' ? invoiceRows.map(item => item.row) : filteredRows} journalProducers={journalProducers} factors={receptionFactors} filtered={hasActiveFilters} loading={loading || !invoiceStatusesLoaded} />}
             {view === 'erpInvoices' && (
               <div className="month-closure-invoice-tools">
                 <InvoiceDateDialog ref={invoiceDateDialogRef} saving={invoiceDateSaving} onApply={date => void saveInvoiceDates(date)} />
