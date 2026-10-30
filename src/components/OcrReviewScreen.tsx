@@ -566,6 +566,11 @@ export function OcrReviewScreen() {
   const [queueCollapsed, setQueueCollapsed] = useState(false)
   const [jobSearch, setJobSearch] = useState('')
   const [jobDateFilter, setJobDateFilter] = useState('')
+  const [jobMonthFilter, setJobMonthFilter] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [jobsLoading, setJobsLoading] = useState(true)
   const [dataTab, setDataTab] = useState<'document' | 'centers'>('document')
   const [jobs, setJobs] = useState<OcrJob[]>([])
   const [selected, setSelected] = useState<OcrJob | null>(null)
@@ -603,7 +608,7 @@ export function OcrReviewScreen() {
   const [columnsFit, setColumnsFit] = useState(false)
   const [page, setPage] = useState(1)
   const jobCacheRef = useRef(new Map<string, OcrJob>())
-  const prefetchingRef = useRef(new Set<string>())
+  const listRequestRef = useRef<AbortController | null>(null)
   const lastSavedRef = useRef('')
   const openRequestRef = useRef(0)
   const centerSearchTimersRef = useRef(new Map<number, number>())
@@ -654,12 +659,17 @@ export function OcrReviewScreen() {
   }, [])
 
   const loadJobs = useCallback(async () => {
+    if (listRequestRef.current) return
+    const controller = new AbortController()
+    listRequestRef.current = controller
+    setJobsLoading(true)
     try {
-      const query = queueView === 'failed'
-        ? 'documentCategory=daily_routes'
-        : `reviewStatus=${queueView}&documentCategory=daily_routes`
-      const response = await fetch(appPath(`/api/ocr/jobs?${query}`))
+      const query = new URLSearchParams({ documentCategory: 'daily_routes' })
+      if (queueView !== 'failed') query.set('reviewStatus', queueView)
+      if (jobMonthFilter) query.set('month', jobMonthFilter)
+      const response = await fetch(appPath(`/api/ocr/jobs?${query}`), { signal: controller.signal })
       const payload = await response.json() as { jobs?: OcrJob[]; error?: string }
+      if (controller.signal.aborted) return
       if (!response.ok) throw new Error(payload.error || 'Could not load OCR jobs.')
       const nextJobs = queueView === 'pending'
         ? (payload.jobs ?? []).filter((job) => job.status !== 'failed')
@@ -675,18 +685,21 @@ export function OcrReviewScreen() {
       })
       setError('')
 
-      for (const job of nextJobs) {
-        if (job.status !== 'completed' || jobCacheRef.current.has(job.id) || prefetchingRef.current.has(job.id)) continue
-        prefetchingRef.current.add(job.id)
-        void fetchJobDetail(job.id).catch(() => undefined).finally(() => prefetchingRef.current.delete(job.id))
-      }
     } catch (loadError) {
-      setError((loadError as Error).message || 'Could not load OCR jobs.')
+      if (!controller.signal.aborted) setError((loadError as Error).message || 'Could not load OCR jobs.')
+    } finally {
+      if (listRequestRef.current === controller) {
+        listRequestRef.current = null
+        setJobsLoading(false)
+      }
     }
-  }, [fetchJobDetail, queueView])
+  }, [jobMonthFilter, queueView])
 
   useEffect(() => {
     setSelected(null)
+    setJobs([])
+    openRequestRef.current += 1
+    setLoadingId('')
     setDraft(null)
     setCenterMatches([])
     setSelectedId('')
@@ -696,7 +709,11 @@ export function OcrReviewScreen() {
     setRowNumberDrafts({})
     void loadJobs()
     const timer = window.setInterval(() => void loadJobs(), 5000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      listRequestRef.current?.abort()
+      listRequestRef.current = null
+    }
   }, [loadJobs])
 
   useEffect(() => {
@@ -1649,10 +1666,17 @@ export function OcrReviewScreen() {
             <button className={queueView === 'reviewed' ? 'active' : ''} type="button" onClick={() => setQueueView('reviewed')}>{isRo ? 'Verificate' : 'Reviewed'}</button>
             <button className={queueView === 'failed' ? 'active' : ''} type="button" onClick={() => setQueueView('failed')}>{isRo ? 'Eșuate' : 'Failed'}</button>
           </div>
+          <div className="review-job-month">
+            <label>
+              <input type="month" aria-label={isRo ? 'Luna documentului' : 'Document month'} value={jobMonthFilter} onChange={event => { setJobMonthFilter(event.target.value); setJobDateFilter('') }} />
+            </label>
+            <button type="button" disabled={!jobMonthFilter} onClick={() => { setJobMonthFilter(''); setJobDateFilter('') }}>{isRo ? 'Toate lunile' : 'All months'}</button>
+          </div>
+          {jobsLoading && <p className="review-queue-loading" role="status">{isRo ? 'Se încarcă documentele…' : 'Loading documents…'}</p>}
           <label className="review-job-search">
             <span aria-hidden="true">⌕</span>
             <input className="review-job-search-input" type="text" role="searchbox" inputMode="search" autoComplete="off" spellCheck={false} value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder={jobDateFilter ? (isRo ? `Dată: ${displayDate(jobDateFilter)}` : `Date: ${displayDate(jobDateFilter)}`) : (isRo ? 'Căutați rută, dată, șofer…' : 'Search route, date, driver…')} aria-label={isRo ? 'Căutați documente' : 'Search documents'} />
-            <input className="review-job-date-picker" type="date" value={jobDateFilter} onChange={(event) => setJobDateFilter(event.target.value)} aria-label={isRo ? 'Filtrați după dată' : 'Filter by date'} title={isRo ? 'Alegeți data documentului' : 'Choose document date'} />
+            <input className="review-job-date-picker" type="date" value={jobDateFilter} onChange={(event) => { setJobDateFilter(event.target.value); if (event.target.value) setJobMonthFilter(event.target.value.slice(0, 7)) }} aria-label={isRo ? 'Filtrați după dată' : 'Filter by date'} title={isRo ? 'Alegeți data documentului' : 'Choose document date'} />
             {(jobSearch || jobDateFilter) && <button type="button" onClick={() => { setJobSearch(''); setJobDateFilter('') }} aria-label={isRo ? 'Ștergeți căutarea' : 'Clear search'}>×</button>}
           </label>
           <div className="review-queue-title"><h2>{queueTitle}</h2><span>{filteredJobs.length}</span></div>
@@ -1668,7 +1692,7 @@ export function OcrReviewScreen() {
             <div className="review-reviewed-count"><strong>{jobFiltersActive ? filteredJobs.length : completedCount}</strong> {jobFiltersActive ? (isRo ? 'documente verificate găsite' : 'matching reviewed documents') : (isRo ? 'documente verificate' : 'reviewed documents')}</div>
           )}
 
-          {filteredJobs.length === 0 ? <p className="review-empty">{jobFiltersActive ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${emptyQueueName} documents.`)}</p> : (
+          {filteredJobs.length === 0 ? (!jobsLoading && <p className="review-empty">{jobFiltersActive ? (isRo ? 'Niciun document nu corespunde căutării.' : 'No documents match your search.') : (isRo ? 'Nu există documente în această listă.' : `No ${emptyQueueName} documents.`)}</p>) : (
             <div className="review-job-list">
               {visibleJobs.map((job) => (
                 <article className={`review-job-item ${selectedId === job.id ? 'selected' : ''} status-${job.status}`} key={job.id}>

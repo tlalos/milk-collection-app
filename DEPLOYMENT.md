@@ -87,6 +87,19 @@ details, and other milk types are unchanged. The SQL account needs UPDATE and
 ALTER permissions on dbo.MilkDeliveries. Back up SQL before upgrading; no separate
 data import is required.
 
+## Daily Routes loading (October 30, 2026)
+
+Daily Routes Review defaults to the browser's current month. The compact month
+picker and All months control apply to Pending, Reviewed, and Failed documents.
+SQL filters the list before returning documents; documents without a recognized
+date use their upload month. Details load only when a document is opened, and
+list refresh requests no longer overlap. A loading indicator distinguishes a
+pending request from an empty list.
+
+Deploy both frontend and server files and restart the milk application's pool.
+This update requires no new schema or data import and does not change the WMS API
+or its SoftOne session handling. It is not a fix for WMS out-of-memory failures.
+
 ## Local production-data copies
 
 Before replacing a local database, create and verify a full local rollback backup.

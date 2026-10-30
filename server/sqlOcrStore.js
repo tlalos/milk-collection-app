@@ -324,10 +324,23 @@ export async function getSqlJob(id) {
   return result.recordset[0] ? hydrateCmrJob(result.recordset[0]) : null
 }
 
-export async function listSqlJobs() {
+export async function listSqlJobs(filters = {}) {
   await initializeSqlOcrStore()
   const pool = await getPool()
-  const result = await pool.request().query('SELECT j.jobJson,c.* FROM dbo.OcrJobs j LEFT JOIN dbo.CmrDocuments c ON c.jobId=j.id ORDER BY j.createdAt DESC;')
+  const request = pool.request()
+  const conditions = []
+  for (const key of ['documentCategory', 'reviewStatus', 'status']) {
+    if (!filters[key]) continue
+    request.input(key, sql.NVarChar(64), filters[key])
+    conditions.push(`j.${key} = @${key}`)
+  }
+  if (filters.month) {
+    request.input('monthStart', sql.Date, new Date(`${filters.month}-01T00:00:00Z`))
+    conditions.push(`((j.dataDate >= @monthStart AND j.dataDate < DATEADD(month, 1, @monthStart))
+      OR (j.dataDate IS NULL AND CAST(j.createdAt AS date) >= @monthStart AND CAST(j.createdAt AS date) < DATEADD(month, 1, @monthStart)))`)
+  }
+  const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''
+  const result = await request.query(`SELECT j.jobJson,c.* FROM dbo.OcrJobs j LEFT JOIN dbo.CmrDocuments c ON c.jobId=j.id${where} ORDER BY j.createdAt DESC;`)
   return result.recordset.map(hydrateCmrJob)
 }
 

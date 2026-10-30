@@ -1772,10 +1772,7 @@ app.post('/api/ocr/jobs', upload.array('documents', 10), async (request, respons
 
 app.get('/api/ocr/jobs', async (request, response, next) => {
   try {
-    let jobs = await listJobs()
-    if (request.query.reviewStatus) jobs = jobs.filter((job) => job.reviewStatus === request.query.reviewStatus)
-    if (request.query.status) jobs = jobs.filter((job) => job.status === request.query.status)
-    if (request.query.documentCategory) jobs = jobs.filter((job) => (job.documentCategory || 'daily_routes') === request.query.documentCategory)
+    const jobs = await listJobs(request.query)
     response.json({ jobs: jobs.map((job) => toPublicJob(job, false)) })
   } catch (error) {
     next(error)

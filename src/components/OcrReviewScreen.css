@@ -53,6 +53,12 @@
 .review-queue-tabs button { min-width: 0; padding: 8px 3px; border: 0; border-radius: 7px; background: transparent; color: #6d7b72; font-size: .68rem; font-weight: 750; }
 .review-queue-tabs button.active { background: white; color: #1a6b3c; box-shadow: 0 2px 7px rgba(20,60,35,.1); }
 .review-job-search { min-height: 34px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 26px; align-items: center; gap: 3px; margin-bottom: 12px; padding: 0 7px; box-sizing: border-box; border: 1px solid #d5dfd8; border-radius: 8px; background: #fafcfb; color: #718078; }
+.review-job-month { display: flex; align-items: end; gap: 8px; margin: 12px 0; }
+.review-job-month label { display: grid; gap: 4px; flex: 1; min-width: 0; font-size: .75rem; }
+.review-job-month input { min-width: 0; width: 100%; box-sizing: border-box; height: 36px; border: 1px solid #d5dfd8; border-radius: 6px; padding: 4px 6px; background: #fafcfb; color: #203027; }
+.review-job-month button { height: 36px; border: 1px solid #d5dfd8; border-radius: 6px; padding: 4px 8px; background: #fafcfb; color: #145b3c; font-size: .75rem; cursor: pointer; }
+.review-job-month button:disabled { opacity: .5; cursor: default; }
+.review-queue-loading { margin: 8px 0; font-size: .8rem; color: #526158; }
 .review-job-search:focus-within { border-color: #1a6b3c; box-shadow: 0 0 0 2px rgba(26,107,60,.12); }
 .review-job-search > span { grid-column: 1; grid-row: 1; }
 .review-job-search input { grid-row: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #203027; font-size: .7rem; }

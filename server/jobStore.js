@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { emptyCmrData } from './cmrDocument.js'
+import { matchesJobListFilters, validateJobListFilters } from './ocrJobListFilter.js'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -133,14 +134,15 @@ export async function updateJob(id, updates, options = {}) {
     ? { expectedUpdatedAt: options.expectedUpdatedAt ?? job.updatedAt } : options)
 }
 
-export async function listJobs() {
+export async function listJobs(filters = {}) {
+  filters = validateJobListFilters(filters)
   await initializeJobStore()
-  if (isSqlOcrStoreEnabled()) return listSqlJobs()
+  if (isSqlOcrStoreEnabled()) return listSqlJobs(filters)
   const filenames = (await readdir(jobsDir)).filter((filename) => filename.endsWith('.json'))
   const jobs = await Promise.all(filenames.map(async (filename) =>
     JSON.parse(await readFile(path.join(jobsDir, filename), 'utf8')),
   ))
-  return jobs.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  return jobs.filter(job => matchesJobListFilters(job, filters)).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
 export function getStoredFilePath(job) {
