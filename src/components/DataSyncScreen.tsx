@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { PageLanguageSwitch } from './OcrLanguage'
 import { BackButton } from './BackButton'
 import { useEffect, useRef, useState } from 'react'
@@ -29,6 +30,7 @@ function formatDateTime(value: string | null) {
 }
 
 export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
+  const canOperate = useCanOperate('milk_collection')
   const syncOptions = {
     mode: 'ALL',
     username: user.username,
@@ -101,6 +103,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
   const isSyncing = stage === 'suppliers' || stage === 'items' || stage === 'trucks' || stage === 'params'
 
   async function handleSyncAll() {
+    if (!canOperate) return
     if (isSyncing) return
 
     abortRef.current?.abort()
@@ -260,7 +263,7 @@ export function DataSyncScreen({ onBack, user }: DataSyncScreenProps) {
             className="data-sync-button data-sync-primary-button"
             type="button"
             onClick={handleSyncAll}
-            disabled={isSyncing}
+            disabled={!canOperate || (isSyncing)}
           >
             {isSyncing ? (
               <svg className="spin" viewBox="0 0 20 20" fill="currentColor">

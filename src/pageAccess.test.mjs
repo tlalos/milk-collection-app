@@ -19,16 +19,16 @@ test('one collection grant covers the full collection area including alternate l
 
 test('export menu and report URLs share one guarded screen and navigation entry', async () => {
   const app = await readFile(new URL('./App.tsx', import.meta.url), 'utf8')
-  assert.ok(app.includes("if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'].includes(routePathname())) return 'exports'"))
+  assert.ok(app.includes("if (['/ocr/exports', '/ocr/exports/apia', '/ocr/exports/apia/contracts', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'].includes(routePathname())) return 'exports'"))
   const navigation = await readFile(new URL('./components/OcrNavigation.tsx', import.meta.url), 'utf8')
-  assert.ok(navigation.includes("permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts']"))
+  assert.ok(navigation.includes("permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/apia/contracts', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts']"))
 })
 
 test('direct page gates match the separate navigation permissions', async () => {
   const app = await readFile(new URL('./App.tsx', import.meta.url), 'utf8')
   for (const [screen, permission] of [
     ['milkReception', 'milk_reception'], ['milkDeliveries', 'milk_reception'],
-    ['milkFactors', 'milk_reception'], ['bankNote', 'month_closure'],
+    ['milkFactors', 'milk_reception'], ['bankNote', 'bank_note'],
     ['ocrArchiveHistory', 'backup_history'], ['webUserHistory', 'audit_log'],
     ['webUsers', 'app_admin'], ['exports', 'exports'],
   ]) {

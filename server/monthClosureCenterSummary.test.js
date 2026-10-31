@@ -27,7 +27,7 @@ test('closure summary payload uses only selected-month journal membership and Re
   }
   vm.runInNewContext(route.getText(ast), context)
   await handler({ query: { month: '2026-09' } }, { json(value) { payload = JSON.parse(JSON.stringify(value)) } }, error => { throw error })
-  assert.deepEqual(requestedPermissions, ['month_closure'])
+  assert.deepEqual(JSON.parse(JSON.stringify(requestedPermissions)), [['month_closure', 'bank_note']])
   assert.deepEqual(payload.journalProducers, [{ id: 'j1', center: 'A', producerCode: 'p1', producer: 'Ana' }])
   assert.deepEqual(payload.receptionFactors, [{ code: 'MILK-COW', densityFactor: 1.03 }])
 })

@@ -4,7 +4,11 @@ const weightFields = [
 ]
 
 export function assertScaleOnlyReceptionWeights(before, after, input = {}) {
-  for (const field of weightFields) {
+  assertScaleOnlyWeights(before, after, input, weightFields)
+}
+
+export function assertScaleOnlyWeights(before, after, input, fields) {
+  for (const field of fields) {
     const changed = (before?.[field.weight] ?? null) !== (after[field.weight] ?? null)
       || (before?.[field.source] || null) !== (after[field.source] || null)
       || (before?.[field.weighedAt] || null) !== (after[field.weighedAt] || null)
@@ -12,7 +16,7 @@ export function assertScaleOnlyReceptionWeights(before, after, input = {}) {
     const captureId = typeof input[field.captureId] === 'string' ? input[field.captureId].trim() : ''
     if (after[field.weight] == null || after[field.source] !== 'SCALE'
       || !after[field.weighedAt] || !captureId || captureId.length > 100) {
-      const label = field.kind === 'FULL' ? 'Full truck weight' : 'Empty truck weight'
+      const label = field.label || (field.kind === 'FULL' ? 'Full truck weight' : 'Empty truck weight')
       const error = new Error(`${label} can only be changed using the scale button.`)
       error.status = 400
       throw error

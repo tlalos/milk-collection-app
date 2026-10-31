@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
@@ -561,6 +562,7 @@ function applyCenterMatchesToData(data: ExtractedData, matches: CenterMatch[]) {
 }
 
 export function OcrReviewScreen() {
+  const canOperate = useCanOperate('ocr_documents')
   const { language, isRo } = useOcrLanguage()
   const [queueView, setQueueView] = useState<QueueView>('pending')
   const [queueCollapsed, setQueueCollapsed] = useState(false)
@@ -790,7 +792,7 @@ export function OcrReviewScreen() {
   }, [dataTab, draft?.date])
 
   useEffect(() => {
-    if (!selected || !draft || selected.status !== 'completed' || saving || rematchingReferences) return
+    if (!canOperate || !selected || !draft || selected.status !== 'completed' || saving || rematchingReferences) return
     const signature = JSON.stringify({ data: draft, centerMatches })
     if (signature === lastSavedRef.current) return
     let cancelled = false
@@ -818,7 +820,7 @@ export function OcrReviewScreen() {
       }
     }, 800)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [centerMatches, draft, rematchingReferences, saving, selected?.id, selected?.status])
+  }, [canOperate, centerMatches, draft, rematchingReferences, saving, selected?.id, selected?.status])
 
   useEffect(() => () => {
     centerSearchTimersRef.current.forEach((timer) => window.clearTimeout(timer))
@@ -886,6 +888,7 @@ export function OcrReviewScreen() {
   }
 
   async function deleteDocument(job: OcrJob) {
+    if (!canOperate) return
     const prompt = isRo
       ? `Ștergeți definitiv „${job.sourceFile}”, fișierul încărcat și procesul OCR?`
       : `Permanently delete “${job.sourceFile}”, its uploaded file, and OCR process?`
@@ -1120,6 +1123,7 @@ export function OcrReviewScreen() {
   }
 
   async function saveDocument(markReviewed: boolean) {
+    if (!canOperate) return
     if (!selected || !draft || saving) return
     if (markReviewed) {
       const invalidRows = draft.rows
@@ -1188,6 +1192,7 @@ export function OcrReviewScreen() {
   }
 
   async function archiveDocument(job: OcrJob) {
+    if (!canOperate) return
     const prompt = isRo
       ? `Arhivați acum imaginea „${job.sourceFile}” în SharePoint?\n\nDupă încărcarea cu succes, fișierul local va fi șters, dar procesul OCR și istoricul backup vor rămâne.`
       : `Archive the picture "${job.sourceFile}" to SharePoint now?\n\nAfter a successful upload, the local file will be removed, but the OCR job and backup history will remain.`
@@ -1256,6 +1261,7 @@ export function OcrReviewScreen() {
   }
 
   async function recoverErpRow(rowNumber: number, checks: ErpManualChecks, initial = false) {
+    if (!canOperate) return
     if (!selected) return
     const feedback = (message: string, failed = true) => setRecoveryFeedback({ jobId: selected.id, rowNumber, message, failed })
     if (!selected.erpExport || !selected.data) {
@@ -1340,6 +1346,7 @@ export function OcrReviewScreen() {
   }
 
   async function sendDocumentToErp() {
+    if (!canOperate) return
     if (!selected || !draft || erpSending) return
     if (selected.reviewStatus !== 'reviewed') {
       setError(isRo ? 'Verificați documentul înainte de trimiterea în ERP.' : 'Mark the document reviewed before sending to ERP.')
@@ -1444,6 +1451,7 @@ export function OcrReviewScreen() {
   }
 
   async function reprocessDocument(job: OcrJob = selected!) {
+    if (!canOperate) return
     if (!job || reprocessingId) return
     const confirmed = window.confirm(isRo ? 'Refacem OCR pentru acest document? Datele recunoscute și corecțiile salvate vor fi înlocuite.' : 'Redo OCR for this document? The current recognised data and saved corrections will be replaced when processing completes.')
     if (!confirmed) return
@@ -1471,6 +1479,7 @@ export function OcrReviewScreen() {
   }
 
   async function rematchOperationalReferences() {
+    if (!canOperate) return
     if (!selected || !draft || rematchingReferences) return
     setRematchingReferences(true)
     setError('')
@@ -1717,12 +1726,12 @@ export function OcrReviewScreen() {
                   <small>{new Date(job.createdAt).toLocaleString()}</small>
                 </button>
                 {job.status === 'failed' && (
-                  <button className="review-job-reprocess" type="button" onClick={() => void reprocessDocument(job)} disabled={Boolean(reprocessingId) || deletingId === job.id}>
+                  <button className="review-job-reprocess" type="button" onClick={() => void reprocessDocument(job)} disabled={!canOperate || (Boolean(reprocessingId) || deletingId === job.id)}>
                     {reprocessingId === job.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}
                   </button>
                 )}
-                <button className="review-job-archive" type="button" onClick={() => void archiveDocument(job)} disabled={archivingId === job.id || deletingId === job.id || job.status === 'queued' || job.status === 'processing' || job.archiveStatus?.status === 'archived'} title={job.archiveStatus?.status === 'archived' ? (isRo ? 'Document deja arhivat' : 'Document already archived') : (isRo ? 'Arhivați imaginea în SharePoint' : 'Archive picture to SharePoint')} aria-label={isRo ? `Arhivează ${job.sourceFile}` : `Archive ${job.sourceFile}`}>{archivingId === job.id ? '…' : job.archiveStatus?.status === 'archived' ? '✓' : '↥'}</button>
-                <button className="review-job-delete" type="button" onClick={() => void deleteDocument(job)} disabled={deletingId === job.id || archivingId === job.id} title={isRo ? 'Șterge documentul și procesul' : 'Delete document and process'} aria-label={isRo ? `Șterge ${job.sourceFile}` : `Delete ${job.sourceFile}`}>{deletingId === job.id ? '…' : '×'}</button>
+                <button className="review-job-archive" type="button" onClick={() => void archiveDocument(job)} disabled={!canOperate || (archivingId === job.id || deletingId === job.id || job.status === 'queued' || job.status === 'processing' || job.archiveStatus?.status === 'archived')} title={job.archiveStatus?.status === 'archived' ? (isRo ? 'Document deja arhivat' : 'Document already archived') : (isRo ? 'Arhivați imaginea în SharePoint' : 'Archive picture to SharePoint')} aria-label={isRo ? `Arhivează ${job.sourceFile}` : `Archive ${job.sourceFile}`}>{archivingId === job.id ? '…' : job.archiveStatus?.status === 'archived' ? '✓' : '↥'}</button>
+                <button className="review-job-delete" type="button" onClick={() => void deleteDocument(job)} disabled={!canOperate || (deletingId === job.id || archivingId === job.id)} title={isRo ? 'Șterge documentul și procesul' : 'Delete document and process'} aria-label={isRo ? `Șterge ${job.sourceFile}` : `Delete ${job.sourceFile}`}>{deletingId === job.id ? '…' : '×'}</button>
                 </article>
               ))}
             </div>
@@ -1781,8 +1790,8 @@ export function OcrReviewScreen() {
                   </div>
                   <div className="review-heading-badges">
                     <div className="review-save-status">
-                      <b className={`review-autosave-status status-${autoSaveStatus}`} role="status">{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>
-                      <button className="review-manual-save" type="button" onClick={() => void saveDocument(false)} disabled={saving || autoSaveStatus === 'saving'} aria-busy={saving || autoSaveStatus === 'saving'}
+                      {canOperate && <b className={`review-autosave-status status-${autoSaveStatus}`} role="status">{autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : autoSaveStatus === 'error' ? (isRo ? 'Salvare eșuată' : 'Save failed') : autoSaveStatus === 'saved' ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automată' : 'Autosave on')}</b>}
+                      <button className="review-manual-save" type="button" onClick={() => void saveDocument(false)} disabled={!canOperate || (saving || autoSaveStatus === 'saving')} aria-busy={saving || autoSaveStatus === 'saving'}
                         aria-label={saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}
                         title={saving || autoSaveStatus === 'saving' ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modificările' : 'Save changes')}>
                         <Save size={18} aria-hidden="true" />
@@ -1816,12 +1825,12 @@ export function OcrReviewScreen() {
                             <b>{isRo ? 'Rând' : 'Row'} {row.rowNumber} · {row.center || '—'}</b>
                             <span>Aviz {row.aviz || '—'}</span>
                             {row.status === 'failed' && !row.documents?.some((doc) => doc.message) && <span className="erp-result-error">{row.message}</span>}
-                            {row.neverAttempted ? <button type="button" disabled={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'}
+                            {row.neverAttempted ? <button type="button" disabled={!canOperate || (erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed')}
                               onClick={() => {
                                 if (window.confirm(isRo ? `Trimiteți doar rândul ${row.rowNumber} în ERP?` : `Send only row ${row.rowNumber} (Aviz and NIR) to ERP?`)) {
                                   void recoverErpRow(row.rowNumber, { aviz: { outcome: 'absent', erpId: '' }, nir: { outcome: 'absent', erpId: '' } }, true)
                                 }
-                              }}>{isRo ? 'Trimiteți în ERP' : 'Send to ERP'}</button> : <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo}
+                              }}>{isRo ? 'Trimiteți în ERP' : 'Send to ERP'}</button> : <ErpRowRecovery key={`${selected.id}-${row.rowNumber}-${selected.erpExport?.recoveryId || ''}`} row={row} busy={!canOperate || erpSending || saving || autoSaveStatus === 'saving' || selected.reviewStatus !== 'reviewed'} isRo={isRo}
                               identity={`${selected.data?.date || '-'} | ${row.center || '-'} | Aviz ${row.aviz || '-'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.milkType || 'MILK-COW'} | ${selected.data?.rows.find(item => item.rowNumber === row.rowNumber)?.liters ?? '-'} L`}
                               onRecover={checks => recoverErpRow(row.rowNumber, checks)} />}
                             {recoveryFeedback?.jobId === selected.id && recoveryFeedback.rowNumber === row.rowNumber && <p className={recoveryFeedback.failed ? 'erp-result-error' : 'erp-recovery-feedback'} role={recoveryFeedback.failed ? 'alert' : 'status'}>{recoveryFeedback.message}</p>}
@@ -1859,15 +1868,15 @@ export function OcrReviewScreen() {
                 {dataTab === 'document' ? (<div className="review-tab-content review-document-tab">
 
                 <div className="review-fields">
-                  <label>{isRo ? 'Companie' : 'Company'}<input value={draft.companyName ?? ''} onChange={(event) => updateTextField('companyName', event.target.value)} /></label>
-                  <label>{isRo ? 'Data' : 'Date'}<span className="review-date-input"><input inputMode="numeric" placeholder="dd/MM/yyyy" value={displayDate(draft.date)} onChange={(event) => updateTextField('date', storedDate(event.target.value))} /><input className="review-date-picker" type="date" value={/^\d{4}-\d{2}-\d{2}$/u.test(draft.date ?? '') ? draft.date! : ''} onChange={(event) => updateTextField('date', event.target.value)} aria-label={isRo ? 'Alegeți data din calendar' : 'Choose date from calendar'} /></span></label>
+                  <label>{isRo ? 'Companie' : 'Company'}<input disabled={!canOperate} value={draft.companyName ?? ''} onChange={(event) => updateTextField('companyName', event.target.value)} /></label>
+                  <label>{isRo ? 'Data' : 'Date'}<span className="review-date-input"><input disabled={!canOperate} inputMode="numeric" placeholder="dd/MM/yyyy" value={displayDate(draft.date)} onChange={(event) => updateTextField('date', storedDate(event.target.value))} /><input disabled={!canOperate} className="review-date-picker" type="date" value={/^\d{4}-\d{2}-\d{2}$/u.test(draft.date ?? '') ? draft.date! : ''} onChange={(event) => updateTextField('date', event.target.value)} aria-label={isRo ? 'Alegeți data din calendar' : 'Choose date from calendar'} /></span></label>
                   <label>
                     <span className="review-field-label">{isRo ? 'Șofer' : 'Driver'}
                       {selected.driverMatch?.status === 'auto_replaced' && draft.driverName === selected.driverMatch.selectedName && <b className="review-driver-replaced">{isRo ? 'Înlocuit din SQL' : 'Replaced from SQL'}</b>}
                       {selected.driverMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
                       {selected.driverMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
-                    <input list="ocr-driver-options" autoComplete="off" value={draft.driverName ?? ''} onChange={(event) => updateTextField('driverName', event.target.value)} />
+                    <input disabled={!canOperate} list="ocr-driver-options" autoComplete="off" value={draft.driverName ?? ''} onChange={(event) => updateTextField('driverName', event.target.value)} />
                     <datalist id="ocr-driver-options">{driverOptions.map((driver) => <option value={driver} key={driver} />)}</datalist>
                   </label>
                   <label>
@@ -1876,7 +1885,7 @@ export function OcrReviewScreen() {
                       {selected.vehicleMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
                       {selected.vehicleMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
-                    <input list="ocr-vehicle-options" autoComplete="off" value={draft.vehicleRegistration ?? ''} onChange={(event) => updateTextField('vehicleRegistration', event.target.value)} />
+                    <input disabled={!canOperate} list="ocr-vehicle-options" autoComplete="off" value={draft.vehicleRegistration ?? ''} onChange={(event) => updateTextField('vehicleRegistration', event.target.value)} />
                     <datalist id="ocr-vehicle-options">{vehicleOptions.map((vehicle) => <option value={vehicle} key={vehicle} />)}</datalist>
                   </label>
                   <label>
@@ -1885,10 +1894,10 @@ export function OcrReviewScreen() {
                       {selected.routeMatch?.status === 'unmatched' && <b className="review-reference-unmatched">{isRo ? 'Nicio potrivire SQL' : 'No SQL match'}</b>}
                       {selected.routeMatchError && <b className="review-reference-error">{isRo ? 'Căutare SQL eșuată' : 'SQL lookup failed'}</b>}
                     </span>
-                    <input list="ocr-route-options" autoComplete="off" value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
+                    <input disabled={!canOperate} list="ocr-route-options" autoComplete="off" value={draft.route ?? ''} onChange={(event) => updateTextField('route', event.target.value)} />
                     <datalist id="ocr-route-options">{routeOptions.map((route) => <option value={route} key={route} />)}</datalist>
                   </label>
-                  <label>{isRo ? 'Total litri' : 'Total liters'}<input inputMode="decimal" value={draft.totalLiters ?? ''} onChange={(event) => updateTotalLiters(event.target.value)} /></label>
+                  <label>{isRo ? 'Total litri' : 'Total liters'}<input disabled={!canOperate} inputMode="decimal" value={draft.totalLiters ?? ''} onChange={(event) => updateTotalLiters(event.target.value)} /></label>
                 </div>
 
                 <div className="review-context-strip">
@@ -1954,7 +1963,7 @@ export function OcrReviewScreen() {
                   </details>
                 )}
 
-                <details className="review-transcription"><summary>{isRo ? 'Transcriere brută' : 'Raw transcription'}</summary><textarea value={draft.rawTranscription} onChange={(event) => setDraft((current) => current ? { ...current, rawTranscription: event.target.value } : current)} /></details>
+                <details className="review-transcription"><summary>{isRo ? 'Transcriere brută' : 'Raw transcription'}</summary><textarea disabled={!canOperate} value={draft.rawTranscription} onChange={(event) => setDraft((current) => current ? { ...current, rawTranscription: event.target.value } : current)} /></details>
                 </div>) : (<div className="review-tab-content review-centers-tab">
 
                 {selected.centerMatchError && <p className="review-center-error">{selected.centerMatchError}</p>}
@@ -1967,7 +1976,7 @@ export function OcrReviewScreen() {
                     : litersMatch
                       ? (isRo ? '✓ Totalurile corespund' : '✓ Totals match')
                       : `${isRo ? '!' : '!'} ${isRo ? 'Diferență' : 'Difference'}: ${litersDifference! > 0 ? '+' : ''}${formatLiters(litersDifference!)} L`}</b>
-                  <button className="review-add-row-inline" type="button" onClick={addManualRow}>
+                  <button disabled={!canOperate} className="review-add-row-inline" type="button" onClick={addManualRow}>
                     <span>+</span>
                     {isRo ? 'Adăugați rând' : 'Add row'}
                   </button>
@@ -1994,9 +2003,9 @@ export function OcrReviewScreen() {
                           const needsReview = centerNameNeedsReview(row, match)
                           const needsSoftReview = rowTextFieldNeedsReview(row, 'collectionCenter', match)
                           return <td><div className={`review-center-cell ${needsReview ? 'review-center-unmatched' : needsSoftReview ? 'review-cell-warning' : ''}`}>
-                            <input value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
+                            <input disabled={!canOperate} value={row.collectionCenter ?? ''} onChange={(event) => updateRowText(index, 'collectionCenter', event.target.value)} />
                             {match ? <>
-                              <select value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
+                              <select disabled={!canOperate} value={match.selectedCode ?? ''} onChange={(event) => selectCenter(row.rowNumber, event.target.value)} aria-label={isRo ? `Centru pentru rândul ${row.rowNumber}` : `Center for row ${row.rowNumber}`}>
                                 <option value="">{isRo ? 'Selectați centrul ERP' : 'Select ERP center'}</option>
                                 {match.selectedCode && !match.suggestions.some((item) => item.code === match.selectedCode) && <option value={match.selectedCode}>{match.selectedName} · {match.selectedCode}</option>}
                                 {match.suggestions.map((suggestion) => <option className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-option' : ''} key={`${suggestion.code}-${suggestion.name}`} value={suggestion.code}>{suggestion.source === 'ocr_original' ? `${suggestion.name} · ${isRo ? 'OCR original' : 'OCR original'}` : `${Math.round(suggestion.score * 100)}% · ${referenceCenters.find(center => center.code === suggestion.code)?.name || (suggestion.code === match.selectedCode ? match.selectedName : null) || suggestion.name} · ${suggestion.code}`}</option>)}
@@ -2004,7 +2013,7 @@ export function OcrReviewScreen() {
                               {openCenterSuggestions === row.rowNumber && searchMatch?.suggestions.length ? (
                                 <div className="review-center-suggestion-menu" role="listbox" aria-label={isRo ? `Sugestii pentru rândul ${row.rowNumber}` : `Suggestions for row ${row.rowNumber}`}>
                                   <strong>{isRo ? `${searchMatch.suggestions.length} sugestii găsite` : `${searchMatch.suggestions.length} suggestions found`}</strong>
-                                  {searchMatch.suggestions.map((suggestion) => <button className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-suggestion' : ''} type="button" role="option" key={`${suggestion.code}-${suggestion.name}`} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{suggestion.source === 'ocr_original' ? 'OCR' : `${Math.round(suggestion.score * 100)}%`}</span><b>{suggestion.name}</b><small>{suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</small></button>)}
+                                  {searchMatch.suggestions.map((suggestion) => <button disabled={!canOperate} className={suggestion.source === 'ocr_original' ? 'review-center-ocr-original-suggestion' : ''} type="button" role="option" key={`${suggestion.code}-${suggestion.name}`} onClick={() => selectCenter(row.rowNumber, suggestion.code)}><span>{suggestion.source === 'ocr_original' ? 'OCR' : `${Math.round(suggestion.score * 100)}%`}</span><b>{suggestion.name}</b><small>{suggestion.source === 'ocr_original' ? (isRo ? 'OCR original' : 'OCR original') : suggestion.code}</small></button>)}
                                   <button className="review-center-suggestion-close" type="button" onClick={() => setOpenCenterSuggestions(null)}>{isRo ? 'Închideți' : 'Close'}</button>
                                 </div>
                               ) : null}
@@ -2022,29 +2031,29 @@ export function OcrReviewScreen() {
                           </div></td>
                         })()}
                         <td>
-                          <select value={normalizeMilkType(row.milkType, row.fatPercent)} onChange={(event) => updateRowText(index, 'milkType', event.target.value)} aria-label={isRo ? `Tip lapte pentru rândul ${row.rowNumber}` : `Milk type for row ${row.rowNumber}`}>
+                          <select disabled={!canOperate} value={normalizeMilkType(row.milkType, row.fatPercent)} onChange={(event) => updateRowText(index, 'milkType', event.target.value)} aria-label={isRo ? `Tip lapte pentru rândul ${row.rowNumber}` : `Milk type for row ${row.rowNumber}`}>
                             {DAILY_MILK_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                           </select>
                         </td>
-                        <td className={rowNumberFieldNeedsReview(row, 'liters') ? 'review-cell-warning' : ''}><input inputMode="decimal" value={rowNumberInputValue(row, 'liters')} onBlur={() => commitRowNumberInput(index, row, 'liters')} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
-                        <td className={rowNumberFieldNeedsReview(row, 'fatPercent') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'fatPercent')} onBlur={() => commitRowNumberInput(index, row, 'fatPercent')} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td className={rowNumberFieldNeedsReview(row, 'temperature') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><div className="review-derived-cell"><input inputMode="decimal" value={rowNumberInputValue(row, 'water')} onBlur={() => commitRowNumberInput(index, row, 'water')} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td className={rowTextFieldNeedsReview(row, 'noticeNumber') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
-                        <td><input aria-label={isRo ? `ID probă pentru rândul ${row.rowNumber}` : `Sample ID for row ${row.rowNumber}`} value={row.sampleId ?? ''} onChange={(event) => updateRowText(index, 'sampleId', event.target.value)} /></td>
-                        <td><button className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'liters') ? 'review-cell-warning' : ''}><input disabled={!canOperate} inputMode="decimal" value={rowNumberInputValue(row, 'liters')} onBlur={() => commitRowNumberInput(index, row, 'liters')} onChange={(event) => updateRowNumber(index, 'liters', event.target.value)} /></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'fatPercent') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input disabled={!canOperate} inputMode="decimal" value={rowNumberInputValue(row, 'fatPercent')} onBlur={() => commitRowNumberInput(index, row, 'fatPercent')} onChange={(event) => updateRowNumber(index, 'fatPercent', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'fatPercent', row.fatPercent); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td className={rowNumberFieldNeedsReview(row, 'temperature') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input disabled={!canOperate} inputMode="decimal" value={rowNumberInputValue(row, 'temperature')} onBlur={() => commitRowNumberInput(index, row, 'temperature')} onChange={(event) => updateRowNumber(index, 'temperature', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'temperature', row.temperature); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><div className="review-derived-cell"><input disabled={!canOperate} inputMode="decimal" value={rowNumberInputValue(row, 'water')} onBlur={() => commitRowNumberInput(index, row, 'water')} onChange={(event) => updateRowNumber(index, 'water', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'water', row.water); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td className={rowTextFieldNeedsReview(row, 'noticeNumber') ? 'review-cell-warning' : ''}><div className="review-derived-cell"><input disabled={!canOperate} value={row.noticeNumber ?? ''} onChange={(event) => updateRowText(index, 'noticeNumber', event.target.value)} />{(() => { const source = rowSource(row.rowNumber, 'noticeNumber', row.noticeNumber); return source && <small className={`source-${source.source}`}>{rowSourceLabel(source)}</small> })()}</div></td>
+                        <td><input disabled={!canOperate} aria-label={isRo ? `ID probă pentru rândul ${row.rowNumber}` : `Sample ID for row ${row.rowNumber}`} value={row.sampleId ?? ''} onChange={(event) => updateRowText(index, 'sampleId', event.target.value)} /></td>
+                        <td><button disabled={!canOperate} className="review-row-delete" type="button" onClick={() => deleteRow(row.rowNumber)} title={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`} aria-label={isRo ? `Ștergeți rândul ${row.rowNumber}` : `Delete row ${row.rowNumber}`}>×</button></td>
                       </tr>
                     ))}</tbody>
                   </table>
                 </div>
                 </div>)}
                 <div className={`review-save-actions tab-${dataTab}`}>
-                  {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={matchingCenters}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
-                  <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={saving || Boolean(reprocessingId)}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
-                  <button className="review-rematch" type="button" onClick={() => void rematchOperationalReferences()} disabled={saving || Boolean(reprocessingId) || rematchingReferences}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți șofer/vehicul/rută' : 'Refresh driver/truck/routes')}</button>
+                  {dataTab === 'centers' && <button className="review-match-centers" type="button" onClick={() => void findSimilarCenters()} disabled={!canOperate || (matchingCenters)}>{matchingCenters ? (isRo ? 'Se caută…' : 'Searching…') : (isRo ? 'Căutați centre similare' : 'Find similar centers')}</button>}
+                  <button className="review-reprocess" type="button" onClick={() => void reprocessDocument()} disabled={!canOperate || (saving || Boolean(reprocessingId))}>{reprocessingId === selected.id ? (isRo ? 'Se adaugă în coadă…' : 'Queuing…') : (isRo ? 'Refaceți OCR' : 'Redo OCR')}</button>
+                  <button className="review-rematch" type="button" onClick={() => void rematchOperationalReferences()} disabled={!canOperate || (saving || Boolean(reprocessingId) || rematchingReferences)}>{rematchingReferences ? (isRo ? 'Se potrivește…' : 'Matching…') : (isRo ? 'Refaceți șofer/vehicul/rută' : 'Refresh driver/truck/routes')}</button>
                   {missingRequiredFields && <p className="review-export-required-warning">{isRo ? `Completați centrul, litrii și avizul. Rânduri: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.` : `Fill center, liters, and aviz number. Rows: ${rowsMissingRequiredExportFields.map((row) => row.rowNumber).join(', ')}.`}</p>}
-                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={saving || autoSaveStatus === 'saving' || erpSending || !draft.rows.length || missingRequiredFields || selected.reviewStatus !== 'reviewed' || ['sent', 'partial', 'sending'].includes(selected.erpExport?.status || '') || erpHasSentRows} title={selected.reviewStatus !== 'reviewed' ? (isRo ? 'Verificați documentul înainte de trimitere' : 'Mark reviewed before sending') : erpHasSentRows || selected.erpExport?.status === 'partial' ? (isRo ? 'Verificați rândurile deja trimise înainte de retrimitere' : 'Check already sent rows before retrying') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimis în ERP' : 'Sent to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
-                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={saving || autoSaveStatus === 'saving' || missingRequiredFields}>
+                  <button className="review-erp-send" type="button" onClick={() => void sendDocumentToErp()} disabled={!canOperate || (saving || autoSaveStatus === 'saving' || erpSending || !draft.rows.length || missingRequiredFields || selected.reviewStatus !== 'reviewed' || ['sent', 'partial', 'sending'].includes(selected.erpExport?.status || '') || erpHasSentRows)} title={selected.reviewStatus !== 'reviewed' ? (isRo ? 'Verificați documentul înainte de trimitere' : 'Mark reviewed before sending') : erpHasSentRows || selected.erpExport?.status === 'partial' ? (isRo ? 'Verificați rândurile deja trimise înainte de retrimitere' : 'Check already sent rows before retrying') : undefined}>{erpSending ? (isRo ? 'Se trimite în ERP…' : 'Sending to ERP…') : selected.erpExport?.status === 'sent' ? (isRo ? 'Trimis în ERP' : 'Sent to ERP') : (isRo ? 'Trimiteți în ERP' : 'Send to ERP')}</button>
+                  {selected.reviewStatus === 'pending' && <button className="review-complete" type="button" onClick={() => void saveDocument(true)} disabled={!canOperate || (saving || autoSaveStatus === 'saving' || missingRequiredFields)}>
                     {saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Marcați ca verificat' : 'Mark as reviewed')}
                   </button>}
                 </div>

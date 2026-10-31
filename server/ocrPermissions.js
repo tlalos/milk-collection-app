@@ -6,7 +6,7 @@ export function ocrPermissionsForRoute(route, documentCategory = '', method = 'G
   if (route === '/settings') return ['ocr_settings']
   if (route === '/archive-history') return ['backup_history']
   if (route === '/reference-suppliers') return method === 'GET'
-    ? ['ocr_documents', 'month_closure', 'monthly_reconciliation', 'exports']
+    ? ['ocr_documents', 'month_closure', 'bank_note', 'monthly_reconciliation', 'exports']
     : ['ocr_documents']
   if (['/exports/apia-rows', '/exports/producer-contracts', '/exports/producer-herd-counts', '/exports/reception-factors'].includes(route)) return ['exports']
   if (route === '/daily-aviz/rows') return ['daily_aviz']

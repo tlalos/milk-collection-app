@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { PageLanguageSwitch } from './OcrLanguage'
 import { BackButton } from './BackButton'
 import { useEffect, useMemo, useState } from 'react'
@@ -67,6 +68,7 @@ function getOrderStatus(entries: JournalEntry[]): JournalEntry['erpStatus'] {
 }
 
 export function JournalScreen({ onBack, user }: JournalScreenProps) {
+  const canOperate = useCanOperate('milk_collection')
   const [selectedDate, setSelectedDate] = useState(toLocalDateKey())
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -158,6 +160,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }, [entries])
 
   async function handleSendToErp(collectionId: string) {
+    if (!canOperate) return
     if (sendingId || deletingId || clearingAll) return
 
     setSendingId(collectionId)
@@ -179,6 +182,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }
 
   async function confirmSendToErp() {
+    if (!canOperate) return
     if (!debugPayload || sendingId || deletingId || clearingAll) return
 
     setSendingId(debugPayload.collectionId)
@@ -205,6 +209,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }
 
   async function handleDeleteCollection(collectionId: string) {
+    if (!canOperate) return
     if (sendingId || deletingId || clearingAll) return
 
     if (confirmDeleteId !== collectionId) {
@@ -226,6 +231,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
   }
 
   async function handleClearAllForDate() {
+    if (!canOperate) return
     if (sendingId || deletingId || clearingAll || entries.length === 0) return
 
     if (!confirmClearAll) {
@@ -255,7 +261,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
           className={`journal-clear-button ${confirmClearAll ? 'confirm' : ''}`}
           type="button"
           onClick={handleClearAllForDate}
-          disabled={status !== 'ready' || entries.length === 0 || Boolean(sendingId || deletingId || clearingAll)}
+          disabled={!canOperate || (status !== 'ready' || entries.length === 0 || Boolean(sendingId || deletingId || clearingAll))}
         >
           {clearingAll ? 'Clearing...' : confirmClearAll ? 'Confirm clear' : 'Clear all'}
         </button>
@@ -341,7 +347,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                     className={`journal-send-button ${order.erpStatus}`}
                     type="button"
                     onClick={() => handleSendToErp(order.collectionId)}
-                    disabled={Boolean(sendingId || deletingId || clearingAll)}
+                    disabled={!canOperate || (Boolean(sendingId || deletingId || clearingAll))}
                   >
                     {sendingId === order.collectionId || order.erpStatus === 'sending'
                       ? 'Sending...'
@@ -353,7 +359,7 @@ export function JournalScreen({ onBack, user }: JournalScreenProps) {
                     className={`journal-delete-button ${confirmDeleteId === order.collectionId ? 'confirm' : ''}`}
                     type="button"
                     onClick={() => handleDeleteCollection(order.collectionId)}
-                    disabled={Boolean(sendingId || deletingId || clearingAll)}
+                    disabled={!canOperate || (Boolean(sendingId || deletingId || clearingAll))}
                     aria-label={`Delete ${order.supplierName} pickup`}
                     title="Delete pickup"
                   >

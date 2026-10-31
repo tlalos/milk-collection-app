@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { useCallback, useEffect, useRef, useState } from "react";
 import { normalizeMonthlyDocumentDate } from "../../server/monthlyDocumentDate.js";
 import { BackButton } from './BackButton'
@@ -378,6 +379,7 @@ function archiveApiUrls(pathname: string) {
 }
 
 export function MonthlySettlementReviewScreen() {
+  const canOperate = useCanOperate('ocr_documents')
   const { language, isRo } = useOcrLanguage();
   const dateValidationMessage = isRo
     ? "Introduceți o dată validă în format zz/ll/aaaa (de exemplu, 31/08/2026)."
@@ -575,7 +577,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   useEffect(() => {
-    if (!selected || !draft || selected.status !== "completed" || busy) return;
+    if (!canOperate || !selected || !draft || selected.status !== "completed" || busy) return;
     if (dateEditing || !normalizeMonthlyDocumentDate(draft.date)) {
       setAutoSaveStatus("idle");
       return;
@@ -621,13 +623,14 @@ export function MonthlySettlementReviewScreen() {
       }
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [busy, draft, dateEditing, selected?.id, selected?.status]);
+  }, [canOperate, busy, draft, dateEditing, selected?.id, selected?.status]);
 
   useEffect(() => {
     centerImagePreview(sourcePreviewRef.current);
   }, [imageRotation, zoom, selected?.id]);
 
   async function deleteDocument(job: MonthlyJob) {
+    if (!canOperate) return
     const exported = job.excelExport?.status === "exported";
     const prompt = exported
       ? isRo
@@ -668,6 +671,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   async function archiveDocument(job: MonthlyJob) {
+    if (!canOperate) return
     const prompt = isRo
       ? `Arhivați acum imaginea „${job.sourceFile}” în SharePoint?\n\nDupă încărcarea cu succes, fișierul local va fi șters, dar procesul OCR și istoricul backup vor rămâne.`
       : `Archive the picture "${job.sourceFile}" to SharePoint now?\n\nAfter a successful upload, the local file will be removed, but the OCR job and backup history will remain.`;
@@ -1007,7 +1011,7 @@ export function MonthlySettlementReviewScreen() {
       <td
         className={`monthly-reference-cell ${shouldWarn || producerCenterMismatch ? "monthly-cell-warning" : ""}`}
       >
-        <input
+        <input disabled={!canOperate}
           value={value}
           title={warningIconTitle}
           aria-invalid={producerCenterMismatch || shouldWarn ? "true" : undefined}
@@ -1089,7 +1093,7 @@ export function MonthlySettlementReviewScreen() {
           </small>
         )}
         {(rankedOcrOptions.length > 0 || match) && (
-          <select
+          <select disabled={!canOperate}
             className="monthly-producer-suggestion-select"
             value={savedProducerCode}
             aria-label={isRo ? `Potriviri posibile pentru rândul ${row.rowNumber}` : `Possible matches for row ${row.rowNumber}`}
@@ -1125,6 +1129,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   async function redoOcr() {
+    if (!canOperate) return
     if (
       !selected ||
       busy ||
@@ -1165,6 +1170,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   async function redoFailedOcr(job: MonthlyJob) {
+    if (!canOperate) return
     if (reprocessingId) return;
     setReprocessingId(job.id);
     setNotice(
@@ -1197,6 +1203,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   async function redoExcelMatching() {
+    if (!canOperate) return
     if (!selected || !draft || busy) return;
     if (!normalizeMonthlyDocumentDate(draft.date)) return setNotice(dateValidationMessage);
     setBusy(true);
@@ -1254,6 +1261,7 @@ export function MonthlySettlementReviewScreen() {
   }
 
   async function save(markReviewed = false) {
+    if (!canOperate) return
     if (!selected || !draft || busy) return;
     if (!normalizeMonthlyDocumentDate(draft.date)) return setNotice(dateValidationMessage);
     setBusy(true);
@@ -1471,11 +1479,11 @@ export function MonthlySettlementReviewScreen() {
                   className="monthly-document-archive"
                   type="button"
                   disabled={
-                    archivingId === job.id ||
+                    !canOperate || (archivingId === job.id ||
                     deletingId === job.id ||
                     job.status === "queued" ||
                     job.status === "processing" ||
-                    job.archiveStatus?.status === "archived"
+                    job.archiveStatus?.status === "archived")
                   }
                   onClick={(event) => {
                     event.stopPropagation();
@@ -1505,7 +1513,7 @@ export function MonthlySettlementReviewScreen() {
                 <button
                   className="monthly-document-delete"
                   type="button"
-                  disabled={deletingId === job.id || archivingId === job.id}
+                  disabled={!canOperate || (deletingId === job.id || archivingId === job.id)}
                   onClick={(event) => {
                     event.stopPropagation();
                     void deleteDocument(job);
@@ -1570,7 +1578,7 @@ export function MonthlySettlementReviewScreen() {
                     <button
                       className="monthly-card-redo"
                       type="button"
-                      disabled={Boolean(reprocessingId)}
+                      disabled={!canOperate || (Boolean(reprocessingId))}
                       onClick={(event) => {
                         event.stopPropagation();
                         void redoFailedOcr(job);
@@ -1709,7 +1717,7 @@ export function MonthlySettlementReviewScreen() {
                   </div>
                   {draft && (
                     <div>
-                      <b className={`monthly-autosave-status status-${autoSaveStatus}`}>
+                      {canOperate && <b className={`monthly-autosave-status status-${autoSaveStatus}`}>
                         {!normalizeMonthlyDocumentDate(draft.date)
                           ? isRo ? "Verificați data" : "Check date"
                           : autoSaveStatus === "saving"
@@ -1727,17 +1735,17 @@ export function MonthlySettlementReviewScreen() {
                               : isRo
                                 ? "Salvare automată"
                                 : "Autosave on"}
-                      </b>
+                      </b>}
                       <button
                         onClick={() => void save(false)}
-                        disabled={busy || autoSaveStatus === "saving"}
+                        disabled={!canOperate || (busy || autoSaveStatus === "saving")}
                       >
                         {isRo ? "Salvați" : "Save changes"}
                       </button>
                       {selected.reviewStatus === "pending" && <button
                         className="primary"
                         onClick={() => void save(true)}
-                        disabled={busy || autoSaveStatus === "saving"}
+                        disabled={!canOperate || (busy || autoSaveStatus === "saving")}
                       >
                         {isRo ? "Salvați și marcați verificat" : "Save and mark reviewed"}
                       </button>}
@@ -1757,7 +1765,7 @@ export function MonthlySettlementReviewScreen() {
                     <div className="monthly-fields">
                       <label>
                         {isRo ? "Data" : "Date"}
-                        <input
+                        <input disabled={!canOperate}
                           value={displayDate(draft.date)}
                           onChange={(e) =>
                             setDraft({
@@ -1791,7 +1799,7 @@ export function MonthlySettlementReviewScreen() {
                       </label>
                       <label>
                         {isRo ? "Tip lapte" : "Milk type"}
-                        <input
+                        <input disabled={!canOperate}
                           value={draft.milkType}
                           onChange={(e) =>
                             setDraft({ ...draft, milkType: e.target.value })
@@ -1800,7 +1808,7 @@ export function MonthlySettlementReviewScreen() {
                       </label>
                       <label>
                         {isRo ? "Centru antet" : "Header center"}
-                        <input
+                        <input disabled={!canOperate}
                           list="monthly-header-centers"
                           value={draft.headerCenterName || ""}
                           onChange={(e) => {
@@ -1864,7 +1872,7 @@ export function MonthlySettlementReviewScreen() {
                         <span>
                           {isRo ? "Total OCR document" : "Document OCR total"}
                         </span>
-                        <input
+                        <input disabled={!canOperate}
                           type="number"
                           inputMode="decimal"
                           value={draft.totalLiters ?? ""}
@@ -1933,7 +1941,7 @@ export function MonthlySettlementReviewScreen() {
                               ? "Arătați notele"
                               : "Show notes"}
                         </button>
-                        <button type="button" onClick={addManualRow} disabled={busy}>
+                        <button type="button" onClick={addManualRow} disabled={!canOperate || (busy)}>
                           <span>+</span>
                           {isRo ? "Adăugați rând" : "Add row"}
                         </button>
@@ -1977,7 +1985,7 @@ export function MonthlySettlementReviewScreen() {
                                 <>
                                   {referenceNameCell(row, index, "producer")}
                                   <td className={!hasNumber(row.liters) ? "monthly-cell-warning" : ""}>
-                                    <input
+                                    <input disabled={!canOperate}
                                       type="number"
                                       value={row.liters ?? ""}
                                       onChange={(e) =>
@@ -1990,7 +1998,7 @@ export function MonthlySettlementReviewScreen() {
                                     />
                                   </td>
                                   <td>
-                                    <select
+                                    <select disabled={!canOperate}
                                       value={monthlyMilkTypeValue(row, draft.milkType)}
                                       onChange={(e) =>
                                         updateRow(
@@ -2012,7 +2020,7 @@ export function MonthlySettlementReviewScreen() {
                                 <>
                                   {referenceNameCell(row, index, "producer")}
                                   <td className={!hasNumber(row.liters) ? "monthly-cell-warning" : ""}>
-                                    <input
+                                    <input disabled={!canOperate}
                                       type="number"
                                       value={row.liters ?? ""}
                                       onChange={(e) =>
@@ -2025,7 +2033,7 @@ export function MonthlySettlementReviewScreen() {
                                     />
                                   </td>
                                   <td>
-                                    <select
+                                    <select disabled={!canOperate}
                                       value={monthlyMilkTypeValue(row, draft.milkType)}
                                       onChange={(e) =>
                                         updateRow(
@@ -2045,7 +2053,7 @@ export function MonthlySettlementReviewScreen() {
                                  </>
                                )}
                               <td>
-                                <button
+                                <button disabled={!canOperate}
                                   className="monthly-row-delete"
                                   type="button"
                                   onClick={() => deleteRow(row.rowNumber)}
@@ -2072,14 +2080,14 @@ export function MonthlySettlementReviewScreen() {
                       <button
                         type="button"
                         onClick={() => void redoOcr()}
-                        disabled={busy}
+                        disabled={!canOperate || (busy)}
                       >
                         {isRo ? "Refaceți OCR" : "Redo OCR"}
                       </button>
                       <button
                         type="button"
                         onClick={() => void redoExcelMatching()}
-                        disabled={busy}
+                        disabled={!canOperate || (busy)}
                       >
                         {isRo
                           ? "Refaceți potrivirea ERP"

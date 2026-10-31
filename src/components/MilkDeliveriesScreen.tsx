@@ -175,7 +175,7 @@ function TrashIcon() {
 }
 
 export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
-  const { isAdmin, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
+  const { isAdmin, canOperate, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
   const { isRo } = useOcrLanguage()
   const [milkTypes, setMilkTypes] = useState<MilkTypeOption[]>(defaultMilkTypes)
   const [records, setRecords] = useState<MilkDelivery[]>([])
@@ -394,7 +394,7 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
   }
 
   function canEditArrival(record: MilkDelivery) {
-    return !record.isNew && record.status !== 'DRAFT' && !milkDocumentDateError(record.deliveryDate, 'Delivery')
+    return canOperate && !record.isNew && record.status !== 'DRAFT' && !milkDocumentDateError(record.deliveryDate, 'Delivery')
   }
 
   function updateRecord(id: string, patch: Partial<MilkDelivery>, saveImmediately = false) {
@@ -613,12 +613,15 @@ export function MilkDeliveriesScreen({ onBack }: { onBack: () => void }) {
     return (
       <div className="delivery-weight-entry">
         <div className="delivery-weight-input-stack">
-          <input disabled={!canEditDate(record.deliveryDate)} inputMode="decimal" value={record[field] ?? ''} onChange={(event) => updateRecord(record.id, {
+          <input readOnly={!isAdmin} disabled={!canEditDate(record.deliveryDate) || Boolean(scaleReadingTarget)} aria-label={label} title={isAdmin ? 'Enter weight or read from scale' : 'Read from scale'} inputMode="decimal" value={record[field] ?? ''} onChange={(event) => {
+            if (!isAdmin || !canEditDate(record.deliveryDate)) return
+            updateRecord(record.id, {
             [field]: event.target.value,
             [timestampField]: '',
             [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
             [captureField]: '',
-          } as Partial<MilkDelivery>)} />
+          } as Partial<MilkDelivery>)
+          }} />
           {numericValue(record[field]) !== null && <small title={source === 'SCALE' && weighedAt ? `Scale reading at ${formatWeightTime(weighedAt)}` : source ? undefined : 'Source was not recorded for this older weight'}>
             {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown'}
           </small>}

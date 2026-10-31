@@ -3,6 +3,7 @@ import { useContext, useEffect, useMemo, useState } from 'react'
 import { OcrNavigationContext } from './OcrNavigation'
 import { appPath } from '../ocrPaths'
 import './WebUsersScreen.css'
+import { useCanOperate } from './useCanOperate'
 
 interface Permission {
   key: string
@@ -49,6 +50,7 @@ const emptyRole: WebRole = {
 }
 
 export function WebUsersScreen({ onBack }: { onBack: () => void }) {
+  const canOperate = useCanOperate('app_admin')
   const access = useContext(OcrNavigationContext)?.user
   const [data, setData] = useState<AdminData>({ users: [], roles: [], permissions: [] })
   const [selectedUserId, setSelectedUserId] = useState('')
@@ -115,16 +117,18 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
     }))
   }
 
-  function toggleRolePermission(permissionKey: string) {
+  function setRolePermission(permissionKey: string, level: string) {
     setRoleDraft((current) => ({
       ...current,
-      permissionKeys: current.permissionKeys.includes(permissionKey)
-        ? current.permissionKeys.filter((key) => key !== permissionKey)
-        : [...current.permissionKeys, permissionKey],
+      permissionKeys: [
+        ...current.permissionKeys.filter(key => key !== permissionKey && key !== `${permissionKey}:view`),
+        ...(level === 'edit' ? [permissionKey] : level === 'view' ? [`${permissionKey}:view`] : []),
+      ],
     }))
   }
 
   async function saveUser() {
+    if (!canOperate) return
     setSaving('user')
     setError('')
     setNotice('')
@@ -151,6 +155,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
   }
 
   async function saveRole() {
+    if (!canOperate) return
     setSaving('role')
     setError('')
     setNotice('')
@@ -190,7 +195,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
         <section className="web-users-panel">
           <div className="web-users-panel-title">
             <h2>Users</h2>
-            <button type="button" onClick={newUser}>New user</button>
+            <button type="button" disabled={!canOperate} onClick={newUser}>New user</button>
           </div>
           {loading ? <p className="web-users-muted">Loading...</p> : (
             <div className="web-users-grid">
@@ -209,7 +214,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
                 ))}
               </div>
 
-              <div className="web-users-form">
+              <fieldset disabled={!canOperate} className="web-users-form">
                 <label>Username<input value={userDraft.username} onChange={(event) => setUserDraft((current) => ({ ...current, username: event.target.value }))} /></label>
                 <label>Full name<input value={userDraft.fullName} onChange={(event) => setUserDraft((current) => ({ ...current, fullName: event.target.value }))} /></label>
                 <label>{selectedUserId ? 'New password' : 'Password'}<input type="password" value={userDraft.password} onChange={(event) => setUserDraft((current) => ({ ...current, password: event.target.value }))} placeholder={selectedUserId ? 'Leave blank to keep current password' : ''} /></label>
@@ -231,15 +236,15 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
                 <button className="web-users-save" type="button" onClick={() => void saveUser()} disabled={saving === 'user'}>
                   {saving === 'user' ? 'Saving...' : 'Save Web user'}
                 </button>
-              </div>
+              </fieldset>
             </div>
           )}
         </section>
 
         <section className="web-users-panel">
           <div className="web-users-panel-title">
-            <h2>Roles and Tile Access</h2>
-            <button type="button" onClick={newRole}>New role</button>
+            <h2>Roles and Menu Access</h2>
+            <button type="button" disabled={!canOperate} onClick={newRole}>New role</button>
           </div>
           <div className="web-users-grid">
             <div className="web-users-list">
@@ -251,17 +256,21 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
                 </button>
               ))}
             </div>
-            <div className="web-users-form">
+            <fieldset disabled={!canOperate} className="web-users-form">
               <label>Role key<input value={roleDraft.roleKey} onChange={(event) => setRoleDraft((current) => ({ ...current, roleKey: event.target.value }))} placeholder="example: reception" disabled={Boolean(roleDraft.roleKey && data.roles.some((role) => role.roleKey === roleDraft.roleKey))} /></label>
               <label>Role name<input value={roleDraft.roleName} onChange={(event) => setRoleDraft((current) => ({ ...current, roleName: event.target.value }))} /></label>
               <label>Description<input value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} /></label>
               <div>
-                <h3>Tile/page access</h3>
-                <div className="web-users-chip-grid">
+                <h3>Menu access</h3>
+                <div className="web-users-permission-grid">
                   {data.permissions.map((permission) => (
-                    <label key={permission.key} className="web-users-chip">
-                      <input type="checkbox" checked={roleDraft.permissionKeys.includes(permission.key)} onChange={() => toggleRolePermission(permission.key)} />
+                    <label key={permission.key}>
                       {permission.label}
+                      <select aria-label={permission.label} value={roleDraft.permissionKeys.includes(permission.key) ? 'edit' : roleDraft.permissionKeys.includes(`${permission.key}:view`) ? 'view' : 'none'} onChange={event => setRolePermission(permission.key, event.target.value)}>
+                        <option value="none">No access</option>
+                        <option value="view">View only</option>
+                        <option value="edit">Edit / operate</option>
+                      </select>
                     </label>
                   ))}
                 </div>
@@ -269,7 +278,7 @@ export function WebUsersScreen({ onBack }: { onBack: () => void }) {
               <button className="web-users-save" type="button" onClick={() => void saveRole()} disabled={saving === 'role'}>
                 {saving === 'role' ? 'Saving...' : 'Save Web role'}
               </button>
-            </div>
+            </fieldset>
           </div>
         </section>
 

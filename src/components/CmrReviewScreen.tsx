@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, ExternalLink, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, RotateCw, Save, Trash2, Upload } from 'lucide-react'
 import { BackButton } from './BackButton'
@@ -56,6 +57,7 @@ const draftOf = (data: CmrData): Draft => ({ ...data,
 })
 
 export function CmrReviewScreen() {
+  const canOperate = useCanOperate('ocr_documents')
   const { isRo } = useOcrLanguage()
   const [jobs, setJobs] = useState<CmrJob[]>([])
   const [selected, setSelected] = useState<CmrJob | null>(null)
@@ -190,6 +192,7 @@ export function CmrReviewScreen() {
   }
 
   async function save(markReviewed = false, automatic = false) {
+    if (!canOperate) return
     if (!selected || !draft || saving || saveLock.current || recognizing) return
     if (markReviewed && missingRequired.length) return
     const quantity = draft.quantity.trim() === '' ? null : Number(draft.quantity.replace(',', '.'))
@@ -214,6 +217,7 @@ export function CmrReviewScreen() {
   }
 
   async function recognize() {
+    if (!canOperate) return
     if (!selected || saving || saveLock.current || recognizing) return
     if (!window.confirm(isRo ? 'Rulati OCR? Campurile si corectiile vor fi inlocuite numai dupa o recunoastere reusita. Modificarile nesalvate se pierd.' : 'Run OCR? Fields and saved corrections will be replaced only after successful recognition. Unsaved changes will be discarded.')) return
     saveLock.current = true; setSaving(true); setError('')
@@ -228,6 +232,7 @@ export function CmrReviewScreen() {
   }
 
   async function remove() {
+    if (!canOperate) return
     if (!selected || saving || recognizing || !window.confirm(isRo ? `Stergeti documentul ${selected.sourceFile}?` : `Delete ${selected.sourceFile}? This also deletes its saved fields and source file.`)) return
     setSaving(true); setError('')
     try {
@@ -288,8 +293,8 @@ export function CmrReviewScreen() {
         </section>
         <form className="cmr-fields" onSubmit={event => { event.preventDefault(); void save() }}>
           <div className="cmr-fields-heading"><div><h2>{isRo ? 'Date recunoscute' : 'Recognised data'}</h2><small>CMR</small>{selected.openai?.durationMs != null && <b className="cmr-ocr-time">{isRo ? 'Durata OCR' : 'OCR time'}: {Math.round(selected.openai.durationMs / 1000)}s</b>}</div>
-            <div className="cmr-heading-actions"><span className={`cmr-autosave${error ? ' has-error' : ''}`} role="status">{saving ? (isRo ? 'Se salveaza...' : 'Saving...') : error ? (isRo ? 'Verificati eroarea' : 'Check error') : dirty ? (isRo ? 'Nesalvat' : 'Unsaved changes') : saved ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automata activa' : 'Autosave on')}</span>
-              <button type="submit" disabled={saving || loading || recognizing}><Save size={16} />{isRo ? 'Salveaza' : 'Save changes'}</button></div>
+            <div className="cmr-heading-actions">{canOperate && <span className={`cmr-autosave${error ? ' has-error' : ''}`} role="status">{saving ? (isRo ? 'Se salveaza...' : 'Saving...') : error ? (isRo ? 'Verificati eroarea' : 'Check error') : dirty ? (isRo ? 'Nesalvat' : 'Unsaved changes') : saved ? (isRo ? 'Salvat automat' : 'Autosaved') : (isRo ? 'Salvare automata activa' : 'Autosave on')}</span>}
+              <button type="submit" disabled={!canOperate || saving || loading || recognizing}><Save size={16} />{isRo ? 'Salveaza' : 'Save changes'}</button></div>
           </div>
           <div className="cmr-fields-content">
           <div className="cmr-ocr-status" role="status"><strong className={`cmr-status-badge status-${selected.status} ${selected.reviewStatus}`}>{statusText(selected)}</strong>
@@ -302,22 +307,22 @@ export function CmrReviewScreen() {
           <fieldset disabled={(saving && !autosaving) || loading || recognizing}
             onFocus={event => { if (event.target instanceof HTMLInputElement && event.target.type === 'date') setEditingDate(true) }}
             onBlur={event => { if (event.target instanceof HTMLInputElement && event.target.type === 'date') setEditingDate(false) }}>
-            <label className="cmr-wide">{isRo ? 'Data receptiei' : 'Reception date'}<input {...verification('date')} type="date" value={draft.date} onChange={e => field('date', e.target.value)} /></label>
-            <label>{isRo ? 'Furnizor (1)' : 'Supplier (1)'}<input {...verification('supplier')} maxLength={300} value={draft.supplier} onChange={e => field('supplier', e.target.value)} /></label>
-            <label>{isRo ? 'Destinatar (2)' : 'Recipient (2)'}<input {...verification('recipient')} maxLength={300} value={draft.recipient} onChange={e => field('recipient', e.target.value)} /></label>
+            <label className="cmr-wide">{isRo ? 'Data receptiei' : 'Reception date'}<input disabled={!canOperate} {...verification('date')} type="date" value={draft.date} onChange={e => field('date', e.target.value)} /></label>
+            <label>{isRo ? 'Furnizor (1)' : 'Supplier (1)'}<input disabled={!canOperate} {...verification('supplier')} maxLength={300} value={draft.supplier} onChange={e => field('supplier', e.target.value)} /></label>
+            <label>{isRo ? 'Destinatar (2)' : 'Recipient (2)'}<input disabled={!canOperate} {...verification('recipient')} maxLength={300} value={draft.recipient} onChange={e => field('recipient', e.target.value)} /></label>
             <h3 className="cmr-field-section">{isRo ? 'Livrare prevazuta (3)' : 'Planned delivery (3)'}</h3>
-            <label>{isRo ? 'Locul livrarii' : 'Delivery location'}<input {...verification('deliveryLocation')} maxLength={300} value={draft.deliveryLocation} onChange={e => field('deliveryLocation', e.target.value)} /></label>
-            <label>{isRo ? 'Data livrarii prevazute' : 'Planned delivery date'}<input {...verification('deliveryDate')} type="date" value={draft.deliveryDate} onChange={e => field('deliveryDate', e.target.value)} /></label>
+            <label>{isRo ? 'Locul livrarii' : 'Delivery location'}<input disabled={!canOperate} {...verification('deliveryLocation')} maxLength={300} value={draft.deliveryLocation} onChange={e => field('deliveryLocation', e.target.value)} /></label>
+            <label>{isRo ? 'Data livrarii prevazute' : 'Planned delivery date'}<input disabled={!canOperate} {...verification('deliveryDate')} type="date" value={draft.deliveryDate} onChange={e => field('deliveryDate', e.target.value)} /></label>
             <h3 className="cmr-field-section">{isRo ? 'Incarcare (4)' : 'Loading (4)'}</h3>
-            <label>{isRo ? 'Locul incarcarii' : 'Loading location'}<input {...verification('loadingLocation')} maxLength={300} value={draft.loadingLocation} onChange={e => field('loadingLocation', e.target.value)} /></label>
-            <label>{isRo ? 'Data incarcarii' : 'Loading date'}<input {...verification('loadingDate')} type="date" value={draft.loadingDate} onChange={e => field('loadingDate', e.target.value)} /></label>
+            <label>{isRo ? 'Locul incarcarii' : 'Loading location'}<input disabled={!canOperate} {...verification('loadingLocation')} maxLength={300} value={draft.loadingLocation} onChange={e => field('loadingLocation', e.target.value)} /></label>
+            <label>{isRo ? 'Data incarcarii' : 'Loading date'}<input disabled={!canOperate} {...verification('loadingDate')} type="date" value={draft.loadingDate} onChange={e => field('loadingDate', e.target.value)} /></label>
             <h3 className="cmr-field-section">Aviz (5)</h3>
-            <label>{isRo ? 'Numar aviz' : 'Aviz number'}<input {...verification('avizNumber')} maxLength={300} value={draft.avizNumber} onChange={e => field('avizNumber', e.target.value)} /></label>
-            <label>{isRo ? 'Data avizului' : 'Aviz date'}<input {...verification('avizDate')} type="date" value={draft.avizDate} onChange={e => field('avizDate', e.target.value)} /></label>
+            <label>{isRo ? 'Numar aviz' : 'Aviz number'}<input disabled={!canOperate} {...verification('avizNumber')} maxLength={300} value={draft.avizNumber} onChange={e => field('avizNumber', e.target.value)} /></label>
+            <label>{isRo ? 'Data avizului' : 'Aviz date'}<input disabled={!canOperate} {...verification('avizDate')} type="date" value={draft.avizDate} onChange={e => field('avizDate', e.target.value)} /></label>
             <h3 className="cmr-field-section">{isRo ? 'Transportator (17)' : 'Carrier (17)'}</h3>
-            <label className="cmr-wide">{isRo ? 'Transport' : 'Transport'}<input {...verification('transport')} maxLength={300} value={draft.transport} onChange={e => field('transport', e.target.value)} /></label>
+            <label className="cmr-wide">{isRo ? 'Transport' : 'Transport'}<input disabled={!canOperate} {...verification('transport')} maxLength={300} value={draft.transport} onChange={e => field('transport', e.target.value)} /></label>
             <div className="cmr-input-group">
-            <label>{isRo ? 'Sofer' : 'Driver'}<input {...verification('driver')} list="cmr-driver-options" aria-describedby="cmr-driver-status" autoComplete="off" maxLength={300} value={draft.driver} onChange={e => field('driver', e.target.value)} /></label>
+            <label>{isRo ? 'Sofer' : 'Driver'}<input disabled={!canOperate} {...verification('driver')} list="cmr-driver-options" aria-describedby="cmr-driver-status" autoComplete="off" maxLength={300} value={draft.driver} onChange={e => field('driver', e.target.value)} /></label>
             <datalist id="cmr-driver-options">{suggestedDrivers.map(driver => <option key={driver} value={driver} />)}</datalist>
             <small id="cmr-driver-status" className="cmr-truck-status" role="status">{!documentDate
               ? (isRo ? 'Data receptiei nu este selectata.' : 'No reception date selected.')
@@ -327,7 +332,7 @@ export function CmrReviewScreen() {
               : (isRo ? 'Niciun sofer din receptii Alte pentru aceasta data.' : 'No drivers from Other receptions on this date.')}</small>
             </div>
             <div className="cmr-input-group">
-            <label>{isRo ? 'Numar camion' : 'Truck number'}<input {...verification('truckNumber')} list="cmr-truck-options" aria-describedby="cmr-truck-status" autoComplete="off" maxLength={300} value={draft.truckNumber} onChange={e => field('truckNumber', e.target.value)} /></label>
+            <label>{isRo ? 'Numar camion' : 'Truck number'}<input disabled={!canOperate} {...verification('truckNumber')} list="cmr-truck-options" aria-describedby="cmr-truck-status" autoComplete="off" maxLength={300} value={draft.truckNumber} onChange={e => field('truckNumber', e.target.value)} /></label>
             <datalist id="cmr-truck-options">{suggestedTrucks.map(truck => <option key={truck} value={truck} />)}</datalist>
             <small id="cmr-truck-status" className="cmr-truck-status" role="status">{!documentDate
               ? (isRo ? 'Data receptiei nu este selectata.' : 'No reception date selected.')
@@ -338,27 +343,27 @@ export function CmrReviewScreen() {
             </div>
             <h3 className="cmr-field-section">{isRo ? 'Marfa si cantitate' : 'Goods and quantity'}</h3>
             <div className="cmr-quantity-fields">
-            <label>{isRo ? 'Tip lapte' : 'Milk type'}<select {...verification('milkType')} value={draft.milkType} onChange={e => field('milkType', e.target.value)}>
+            <label>{isRo ? 'Tip lapte' : 'Milk type'}<select disabled={!canOperate} {...verification('milkType')} value={draft.milkType} onChange={e => field('milkType', e.target.value)}>
               <option value="">{isRo ? 'Nespecificat' : 'Not specified'}</option>
               <option value="MILK-COW">{isRo ? 'Vaca' : 'Cow'}</option><option value="MILK-SHEEP">{isRo ? 'Oaie' : 'Sheep'}</option>
               <option value="MILK-GOAT">{isRo ? 'Capra' : 'Goat'}</option><option value="MILK-BUFF">{isRo ? 'Bivolita' : 'Buffalo'}</option>
             </select></label>
-              <label>{isRo ? 'Cantitate document' : 'Document quantity'}<input {...verification('quantity')} inputMode="decimal" value={draft.quantity} onChange={e => field('quantity', e.target.value)} /></label>
-              <label>{isRo ? 'Unitate' : 'Unit'}<select {...verification('quantityUnit')} value={draft.quantityUnit} onChange={e => field('quantityUnit', e.target.value)}><option value="">{isRo ? 'Alegeti' : 'Select'}</option><option value="kg">kg</option><option value="L">{isRo ? 'Litri' : 'Liters'}</option></select></label>
+              <label>{isRo ? 'Cantitate document' : 'Document quantity'}<input disabled={!canOperate} {...verification('quantity')} inputMode="decimal" value={draft.quantity} onChange={e => field('quantity', e.target.value)} /></label>
+              <label>{isRo ? 'Unitate' : 'Unit'}<select disabled={!canOperate} {...verification('quantityUnit')} value={draft.quantityUnit} onChange={e => field('quantityUnit', e.target.value)}><option value="">{isRo ? 'Alegeti' : 'Select'}</option><option value="kg">kg</option><option value="L">{isRo ? 'Litri' : 'Liters'}</option></select></label>
             </div>
             <h3 className="cmr-field-section">{isRo ? 'Emiterea si receptia CMR' : 'CMR issue and receipt'}</h3>
-            <label>{isRo ? 'Data emiterii CMR (22)' : 'CMR issue date (22)'}<input {...verification('issueDate')} type="date" value={draft.issueDate} onChange={e => field('issueDate', e.target.value)} /></label>
-            <label>{isRo ? 'Data receptiei marfii (25)' : 'Goods receipt date (25)'}<input {...verification('receiptDate')} type="date" value={draft.receiptDate} onChange={e => field('receiptDate', e.target.value)} /></label>
+            <label>{isRo ? 'Data emiterii CMR (22)' : 'CMR issue date (22)'}<input disabled={!canOperate} {...verification('issueDate')} type="date" value={draft.issueDate} onChange={e => field('issueDate', e.target.value)} /></label>
+            <label>{isRo ? 'Data receptiei marfii (25)' : 'Goods receipt date (25)'}<input disabled={!canOperate} {...verification('receiptDate')} type="date" value={draft.receiptDate} onChange={e => field('receiptDate', e.target.value)} /></label>
             <CmrReceptionMatch key={selected.id} id={selected.id} updatedAt={selected.updatedAt} dirty={dirty} busy={saving || recognizing} onBusy={setSaving} isRo={isRo} />
           </fieldset>
           </div>
           <div className="cmr-save">
             {selected.reviewStatus !== 'reviewed' && missingRequired.length > 0 && <small className="cmr-required-summary" role="status">{isRo ? 'Campuri obligatorii' : 'Required fields'}: {missingRequired.map(key => requiredLabels[key]).join(', ')}</small>}
-            <button type="button" disabled={saving || loading || recognizing} onClick={() => void recognize()}><RefreshCw size={18} />{selected.openai || selected.cmrOcr ? (isRo ? 'Reface OCR' : 'Redo OCR') : (isRo ? 'Ruleaza OCR' : 'Run OCR')}</button>
+            <button type="button" disabled={!canOperate || (saving || loading || recognizing)} onClick={() => void recognize()}><RefreshCw size={18} />{selected.openai || selected.cmrOcr ? (isRo ? 'Reface OCR' : 'Redo OCR') : (isRo ? 'Ruleaza OCR' : 'Run OCR')}</button>
             {selected.reviewStatus !== 'reviewed' && <>
-              <button className="cmr-primary-action" type="button" disabled={saving || loading || recognizing || selected.status !== 'completed' || missingRequired.length > 0} onClick={() => void save(true)}>{isRo ? 'Marcheaza verificat' : 'Mark as reviewed'}</button>
+              <button className="cmr-primary-action" type="button" disabled={!canOperate || (saving || loading || recognizing || selected.status !== 'completed' || missingRequired.length > 0)} onClick={() => void save(true)}>{isRo ? 'Marcheaza verificat' : 'Mark as reviewed'}</button>
             </>}
-            <button type="button" className="cmr-delete" title={isRo ? 'Sterge document' : 'Delete document'} aria-label="Delete CMR document" disabled={saving || recognizing} onClick={() => void remove()}><Trash2 size={18} /></button>
+            <button type="button" className="cmr-delete" title={isRo ? 'Sterge document' : 'Delete document'} aria-label="Delete CMR document" disabled={!canOperate || (saving || recognizing)} onClick={() => void remove()}><Trash2 size={18} /></button>
           </div>
         </form>
       </div> : !loading && <div className="cmr-empty">{isRo ? 'Niciun document selectat' : 'No document selected'}</div>}

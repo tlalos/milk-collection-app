@@ -1,6 +1,7 @@
 import { appPath } from '../ocrPaths'
 import { fetchErpSupplierList, loginToErp } from '../api/client'
 import { ocrConnectionSettingsStore } from './ocrConnectionSettingsStore'
+import { userCanOperate } from '../../server/accessLevels.js'
 
 export interface OcrReferenceCenter {
   code: string
@@ -168,6 +169,12 @@ export async function loadOcrReferenceSuppliers(options: { force?: boolean } = {
       }
     }
 
+    // A missing reference snapshot must not start ERP work from a read-only screen.
+    const session = await fetch(appPath('/api/auth/session'), { cache: 'no-store' })
+    const access = await session.json()
+    if (!session.ok || !userCanOperate(access.user, 'ocr_documents')) {
+      throw new Error('Ask a user with OCR edit access to refresh the ERP supplier list.')
+    }
     const settings = await ocrConnectionSettingsStore.resolve()
     const login = await loginToErp(settings)
     const suppliers = await fetchErpSupplierList(settings, login.access_token)

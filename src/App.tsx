@@ -25,6 +25,7 @@ import { OcrSettingsScreen } from './components/OcrSettingsScreen'
 import { MonthlySettlementReviewScreen } from './components/MonthlySettlementReviewScreen'
 import { OcrComparisonScreen } from './components/OcrComparisonScreen'
 import { OcrAuthGate } from './components/OcrAuthGate'
+import { userCanOperate } from '../server/accessLevels.js'
 import { WebSignInHelp } from './components/WebSignInHelp'
 import { SettingsScreen } from './components/SettingsScreen'
 import { StartupScreen } from './components/StartupScreen'
@@ -96,6 +97,7 @@ interface HomeWebUser {
   fullName?: string
   isAdmin?: boolean
   permissions?: string[]
+  writePermissions?: string[]
 }
 
 function webLoginErrorMessage(error: unknown) {
@@ -535,6 +537,7 @@ export function App() {
   }
 
   async function refreshOcrErpReferenceList() {
+    if (!userCanOperate(homeOcrUser, 'ocr_documents')) return
     setErpReferenceRefreshStatus('loading')
     setErpReferenceRefreshMessage('Fetching ERP supplier list...')
     try {
@@ -736,7 +739,7 @@ export function App() {
       )}
 
       {screen === 'bankNote' && (
-        <OcrAuthGate requiredPermission="month_closure"><MonthClosureScreen bankNotePage onBack={openOcrMenu} /></OcrAuthGate>
+        <OcrAuthGate requiredPermission="bank_note"><MonthClosureScreen bankNotePage onBack={openOcrMenu} /></OcrAuthGate>
       )}
 
       {screen === 'ocrDocuments' && (
@@ -1021,7 +1024,7 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => void refreshOcrErpReferenceList()}
-                  disabled={erpReferenceRefreshStatus === 'loading'}
+                  disabled={!userCanOperate(homeOcrUser, 'ocr_documents') || erpReferenceRefreshStatus === 'loading'}
                 >
                   {erpReferenceRefreshStatus === 'loading' ? 'Fetching...' : 'Fetch ERP list'}
                 </button>
@@ -1166,6 +1169,14 @@ export function App() {
                   <Landmark strokeWidth={1.8} aria-hidden="true" />
                 </div>
                 <span className="home-tile-label">Month Closure & Payments</span>
+              </button>}
+              {canShowOcrTile('bank_note') && <button
+                className="home-tile"
+                type="button"
+                onClick={() => { window.location.href = appPath('/bank-note') }}
+              >
+                <div className="home-tile-icon"><Landmark strokeWidth={1.8} aria-hidden="true" /></div>
+                <span className="home-tile-label">Bank note</span>
               </button>}
               {canShowOcrTile('exports') && <button
                 className="home-tile"

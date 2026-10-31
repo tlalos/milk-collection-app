@@ -28,6 +28,39 @@ The frontend is already compiled in `dist`; no production build is required on t
    keep the pool stopped and investigate before continuing.
 5. Start the pool, check `/milk/api/ocr/health`, and refresh the browser.
 
+## Menu access and admin weights (October 31, 2026)
+
+Deploy the frontend and server together. On the current production server,
+`/milk` shares the `ExcelRefresh` pool with `/excel-refresh`; stopping that pool
+briefly interrupts both applications. Wait for it to stop before replacing files.
+If a pool operation hangs or fails, inspect its state rather than repeatedly
+restarting IIS. Preserve production `.env`, data, logs, and external token caches.
+
+Web Users > Roles and Menu Access now supports No access, View only, and
+Edit / operate for each menu group. Existing bare permission keys retain edit
+access, and view grants use a `:view` suffix in the existing role-permissions
+table. Multiple roles grant the strongest access; administrators retain full
+access. No separate schema migration or role-data import is required.
+
+Bank note is now a separate `bank_note` permission, no longer inherited from
+`month_closure`. After deployment, an administrator must explicitly set Bank note
+access for non-admin roles that need it. View-only users can browse/filter the
+page and export history, but cannot change bank fields, create exports, or
+download original bank files. Pricing and ERP operations remain independently
+controlled by Month closure and payments.
+
+Administrators can manually enter full/loaded and empty weights in Reception
+and Deliveries. Other users must use the scale for those weights. Manual edits
+are recorded with source MANUAL and clear the current scale timestamp/capture;
+existing history is retained. Greece-arrival editing is unchanged. The compact
+bank export-history list is also included.
+
+This release includes the production startup hotfix for duplicate
+`#DesiredAvizLinks` temporary tables. It cleans up the session-local table before
+creation and before each reconciliation transaction commits. No manual SQL table
+deletion or database restore is needed. Check the latest milk application log for
+`MilkCollect server running`, then verify sign-in and the reception page.
+
 The October 14, 2026 release enables Milk factors from Reception and Deliveries,
 adds Collection only to Daily Reconciliation, and includes the pending collector,
 sent-invoice correction, and Bank note status-filter changes. Factor editing

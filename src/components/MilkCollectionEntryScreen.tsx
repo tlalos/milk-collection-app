@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { PageLanguageSwitch } from './OcrLanguage'
 import { BackButton } from './BackButton'
 import { useEffect, useMemo, useState } from 'react'
@@ -174,11 +175,13 @@ function MilkTypeSearchDropdown({
   itemMeasure,
   options,
   onChange,
+  disabled = false,
 }: {
   value: MilkType | ''
   itemCode?: string
   itemMeasure?: string
   options: MilkTypeOption[]
+  disabled?: boolean
   onChange: (option: MilkTypeOption | null) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -210,6 +213,7 @@ function MilkTypeSearchDropdown({
       <div className="milk-type-combobox">
         <button
           className="milk-type-select-button"
+          disabled={disabled}
           type="button"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((current) => !current)}
@@ -260,6 +264,7 @@ export function MilkCollectionEntryScreen({
   onBack,
   onSubmit,
 }: MilkCollectionEntryScreenProps) {
+  const canOperate = useCanOperate('milk_collection')
   const [entries, setEntries] = useState<MilkEntry[]>(createDefaultMilkEntries)
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>('default-cow-milk')
   const [syncedMilkOptions, setSyncedMilkOptions] = useState<MilkTypeOption[]>([])
@@ -338,6 +343,7 @@ export function MilkCollectionEntryScreen({
   })
 
   function updateEntry(entryId: string, updates: Partial<MilkEntry>) {
+    if (!canOperate) return
     setEntries((current) =>
       current.map((entry) =>
         entry.id === entryId ? { ...entry, ...updates } : entry,
@@ -346,12 +352,14 @@ export function MilkCollectionEntryScreen({
   }
 
   function addEntry() {
+    if (!canOperate) return
     const entry = createMilkEntry()
     setEntries((current) => [...current, entry])
     setExpandedEntryId(entry.id)
   }
 
   function removeEntry(entryId: string) {
+    if (!canOperate) return
     setEntries((current) => {
       if (current.length === 1) return current
 
@@ -372,6 +380,7 @@ export function MilkCollectionEntryScreen({
   }
 
   async function submitForm() {
+    if (!canOperate) return
     await onSubmit({
       supplier,
       entries,
@@ -442,7 +451,7 @@ export function MilkCollectionEntryScreen({
                     className="remove-button"
                     type="button"
                     onClick={() => removeEntry(entry.id)}
-                    disabled={entries.length === 1}
+                    disabled={!canOperate || (entries.length === 1)}
                   >
                     Remove
                   </button>
@@ -451,6 +460,7 @@ export function MilkCollectionEntryScreen({
                 {expandedEntryId === entry.id && (
                 <div className="entry-form-grid" id={`milk-entry-details-${entry.id}`}>
                   <MilkTypeSearchDropdown
+                    disabled={!canOperate}
                     value={entry.milkType}
                     itemCode={entry.itemCode}
                     itemMeasure={entry.itemMeasure}
@@ -468,7 +478,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Quantity{entry.itemMeasure ? ` (${entry.itemMeasure})` : ''}</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -481,7 +491,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Fat %</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -497,7 +507,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Density</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -512,7 +522,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Temperature °C</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="number"
                       inputMode="decimal"
                       step="0.1"
@@ -526,7 +536,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Alcohol test</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="text"
                       value={entry.alcoholTest}
                       onChange={(event) =>
@@ -538,7 +548,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Water %</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -554,7 +564,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Silo / Tank number</span>
-                    <select
+                    <select disabled={!canOperate}
                       value={entry.siloTankNumber}
                       onChange={(event) =>
                         updateEntry(entry.id, { siloTankNumber: event.target.value })
@@ -572,7 +582,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field">
                     <span>Antibiotics test</span>
-                    <select
+                    <select disabled={!canOperate}
                       value={entry.antibioticsTest}
                       onChange={(event) =>
                         updateEntry(entry.id, {
@@ -588,7 +598,7 @@ export function MilkCollectionEntryScreen({
 
                   <div className="form-field scan-field">
                     <span>QR/barcode</span>
-                    <button
+                    <button disabled={!canOperate}
                       className="scan-button"
                       type="button"
                       onClick={() => addMockBarcode(entry.id, index)}
@@ -599,7 +609,7 @@ export function MilkCollectionEntryScreen({
 
                   <label className="form-field barcode-value">
                     <span>QR/barcode value</span>
-                    <input
+                    <input disabled={!canOperate}
                       type="text"
                       value={entry.barcode}
                       onChange={(event) =>
@@ -615,12 +625,12 @@ export function MilkCollectionEntryScreen({
             ))}
           </div>
 
-          <button className="add-entry-button" type="button" onClick={addEntry}>
+          <button disabled={!canOperate} className="add-entry-button" type="button" onClick={addEntry}>
             <span aria-hidden="true">+</span>
             Add another milk type
           </button>
 
-          <button className="submit-button" type="button" onClick={submitForm}>
+          <button disabled={!canOperate} className="submit-button" type="button" onClick={submitForm}>
             Submit Collection
           </button>
         </section>

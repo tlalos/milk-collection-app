@@ -6,6 +6,7 @@ import { OcrNavigationContext, hasOcrNavigation } from './OcrNavigation'
 import { appPath } from '../ocrPaths'
 import { OcrLanguageSwitch, useOcrLanguage } from './OcrLanguage'
 import './OcrAuthGate.css'
+import { userCanOperate } from '../../server/accessLevels.js'
 
 interface User {
   id: string
@@ -13,6 +14,7 @@ interface User {
   fullName?: string
   isAdmin?: boolean
   permissions?: string[]
+  writePermissions?: string[]
 }
 
 interface OcrAuthGateProps {
@@ -54,13 +56,21 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
   const signInForm = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
-    void fetch(appPath('/api/auth/session')).then(async (response) => {
+    let active = true
+    const refresh = () => void fetch(appPath('/api/auth/session'), { cache: 'no-store' }).then(async (response) => {
       const payload = await response.json() as { user?: User }
+      if (!active) return
       if (response.ok && payload.user) {
         setUser(payload.user)
         onUserChange?.(payload.user)
+      } else if (response.status === 401 || (response.ok && !payload.user)) {
+        setUser(null)
+        onUserChange?.(null)
       }
-    }).catch(() => undefined).finally(() => setChecking(false))
+    }).catch(() => undefined).finally(() => { if (active) setChecking(false) })
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => { active = false; window.removeEventListener('focus', refresh) }
   }, [onUserChange])
 
   async function submit(event: FormEvent) {
@@ -131,6 +141,7 @@ export function OcrAuthGate({ children, requiredPermission = '', title = '', des
     <div className={`ocr-auth-content${hasOcrNavigation() ? ' ocr-has-navigation' : ''} ${contentClassName}`}>
       {children}
       <div className="ocr-auth-session">
+        {requiredPermission && !(Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission]).every(permission => userCanOperate(user, permission)) && <span className="ocr-view-only" role="status">{isRo ? 'Doar vizualizare' : 'View only'}</span>}
         <OcrLanguageSwitch language={language} onChange={setLanguage} />
         <WebAccountMenu username={user.username} onSignOut={signOut} isRo={isRo} />
       </div>

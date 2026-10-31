@@ -67,8 +67,11 @@ WHERE vehicleCategory = N'COLLECTION' AND receptionDate IN (${receptionDates});
 `)).recordset
     const desired = desiredDailyAvizLinks(receptions, jobs, dates)
 
-    // Restored databases can use a different collation from the server's tempdb.
+    // Pooled sessions can retain temp tables from earlier runs. Keep identifiers
+    // in the restored database's collation, which can differ from tempdb.
     await new sql.Request(transaction).batch(`
+IF OBJECT_ID(N'tempdb..#DesiredAvizLinks', N'U') IS NOT NULL
+  DROP TABLE #DesiredAvizLinks;
 CREATE TABLE #DesiredAvizLinks (
   jobId NVARCHAR(64) COLLATE DATABASE_DEFAULT NOT NULL,
   rowIndex INT NOT NULL,
@@ -131,6 +134,7 @@ WHERE NOT EXISTS (
 );
 `)
 
+    await new sql.Request(transaction).batch('DROP TABLE #DesiredAvizLinks;')
     await transaction.commit()
     return desired.length
   } catch (error) {

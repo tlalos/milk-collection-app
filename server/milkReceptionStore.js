@@ -534,14 +534,14 @@ ORDER BY receptionDate DESC, updatedAt DESC;
   return result.recordset.map((row) => rowToRecord(row, detailsByReceptionId.get(row.receptionId)))
 }
 
-export async function createMilkReception(input, username = '', currentDateOnly = false) {
+export async function createMilkReception(input, username = '', currentDateOnly = false, allowManualWeights = false) {
   assertCurrentMilkDateAccess(undefined, input.receptionDate ?? currentMilkDate(), currentDateOnly)
   assertMilkDocumentDate(input.receptionDate ?? currentMilkDate(), 'Reception')
   await initializeMilkReceptionStore()
   const pool = await getPool()
   const milk = await getMilkDensityFactor('RECEPTION', input.milkType || 'MILK-COW')
   const record = normalizeReception({ ...input, densityFactor: milk.densityFactor, milkTypeLabel: milk.label })
-  assertScaleOnlyReceptionWeights(null, record, input)
+  if (!allowManualWeights) assertScaleOnlyReceptionWeights(null, record, input)
   if (record.vehicleCategory === 'OTHER') record.routeId = ''
   await assertUniqueReceptionCombination(pool, record)
   record.receptionId = await nextReceptionId(pool, record)
@@ -568,7 +568,7 @@ export async function createMilkReception(input, username = '', currentDateOnly 
   return getMilkReception(record.receptionId)
 }
 
-export async function updateMilkReception(id, input, username = '', currentDateOnly = false) {
+export async function updateMilkReception(id, input, username = '', currentDateOnly = false, allowManualWeights = false) {
   await initializeMilkReceptionStore()
   const existing = await getMilkReception(id)
   if (!existing) return null
@@ -581,7 +581,7 @@ export async function updateMilkReception(id, input, username = '', currentDateO
     densityFactor: milk ? milk.densityFactor : existing.densityFactor,
     milkTypeLabel: milk ? milk.label : existing.milkTypeLabel,
   }, existing)
-  assertScaleOnlyReceptionWeights(existing, record, input)
+  if (!allowManualWeights) assertScaleOnlyReceptionWeights(existing, record, input)
   if (record.vehicleCategory === 'OTHER') {
     record.routeId = existing.vehicleCategory === 'OTHER' ? existing.routeId : ''
   }

@@ -1,14 +1,15 @@
-import { userHasPermission } from './appSecurityStore.js'
+import { userHasPermission, userCanOperate } from './accessLevels.js'
 import { ocrFileJobId, ocrPermissionsForRoute } from './ocrPermissions.js'
 
 export function createPermissionMiddleware({ getSessionUser, sessionToken, getJob }) {
-  function requirePermission(permission) {
+  function requirePermission(permission, mode = 'auto') {
     return async (request, response, next) => {
       try {
         const user = await getSessionUser(sessionToken(request))
         if (!user) return response.status(401).json({ error: 'Authentication required.' })
         const permissions = Array.isArray(permission) ? permission : [permission]
-        if (!permissions.some(item => userHasPermission(user, item))) {
+        const canAccess = mode === 'read' || (mode === 'auto' && ['GET', 'HEAD'].includes(request.method)) ? userHasPermission : userCanOperate
+        if (!permissions.some(item => canAccess(user, item))) {
           return response.status(403).json({ error: 'You do not have access to this page or action.' })
         }
         request.authUser = user
@@ -29,7 +30,8 @@ export function createPermissionMiddleware({ getSessionUser, sessionToken, getJo
         documentCategory = job.documentCategory || 'daily_routes'
       }
       const permissions = ocrPermissionsForRoute(request.path, documentCategory, request.method)
-      if (!permissions.some(permission => userHasPermission(user, permission))) {
+      const canAccess = ['GET', 'HEAD'].includes(request.method) ? userHasPermission : userCanOperate
+      if (!permissions.some(permission => canAccess(user, permission))) {
         return response.status(403).json({ error: 'You do not have access to this page or action.' })
       }
       request.authUser = user

@@ -72,8 +72,9 @@ test('all six write endpoints derive restriction from authenticated admin flag, 
         auditAction: async () => {}, auditFailureReason: error => error.message }
       vm.runInNewContext(route.getText(ast), context)
       const res = { status() { return this }, json() {} }
-      await handler({ authUser: user, params: { id: 'test' }, body: { isAdmin: true, currentDateOnly: false } }, res, error => { throw error })
-      assert.equal(args.at(-1), user.isAdmin !== true)
+      await handler({ authUser: user, params: { id: 'test' }, body: { isAdmin: true, currentDateOnly: false, allowManualWeights: true } }, res, error => { throw error })
+      assert.equal(args.at(method === 'delete' ? -1 : -2), user.isAdmin !== true)
+      if (method !== 'delete') assert.equal(args.at(-1), user.isAdmin === true)
     }
   }
 })

@@ -13,7 +13,8 @@ const pages = [
   { path: '/daily-aviz', label: 'Daily Aviz', permission: 'daily_aviz', icon: ClipboardCheck },
   { path: '/daily-reconciliation', label: 'Daily Reconciliation', permission: 'daily_reconciliation', icon: CalendarCheck },
   { path: '/monthly-reconciliation', label: 'Monthly Reconciliation', permission: 'monthly_reconciliation', icon: CalendarCheck },
-  { path: '/month-closure', label: 'Month Closure & Payments', permission: 'month_closure', icon: Landmark, children: ['/bank-note'] },
+  { path: '/month-closure', label: 'Month Closure & Payments', permission: 'month_closure', icon: Landmark },
+  { path: '/bank-note', label: 'Bank note', permission: 'bank_note', icon: Landmark },
   { path: '/ocr/exports', label: 'Exports', permission: 'exports', icon: FileOutput, children: ['/ocr/exports/apia', '/ocr/exports/apia/contracts', '/ocr/exports/veterinary', '/ocr/exports/veterinary/animal-counts'] },
 ]
 
@@ -23,7 +24,7 @@ export function hasOcrNavigation() {
 }
 
 interface Props {
-  user: { isAdmin?: boolean; permissions?: string[] }
+  user: { isAdmin?: boolean; permissions?: string[]; writePermissions?: string[] }
   isRo: boolean
 }
 

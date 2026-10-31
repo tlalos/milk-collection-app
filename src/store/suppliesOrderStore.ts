@@ -1,4 +1,5 @@
 import { login } from '../api/authApi'
+import { requireWebOperation } from '../api/webPermissions'
 import { saveZGParalavesSuppliesOrder } from '../api/suppliesOrderApi'
 import { db } from '../db/database'
 import { settingsStore } from './settingsStore'
@@ -211,6 +212,7 @@ export async function sendSuppliesOrderPayloadToErp(
   payload: ERP_SuppliesPickingOrder[],
   signal?: AbortSignal,
 ): Promise<ERP_RetFunc> {
+  await requireWebOperation('milk_collection', signal)
   const { apiUsername, apiPassword, defaultFiscalYear } = settingsStore.get()
 
   if (!apiUsername || !apiPassword) {

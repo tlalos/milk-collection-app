@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { Download } from 'lucide-react'
 import { BANK_PAYER_IBAN, BANK_EXPORT_MAX_PAYMENTS, bankExportIssues, type BankExportRow } from '../bankNoteExport'
@@ -7,6 +8,7 @@ export type BankExportDialogHandle = { open: (month: string, rows: BankExportRow
 export const BankExportDialog = forwardRef<BankExportDialogHandle, {
   onExported: (batch: BankExportBatch) => void
 }>(function BankExportDialog({ onExported }, ref) {
+  const canOperate = useCanOperate('bank_note')
   const dialog = useRef<HTMLDialogElement>(null)
   const busyRef = useRef(false)
   const requestKey = useRef('')
@@ -32,6 +34,7 @@ export const BankExportDialog = forwardRef<BankExportDialogHandle, {
     setRows(current => current.map(row => row.id === id ? { ...row, [field]: value } : row))
   }
   async function download() {
+    if (!canOperate) return
     if (busyRef.current || invalidCount || !rows.length) return
     busyRef.current = true
     setBusy(true)
@@ -71,14 +74,14 @@ export const BankExportDialog = forwardRef<BankExportDialogHandle, {
           return <tr key={row.id}>
             <td>{row.producerName}<small>#{index + 1} · {row.milkType}</small><small>{row.centers?.join(', ')}</small></td>
             <td>{row.iban}</td><td>{row.amount?.toFixed(2)}</td>
-            <td><input aria-label={`Recipient name for row ${index + 1}`} value={row.recipientName} disabled={busy || submitted} aria-invalid={!row.recipientName.trim() || row.recipientName.trim().length > 40} onChange={event => edit(row.id, 'recipientName', event.target.value)} /><small>{row.recipientName.trim().length}/40</small></td>
-            <td><textarea aria-label={`Comment for row ${index + 1}`} value={row.comment} disabled={busy || submitted} rows={2} aria-invalid={!row.comment.trim() || row.comment.trim().length > 70} onChange={event => edit(row.id, 'comment', event.target.value)} /><small>{row.comment.trim().length}/70</small>{issues.length > 0 && <small className="bank-export-issue">{issues.join(' ')}</small>}</td>
+            <td><input aria-label={`Recipient name for row ${index + 1}`} value={row.recipientName} disabled={!canOperate || (busy || submitted)} aria-invalid={!row.recipientName.trim() || row.recipientName.trim().length > 40} onChange={event => edit(row.id, 'recipientName', event.target.value)} /><small>{row.recipientName.trim().length}/40</small></td>
+            <td><textarea aria-label={`Comment for row ${index + 1}`} value={row.comment} disabled={!canOperate || (busy || submitted)} rows={2} aria-invalid={!row.comment.trim() || row.comment.trim().length > 70} onChange={event => edit(row.id, 'comment', event.target.value)} /><small>{row.comment.trim().length}/70</small>{issues.length > 0 && <small className="bank-export-issue">{issues.join(' ')}</small>}</td>
           </tr>
         })}</tbody>
       </table></div>
       <div className="month-closure-bulk-actions">
         <button type="button" className="month-closure-cancel-bulk" disabled={busy} onClick={() => dialog.current?.close()}>Cancel</button>
-        <button type="button" className="bank-note-summary-button" disabled={busy || invalidCount > 0 || !rows.length} onClick={() => void download()}><Download size={18} aria-hidden="true" />{busy ? 'Saving export...' : savedBatch.current ? 'Download saved export' : submitted ? 'Retry export' : 'Export Excel'}</button>
+        <button type="button" className="bank-note-summary-button" disabled={!canOperate || (busy || invalidCount > 0 || !rows.length)} onClick={() => void download()}><Download size={18} aria-hidden="true" />{busy ? 'Saving export...' : savedBatch.current ? 'Download saved export' : submitted ? 'Retry export' : 'Export Excel'}</button>
       </div>
     </div>
   </dialog>

@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react'
 import { createApiaExcelDownload } from '../apiaExcelExport'
@@ -17,6 +18,7 @@ function initialMonth() {
 }
 
 export function ApiaExportScreen() {
+  const canOperate = useCanOperate('exports')
   const { isRo } = useOcrLanguage()
   const [month, setMonth] = useState(initialMonth)
   const [milkType, setMilkType] = useState(() => new URLSearchParams(window.location.search).get('milkType') ?? 'MILK-COW')
@@ -101,6 +103,7 @@ export function ApiaExportScreen() {
   }
 
   async function exportExcel() {
+    if (!canOperate) return
     if (loading || error || exporting || !rows.length) return
     setExporting(true)
     setExportError('')
@@ -132,7 +135,7 @@ export function ApiaExportScreen() {
         </select>
       </label>
       <button type="button" className="apia-icon-button" title={isRo ? 'Reincarca' : 'Refresh'} aria-label={isRo ? 'Reincarca' : 'Refresh'} disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw size={18} /></button>
-      <button type="button" className="apia-export-button" disabled={loading || Boolean(error) || exporting || !rows.length} onClick={() => void exportExcel()}>
+      <button type="button" className="apia-export-button" disabled={!canOperate || (loading || Boolean(error) || exporting || !rows.length)} onClick={() => void exportExcel()}>
         <Download size={18} aria-hidden="true" />{exporting ? (isRo ? 'Se exporta...' : 'Exporting...') : 'Export Excel'}
       </button>
     </div>

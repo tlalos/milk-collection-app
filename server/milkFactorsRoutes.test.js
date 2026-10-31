@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import ts from 'typescript'
 import { createPermissionMiddleware } from './permissionMiddleware.js'
-import { userHasPermission } from './appSecurityStore.js'
+import { userCanOperate } from './accessLevels.js'
 import { defaultMilkDensitySettings, validateMilkDensitySettings } from './milkDensitySettingsStore.js'
 
 const source = await readFile(new URL('./index.js', import.meta.url), 'utf8')
@@ -17,16 +17,19 @@ async function request(method, user, settings = defaultMilkDensitySettings, save
   const { requirePermission } = createPermissionMiddleware({ getSessionUser: async () => user, sessionToken: () => 'test' })
   vm.runInNewContext(routes, {
     app: { get: (path, ...handlers) => { registered.get = handlers }, put: (path, ...handlers) => { registered.put = handlers } },
-    requirePermission, userHasPermission, validateMilkDensitySettings,
+    requirePermission, userCanOperate, validateMilkDensitySettings,
     getMilkDensitySettings: async () => defaultMilkDensitySettings,
     saveMilkDensitySettings: async (input, username) => { if (saveError) throw saveError; writes.push({ input, username }); return input },
     auditAction: async value => audits.push(value), Error,
   })
   let allowed = false, failure
-  const req = { body: { settings } }
+  const req = { body: { settings }, method: method.toUpperCase() }
   const res = { code: 200, status(code) { this.code = code; return this }, set() { return this }, json(value) { this.body = value; return this } }
-  await registered[method][0](req, res, error => { failure = error; allowed = !error })
-  if (allowed) await registered[method][1](req, res, error => { failure = error })
+  for (const handler of registered[method]) {
+    allowed = false
+    await handler(req, res, error => { failure = error; allowed = !error })
+    if (!allowed) break
+  }
   return { res, writes, audits, failure }
 }
 
@@ -36,10 +39,11 @@ test('reception users can view factors; administrators receive edit capability',
   assert.equal((await request('get', { permissions: ['milk_reception'] })).res.body.canEdit, false)
   assert.equal((await request('get', { permissions: ['milk_reception', 'app_admin'] })).res.body.canEdit, true)
   assert.equal((await request('get', { isAdmin: true })).res.body.canEdit, true)
+  assert.equal((await request('get', { permissions: ['milk_reception', 'app_admin'], writePermissions: [] })).res.body.canEdit, false)
 })
 
 test('write endpoint enforces administration permission, including direct requests', async () => {
-  for (const user of [null, { permissions: ['milk_reception'] }]) {
+  for (const user of [null, { permissions: ['milk_reception'] }, { permissions: ['milk_reception', 'app_admin'], writePermissions: [] }]) {
     const result = await request('put', user)
     assert.equal(result.res.code, user ? 403 : 401)
     assert.equal(result.writes.length, 0)

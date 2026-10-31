@@ -30,7 +30,7 @@ import {
   logout,
   saveWebRole,
   saveWebUser,
-  userHasPermission,
+  userCanOperate,
 } from './appSecurityStore.js'
 import { enqueueOcrJob, resumePendingJobs } from './ocrQueue.js'
 import { registerCmrRoutes } from './cmrDocument.js'
@@ -1194,7 +1194,7 @@ app.get('/api/web-users/delivery-weight-history', requirePermission('audit_log')
   }
 })
 
-app.post('/api/activity/page-open', requirePermission('milk_reception'), async (request, response, next) => {
+app.post('/api/activity/page-open', requirePermission('milk_reception', 'read'), async (request, response, next) => {
   try {
     const area = String(request.body?.area || '')
     if (!['milk_reception', 'milk_delivery'].includes(area)) return response.status(400).json({ error: 'Unknown activity area.' })
@@ -1300,7 +1300,7 @@ app.post('/api/ocr/reference-suppliers', async (request, response, next) => {
   }
 })
 
-app.get('/api/weighbridge/current-weight', async (_request, response) => {
+app.get('/api/weighbridge/current-weight', requirePermission('milk_reception', 'write'), async (_request, response) => {
   try {
     const reading = await readCurrentWeighbridgeWeight()
     response.json({ ok: true, reading })
@@ -1324,13 +1324,13 @@ app.get('/api/weighbridge/config', (_request, response) => {
 
 app.get('/api/milk-factors', requirePermission('milk_reception'), async (request, response, next) => {
   try {
-    response.set('Cache-Control', 'no-store').json({ settings: await getMilkDensitySettings(), canEdit: userHasPermission(request.authUser, 'app_admin') })
+    response.set('Cache-Control', 'no-store').json({ settings: await getMilkDensitySettings(), canEdit: userCanOperate(request.authUser, 'app_admin') && userCanOperate(request.authUser, 'milk_reception') })
   } catch (error) {
     next(error)
   }
 })
 
-app.put('/api/milk-factors', requirePermission('app_admin'), async (request, response, next) => {
+app.put('/api/milk-factors', requirePermission('app_admin'), requirePermission('milk_reception'), async (request, response, next) => {
   let input
   try {
     input = validateMilkDensitySettings(request.body?.settings)
@@ -1568,7 +1568,7 @@ app.get('/api/daily-reconciliation/month', requirePermission('daily_reconciliati
 app.post('/api/milk-receptions', async (request, response, next) => {
   try {
     const user = request.authUser
-    const record = await createMilkReception(request.body, user?.username || '', user?.isAdmin !== true)
+    const record = await createMilkReception(request.body, user?.username || '', user?.isAdmin !== true, user?.isAdmin === true)
     const linkWarning = await refreshSavedDailyLinks([record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
     await auditAction({ request, user, action: 'milk_reception.create', entityType: 'MilkReception', entityId: record.receptionId, after: record })
@@ -1583,7 +1583,7 @@ app.patch('/api/milk-receptions/:id', async (request, response, next) => {
   try {
     const user = request.authUser
     const before = await getMilkReception(request.params.id)
-    const record = await updateMilkReception(request.params.id, request.body, user?.username || '', user?.isAdmin !== true)
+    const record = await updateMilkReception(request.params.id, request.body, user?.username || '', user?.isAdmin !== true, user?.isAdmin === true)
     if (!record) return response.status(404).json({ error: 'Milk reception record not found.' })
     const linkWarning = await refreshSavedDailyLinks([before?.receptionDate, record.receptionDate])
     const [recordWithReconciliation] = await attachMilkReceptionReconciliations([record])
@@ -1628,7 +1628,7 @@ app.get('/api/milk-deliveries', async (request, response, next) => {
 app.post('/api/milk-deliveries', async (request, response, next) => {
   try {
     const user = request.authUser
-    const record = await createMilkDelivery(request.body, user?.username || '', user?.isAdmin !== true)
+    const record = await createMilkDelivery(request.body, user?.username || '', user?.isAdmin !== true, user?.isAdmin === true)
     await auditAction({ request, user, action: 'milk_delivery.create', entityType: 'MilkDelivery', entityId: record.deliveryId, after: record })
     response.status(201).json({ record })
   } catch (error) {
@@ -1641,7 +1641,7 @@ app.patch('/api/milk-deliveries/:id', async (request, response, next) => {
   try {
     const user = request.authUser
     const before = await getMilkDelivery(request.params.id)
-    const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '', user?.isAdmin !== true)
+    const record = await updateMilkDelivery(request.params.id, request.body, user?.username || '', user?.isAdmin !== true, user?.isAdmin === true)
     if (!record) return response.status(404).json({ error: 'Milk delivery record not found.' })
     await auditAction({ request, user, action: 'milk_delivery.update', entityType: 'MilkDelivery', entityId: request.params.id, before, after: record })
     response.json({ record })
@@ -1693,10 +1693,10 @@ app.put('/api/erp/connection', async (request, response, next) => {
     const user = await getSessionUser(sessionToken(request))
     if (!user) return response.status(401).json({ error: 'Authentication required.' })
     const current = await erpConnectionStore.get()
-    if (serverUrl !== current.serverUrl && !userHasPermission(user, 'ocr_settings')) {
+    if (serverUrl !== current.serverUrl && !userCanOperate(user, 'ocr_settings')) {
       return response.status(403).json({ error: 'OCR settings permission is required to change the shared ERP URL.' })
     }
-    response.json(await erpConnectionStore.save(serverUrl))
+    response.json(serverUrl === current.serverUrl ? current : await erpConnectionStore.save(serverUrl))
   }
   catch (error) { next(error) }
 })
@@ -1897,16 +1897,16 @@ app.get('/api/ocr/daily-aviz/rows', async (_request, response, next) => {
   }
 })
 
-app.get('/api/ocr/exports/producer-contracts', async (_request, response, next) => {
+app.get('/api/ocr/exports/producer-contracts', async (request, response, next) => {
   try {
     const contracts = await listProducerContracts()
-    response.set('Cache-Control', 'no-store').json({ contracts, canEdit: !localCloneEnabled })
+    response.set('Cache-Control', 'no-store').json({ contracts, canEdit: !localCloneEnabled && userCanOperate(request.authUser, 'exports') })
   } catch (error) { next(error) }
 })
 
-app.get('/api/ocr/exports/producer-herd-counts', async (_request, response, next) => {
+app.get('/api/ocr/exports/producer-herd-counts', async (request, response, next) => {
   try {
-    response.set('Cache-Control', 'no-store').json({ counts: await listProducerHerdCounts(), canEdit: !localCloneEnabled || localCloneHerdEditsEnabled })
+    response.set('Cache-Control', 'no-store').json({ counts: await listProducerHerdCounts(), canEdit: (!localCloneEnabled || localCloneHerdEditsEnabled) && userCanOperate(request.authUser, 'exports') })
   } catch (error) { next(error) }
 })
 
@@ -1936,7 +1936,7 @@ app.get(['/api/ocr/monthly-reconciliation/rows', '/api/ocr/exports/apia-rows'], 
     if (!isSqlOcrStoreEnabled()) return response.json(monthlyReconciliationFromJobs(await listJobs()))
     const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
     response.json({ ...context.reconciliation,
-      canApproveAviz: userHasPermission(_request.authUser, 'month_closure'),
+      canApproveAviz: userCanOperate(_request.authUser, 'month_closure') && userCanOperate(_request.authUser, 'monthly_reconciliation'),
       avizApprovals: context.approvals,
       rows: context.reconciliation.rows.map(row => ({ ...row,
         monthlyRows: row.monthlyRows.map(detail => ({ ...detail, producerWarning: monthlyProducerWarning(detail, context.references) })),
@@ -2052,7 +2052,7 @@ app.patch('/api/ocr/monthly-reconciliation/aviz-center', async (request, respons
   }
 })
 
-app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), async (request, response, next) => {
+app.get('/api/month-closure/pricing-rows', requirePermission(['month_closure', 'bank_note']), async (request, response, next) => {
   try {
     const context = isSqlOcrStoreEnabled() ? await monthlyAvizApprovalContext(monthlyReconciliationFromJobs) : null
     const jobs = context?.jobs || await listJobs()
@@ -2072,7 +2072,7 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
   }
 })
 
-app.use('/api/bank-exports', requirePermission('month_closure'), (request, response, next) => {
+app.use('/api/bank-exports', requirePermission('bank_note'), (request, response, next) => {
   response.set('Cache-Control', 'no-store')
   if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL storage is required for bank export history.' })
   next()
@@ -2096,7 +2096,7 @@ app.get('/api/bank-exports/:id', async (request, response, next) => {
   try { response.json(await bankExportStore.get(request.params.id)) }
   catch (error) { next(error) }
 })
-app.get('/api/bank-exports/:id/file', async (request, response, next) => {
+app.get('/api/bank-exports/:id/file', requirePermission('bank_note', 'write'), async (request, response, next) => {
   try {
     const batch = await bankExportStore.get(request.params.id, true)
     response.set('Content-Disposition', `attachment; filename="${batch.filename}"`)
@@ -2128,10 +2128,10 @@ for (const method of ['post', 'delete']) {
   })
 }
 
-app.get('/api/month-closure/invoices', requirePermission('month_closure'), async (request, response, next) => {
+app.get('/api/month-closure/invoices', requirePermission(['month_closure', 'bank_note']), async (request, response, next) => {
   try {
     if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
-    response.json({ invoices: await listMonthlyInvoices(String(request.query.month || '')), canResolve: userHasPermission(request.authUser, 'invoice_resolution') })
+    response.json({ invoices: await listMonthlyInvoices(String(request.query.month || '')), canResolve: userCanOperate(request.authUser, 'invoice_resolution') && userCanOperate(request.authUser, 'month_closure') })
   } catch (error) { next(error) }
 })
 
@@ -2140,7 +2140,7 @@ app.get('/api/month-closure/invoices/:invoiceId/history', requirePermission('mon
     if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL invoice storage is not enabled.' })
     const history = await getMonthlyInvoiceHistory(request.params.invoiceId)
     if (!history) return response.status(404).json({ error: 'Invoice not found.' })
-    response.json({ ...history, canResolve: userHasPermission(request.authUser, 'invoice_resolution') })
+    response.json({ ...history, canResolve: userCanOperate(request.authUser, 'invoice_resolution') && userCanOperate(request.authUser, 'month_closure') })
   } catch (error) { next(error) }
 })
 

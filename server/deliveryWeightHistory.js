@@ -1,7 +1,13 @@
+import { assertScaleOnlyWeights } from './receptionWeightHistory.js'
+
 const weightFields = [
-  { kind: 'LOADED', weight: 'loadedWeightKg', source: 'loadedWeightSource', weighedAt: 'loadedWeighedAt', captureId: 'loadedScaleCaptureId' },
+  { kind: 'LOADED', label: 'Loaded truck weight', weight: 'loadedWeightKg', source: 'loadedWeightSource', weighedAt: 'loadedWeighedAt', captureId: 'loadedScaleCaptureId' },
   { kind: 'EMPTY', weight: 'emptyWeightKg', source: 'emptyWeightSource', weighedAt: 'emptyWeighedAt', captureId: 'emptyScaleCaptureId' },
 ]
+
+export function assertScaleOnlyDeliveryWeights(before, after, input = {}) {
+  assertScaleOnlyWeights(before, after, input, weightFields)
+}
 
 export function deliveryWeightEvents(before, after, input = {}) {
   return weightFields.flatMap((field) => {

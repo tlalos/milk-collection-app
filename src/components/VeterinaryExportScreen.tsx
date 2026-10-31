@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { Fragment, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, RefreshCw } from 'lucide-react'
 import { createVeterinaryExcelDownload } from '../veterinaryExcelExport'
@@ -17,6 +18,7 @@ function initialMonth() {
 }
 
 export function VeterinaryExportScreen() {
+  const canOperate = useCanOperate('exports')
   const { isRo } = useOcrLanguage()
   const [month, setMonth] = useState(initialMonth)
   const [form, setForm] = useState<1 | 2>(() => new URLSearchParams(window.location.search).get('form') === '2' ? 2 : 1)
@@ -52,6 +54,7 @@ export function VeterinaryExportScreen() {
   }
 
   async function exportExcel() {
+    if (!canOperate) return
     if (loading || error || exporting || !rows.length) return
     setExporting(true)
     setExportError('')
@@ -96,7 +99,7 @@ export function VeterinaryExportScreen() {
             tabsRef.current?.querySelector<HTMLButtonElement>(`#veterinary-tab-${next}`)?.focus()
           }}>Formular {value}</button>)}
       </div>
-      <button type="button" className="apia-export-button" disabled={loading || Boolean(error) || exporting || !rows.length} onClick={() => void exportExcel()}>
+      <button type="button" className="apia-export-button" disabled={!canOperate || (loading || Boolean(error) || exporting || !rows.length)} onClick={() => void exportExcel()}>
         <Download size={18} aria-hidden="true" />{exporting ? (isRo ? 'Se exporta...' : 'Exporting...') : 'Export Excel'}
       </button>
     </div>

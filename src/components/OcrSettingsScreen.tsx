@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useMemo, useState } from 'react'
@@ -9,6 +10,7 @@ interface Provider { id: string; label: string; models: string[]; configured: bo
 interface Settings { provider: string; model: string; updatedAt: string | null; providers: Provider[] }
 
 export function OcrSettingsScreen() {
+  const canOperate = useCanOperate('ocr_settings')
   const { isRo } = useOcrLanguage()
   const [settings, setSettings] = useState<Settings | null>(null)
   const [provider, setProvider] = useState('openai')
@@ -34,6 +36,7 @@ export function OcrSettingsScreen() {
   }
 
   async function save() {
+    if (!canOperate) return
     if (!model || saving) return
     setSaving(true); setError(''); setMessage('')
     try {
@@ -50,11 +53,11 @@ export function OcrSettingsScreen() {
     <main><section>
       <h2>{isRo ? 'Model de extragere' : 'Extraction model'}</h2>
       <p>{isRo ? 'Cheile API rămân în variabilele de mediu ale serverului și nu sunt salvate în browser.' : 'API keys remain in server environment variables and are never stored in the browser.'}</p>
-      <div className="ocr-provider-grid">{settings?.providers.map((item) => <button className={provider === item.id ? 'active' : ''} type="button" onClick={() => chooseProvider(item.id)} key={item.id}><strong>{item.label}</strong><span className={item.configured ? 'ready' : 'missing'}>{item.configured ? (isRo ? 'Configurat' : 'Configured') : (isRo ? 'Lipsește cheia API' : 'API key missing')}</span></button>)}</div>
-      <label>{isRo ? 'Model' : 'Model'}<select value={model} onChange={(event) => setModel(event.target.value)}>{selectedProvider?.models.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <div className="ocr-provider-grid">{settings?.providers.map((item) => <button disabled={!canOperate} className={provider === item.id ? 'active' : ''} type="button" onClick={() => chooseProvider(item.id)} key={item.id}><strong>{item.label}</strong><span className={item.configured ? 'ready' : 'missing'}>{item.configured ? (isRo ? 'Configurat' : 'Configured') : (isRo ? 'Lipsește cheia API' : 'API key missing')}</span></button>)}</div>
+      <label>{isRo ? 'Model' : 'Model'}<select disabled={!canOperate} value={model} onChange={(event) => setModel(event.target.value)}>{selectedProvider?.models.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       {selectedProvider && !selectedProvider.supportsDocuments && <div className="ocr-settings-warning">{selectedProvider.id === 'deepseek' ? selectedProvider.compatibilityNote : (isRo ? 'Această integrare acceptă imagini, dar nu PDF-uri. Pentru PDF utilizați OpenAI.' : 'This integration supports images but not PDFs. Use OpenAI for PDF documents.')}</div>}
       {error && <p className="error">{error}</p>}{message && <p className="success">{message}</p>}
-      <button className="save" type="button" onClick={() => void save()} disabled={saving || !selectedProvider?.configured}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modelul OCR' : 'Save OCR model')}</button>
+      <button className="save" type="button" onClick={() => void save()} disabled={!canOperate || (saving || !selectedProvider?.configured)}>{saving ? (isRo ? 'Se salvează…' : 'Saving…') : (isRo ? 'Salvați modelul OCR' : 'Save OCR model')}</button>
     </section></main>
   </div>
 }

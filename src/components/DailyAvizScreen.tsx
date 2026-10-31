@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -218,6 +219,7 @@ function uniqueValues(rows: DailyAvizRow[], selector: (row: DailyAvizRow) => str
 }
 
 export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
+  const canOperate = useCanOperate('daily_aviz')
   const tableWrapRef = useRef<HTMLDivElement>(null)
   const tableToolbarRef = useRef<HTMLDivElement>(null)
   const [page, setPage] = useState(1)
@@ -256,6 +258,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
   }
 
   async function sendRow(row: DailyAvizRow) {
+    if (!canOperate) return
     if (sendingRef.current || row.erpSendBlocker !== null) return
     sendingRef.current = true
     setSendingRowId(row.id)
@@ -556,7 +559,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                     <td>
                       <div className="daily-aviz-actions">
                         <button className="daily-aviz-file-icon" type="button" title="Open file" aria-label={`Open file for aviz ${row.noticeNumber || '-'}, line ${row.rowNumber ?? '-'}`} onClick={() => openFile(row)}><span aria-hidden="true">📄</span></button>
-                        <button type="button" disabled={Boolean(sendingRowId) || row.erpSendBlocker !== null}
+                        <button type="button" disabled={!canOperate || Boolean(sendingRowId) || row.erpSendBlocker !== null}
                           title={row.erpSendBlocker || 'Send Aviz and NIR for this row'}
                           onClick={() => setConfirmSend(row)}>{sendingRowId === row.id ? 'Sending...' : 'Send to ERP'}</button>
                       </div>
@@ -565,7 +568,7 @@ export function DailyAvizScreen({ onBack }: { onBack: () => void }) {
                   {confirmSend?.id === row.id && <tr><td colSpan={13} className="daily-aviz-quality-cell">
                     <div className="daily-aviz-send-confirm">
                       <span>Send 1 Aviz + 1 NIR: {row.collectionCenter} · {displayDate(row.documentDate)} · Aviz {row.noticeNumber} · {formatNumber(row.liters)} L · {displayMilkType(row.milkType)}?</span>
-                      <button type="button" disabled={Boolean(sendingRowId)} onClick={() => void sendRow(confirmSend)}>Confirm send</button>
+                      <button type="button" disabled={!canOperate || (Boolean(sendingRowId))} onClick={() => void sendRow(confirmSend)}>Confirm send</button>
                       <button type="button" onClick={() => setConfirmSend(null)}>Cancel</button>
                     </div>
                   </td></tr>}

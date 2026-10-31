@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -268,6 +269,7 @@ function OcrIssueSection({ title, issues, daily = false, showSeverity = false }:
 }
 
 export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) {
+  const canOperate = useCanOperate('monthly_reconciliation')
   const [liveRows, setRows] = useState<MonthlyReconciliationRow[]>([])
   const [liveCanApproveAviz, setCanApproveAviz] = useState(false)
   const [liveAvizApprovals, setAvizApprovals] = useState<AvizPricingApproval[]>([])
@@ -327,6 +329,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   }
 
   async function saveAvizApproval() {
+    if (!canOperate) return
     if (guideExample) return
     if (approvalBusy) return
     setApprovalBusy(true)
@@ -514,6 +517,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
   }
 
   async function applyAvizCenterCorrection() {
+    if (!canOperate) return
     if (guideExample) return
     if (!correctionDraft || correctionSaving) return
     const targetCenter = correctionDraft.targetCenter.trim()
@@ -790,7 +794,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                     <p>{approval.producerName} · {approval.milkType} · {formatNumber(approval.approvedLiters, 3)} L</p>
                     <p>{approval.status === 'APPROVED' ? 'Approved for pricing' : `Needs review: ${approval.reviewReason}`}</p>
                   </div>
-                  {canApproveAviz && <button type="button" onClick={() => { setCancelDraft(approval); setCancelReason(''); setApprovalError('') }}>Cancel approval</button>}
+                  {canApproveAviz && <button disabled={!canOperate} type="button" onClick={() => { setCancelDraft(approval); setCancelReason(''); setApprovalError('') }}>Cancel approval</button>}
                 </div>
               ))}
             </section>
@@ -871,7 +875,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                               : row.avizPricing.reason ? <small className="monthly-aviz-pricing-blocked" role="alert">Approval blocked: {row.avizPricing.reason}</small>
                               : avizApprovals.some(a => a.monthKey === row.month && a.centerCode.toLowerCase() === row.avizPricing?.centerCode && a.milkType === row.milkType)
                                 ? <small>See aviz pricing approval above</small>
-                                : canApproveAviz && <button className="monthly-aviz-pricing-button" type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}
+                                : canApproveAviz && <button disabled={!canOperate} className="monthly-aviz-pricing-button" type="button" onClick={() => { setApprovalDraft(row); setApprovalError('') }}>Use aviz for pricing</button>}
                           </div>
                         )}
                       </td>
@@ -895,7 +899,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                               <div className="monthly-recon-detail-heading">
                                 <h3>Daily aviz rows</h3>
                                 {row.avizRows.length > 0 && (
-                                  <button type="button" onClick={() => openCorrectionDialog(row)}>Change aviz center</button>
+                                  <button disabled={!canOperate} type="button" onClick={() => openCorrectionDialog(row)}>Change aviz center</button>
                                 )}
                               </div>
                               {row.avizRows.length === 0 ? (
@@ -923,7 +927,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
                                         <td>
                                           <div className="monthly-recon-file-actions">
                                             <button type="button" onClick={() => openFile(detail.fileUrl)}>Open</button>
-                                            <button
+                                            <button disabled={!canOperate}
                                               className="monthly-recon-row-edit"
                                               type="button"
                                               onClick={() => openCorrectionDialog(row, detail)}
@@ -1004,7 +1008,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               {approvalError && <p className="monthly-aviz-dialog-error" role="alert">{approvalError}</p>}
               <div className="monthly-aviz-dialog-actions monthly-recon-modal-actions">
                 <button type="button" disabled={approvalBusy} onClick={() => { setApprovalDraft(null); setCancelDraft(null) }}>Close</button>
-                <button type="button" disabled={approvalBusy || Boolean(cancelDraft && !cancelReason.trim())} onClick={() => void saveAvizApproval()}>{approvalBusy ? 'Saving...' : cancelDraft ? 'Confirm cancellation' : 'Confirm approval'}</button>
+                <button type="button" disabled={!canOperate || (approvalBusy || Boolean(cancelDraft && !cancelReason.trim()))} onClick={() => void saveAvizApproval()}>{approvalBusy ? 'Saving...' : cancelDraft ? 'Confirm cancellation' : 'Confirm approval'}</button>
               </div>
             </section>
           </div>
@@ -1049,7 +1053,7 @@ export function MonthlyReconciliationScreen({ onBack }: { onBack: () => void }) 
               </datalist>
               <div className="monthly-recon-modal-actions">
                 <button type="button" onClick={() => setCorrectionDraft(null)} disabled={correctionSaving}>Cancel</button>
-                <button type="button" onClick={() => void applyAvizCenterCorrection()} disabled={correctionSaving || !correctionDraft.targetCenter.trim()}>
+                <button type="button" onClick={() => void applyAvizCenterCorrection()} disabled={!canOperate || (correctionSaving || !correctionDraft.targetCenter.trim())}>
                   {correctionSaving ? 'Updating...' : `Update ${correctionDraft.detail ? '1' : correctionDraft.row.avizLineCount} row${(correctionDraft.detail || correctionDraft.row.avizLineCount === 1) ? '' : 's'}`}
                 </button>
               </div>

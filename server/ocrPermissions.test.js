@@ -9,7 +9,7 @@ test('OCR tile endpoints use their own permissions', () => {
   assert.deepEqual(ocrPermissionsForRoute('/monthly-reconciliation/rows'), ['monthly_reconciliation'])
   assert.deepEqual(ocrPermissionsForRoute('/monthly-reconciliation/aviz-center'), ['monthly_reconciliation'])
   assert.deepEqual(ocrPermissionsForRoute('/issues'), ['monthly_reconciliation'])
-  assert.deepEqual(ocrPermissionsForRoute('/reference-suppliers'), ['ocr_documents', 'month_closure', 'monthly_reconciliation', 'exports'])
+  assert.deepEqual(ocrPermissionsForRoute('/reference-suppliers'), ['ocr_documents', 'month_closure', 'bank_note', 'monthly_reconciliation', 'exports'])
   assert.deepEqual(ocrPermissionsForRoute('/jobs'), ['ocr_documents'])
 })
 
@@ -25,10 +25,10 @@ test('new pages have independent permissions, without inherited OCR access', () 
   }
   assert.deepEqual(ocrPermissionsForRoute('/reference-suppliers', '', 'POST'), ['ocr_documents'])
   const keys = APP_PERMISSIONS.map(item => item.key)
-  for (const key of ['milk_collection', 'milk_reception', 'backup_history', 'exports', 'audit_log']) {
+  for (const key of ['milk_collection', 'milk_reception', 'backup_history', 'bank_note', 'exports', 'audit_log']) {
     assert.ok(keys.includes(key), key)
   }
-  for (const key of ['customers', 'data_sync', 'journal', 'transport', 'apia_export', 'veterinary_export', 'bank_note', 'milk_factors']) assert.ok(!keys.includes(key))
+  for (const key of ['customers', 'data_sync', 'journal', 'transport', 'apia_export', 'veterinary_export', 'milk_factors']) assert.ok(!keys.includes(key))
   assert.equal(new Set(keys).size, keys.length)
 })
 

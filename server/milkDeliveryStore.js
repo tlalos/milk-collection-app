@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import sql from 'mssql'
 import { assertMilkDocumentDate, currentMilkDate, assertCurrentMilkDateAccess } from './milkDocumentDate.js'
-import { deliveryWeightEvents } from './deliveryWeightHistory.js'
+import { deliveryWeightEvents, assertScaleOnlyDeliveryWeights } from './deliveryWeightHistory.js'
 import { resolveReceptionWeightSource } from './receptionWeightSource.js'
 import { getMilkDensityFactor } from './milkDensitySettingsStore.js'
 import { prepareDeliveryArrival } from './milkDeliveryArrival.js'
@@ -174,12 +174,13 @@ export async function getMilkDelivery(id) {
   return result.recordset[0] ? rowToDelivery(result.recordset[0]) : null
 }
 
-export async function createMilkDelivery(input, username = '', currentDateOnly = false) {
+export async function createMilkDelivery(input, username = '', currentDateOnly = false, allowManualWeights = false) {
   assertCurrentMilkDateAccess(undefined, input.deliveryDate ?? currentMilkDate(), currentDateOnly)
   assertMilkDocumentDate(input.deliveryDate ?? currentMilkDate(), 'Delivery')
   await initializeMilkDeliveryStore()
   const milk = await getMilkDensityFactor('DELIVERIES', input.milkType || 'MILK-COW')
   const record = normalizeDelivery({ ...input, densityFactor: milk.densityFactor, milkTypeLabel: milk.label })
+  if (!allowManualWeights) assertScaleOnlyDeliveryWeights(null, record, input)
   record.deliveryId = `DEL-${record.deliveryDate.replaceAll('-', '')}-${randomUUID().slice(0, 8).toUpperCase()}`
   validateDelivery(record)
   const now = new Date()
@@ -215,7 +216,7 @@ INSERT INTO dbo.MilkDeliveries (
   return getMilkDelivery(record.deliveryId)
 }
 
-export async function updateMilkDelivery(id, input, username = '', currentDateOnly = false) {
+export async function updateMilkDelivery(id, input, username = '', currentDateOnly = false, allowManualWeights = false) {
   await initializeMilkDeliveryStore()
   const existing = await getMilkDelivery(id)
   if (!existing) return null
@@ -228,6 +229,7 @@ export async function updateMilkDelivery(id, input, username = '', currentDateOn
     densityFactor: milk ? milk.densityFactor : existing.densityFactor,
     milkTypeLabel: milk ? milk.label : existing.milkTypeLabel,
   }, existing)
+  if (!allowManualWeights) assertScaleOnlyDeliveryWeights(existing, record, input)
   validateDelivery(record)
   const pool = await getPool()
   const transaction = new sql.Transaction(pool)

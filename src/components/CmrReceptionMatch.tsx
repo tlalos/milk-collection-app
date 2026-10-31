@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { useEffect, useState } from 'react'
 import { Link2, RefreshCw, Unlink } from 'lucide-react'
 import { appPath } from '../ocrPaths'
@@ -22,6 +23,7 @@ interface Match {
 export function CmrReceptionMatch({ id, updatedAt, dirty, busy, onBusy, isRo }: {
   id: string; updatedAt: string; dirty: boolean; busy: boolean; onBusy: (value: boolean) => void; isRo: boolean
 }) {
+  const canOperate = useCanOperate('ocr_documents')
   const [match, setMatch] = useState<Match | null>(null)
   const [choice, setChoice] = useState('')
   const [loading, setLoading] = useState(true)
@@ -57,6 +59,7 @@ export function CmrReceptionMatch({ id, updatedAt, dirty, busy, onBusy, isRo }: 
   }, [busy])
 
   async function save(receptionId: string | null) {
+    if (!canOperate) return
     if (!match || dirty || stale || busy || loading) return
     if (receptionId === null && !window.confirm(isRo ? 'Eliminati legatura cu receptia?' : 'Remove the reception link?')) return
     onBusy(true); setError('')
@@ -77,8 +80,8 @@ export function CmrReceptionMatch({ id, updatedAt, dirty, busy, onBusy, isRo }: 
   return <section className="cmr-reception-match" aria-label={isRo ? 'Receptie Alte' : 'Others reception'}>
     <div className="cmr-match-heading"><h3>{isRo ? 'Receptie Alte' : 'Others reception'}</h3>
       <div className="cmr-match-actions">
-        {!loading && <button type="button" disabled={!match || !choice || dirty || stale || busy || (match.link?.status === 'CONFIRMED' && choice === match.link.receptionId)} onClick={() => void save(choice)}><Link2 size={16} />{isRo ? 'Confirma asocierea' : 'Confirm match'}</button>}
-        {!loading && match?.link && <button type="button" title={isRo ? 'Elimina legatura' : 'Remove reception link'} aria-label="Remove reception link" disabled={dirty || stale || busy} onClick={() => void save(null)}><Unlink size={16} /></button>}
+        {!loading && <button type="button" disabled={!canOperate || (!match || !choice || dirty || stale || busy || (match.link?.status === 'CONFIRMED' && choice === match.link.receptionId))} onClick={() => void save(choice)}><Link2 size={16} />{isRo ? 'Confirma asocierea' : 'Confirm match'}</button>}
+        {!loading && match?.link && <button type="button" title={isRo ? 'Elimina legatura' : 'Remove reception link'} aria-label="Remove reception link" disabled={!canOperate || (dirty || stale || busy)} onClick={() => void save(null)}><Unlink size={16} /></button>}
       <button type="button" title={isRo ? 'Reincarca receptiile' : 'Refresh reception matches'} aria-label="Refresh reception matches" disabled={busy || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16} /></button>
       </div>
     </div>
@@ -97,7 +100,7 @@ export function CmrReceptionMatch({ id, updatedAt, dirty, busy, onBusy, isRo }: 
           ? (isRo ? 'Receptie detectata. Conectati acest CMR?' : 'Reception detected. Connect this CMR?')
           : (isRo ? 'Mai multe receptii detectate. Selectati receptia pentru confirmare.' : 'Multiple receptions detected. Select a reception to confirm.')}</p>}
         <label>{isRo ? 'Receptie - aceeasi data si camion' : 'Reception - same date and truck'}
-          <select value={choice} onChange={event => setChoice(event.target.value)} disabled={busy}>
+          <select value={choice} onChange={event => setChoice(event.target.value)} disabled={!canOperate || (busy)}>
             <option value="">{isRo ? 'Selectati receptia' : 'Select reception'}</option>
             {match.candidates.map((row, index) => <option key={row.receptionId} value={row.receptionId}>{index + 1}. {row.vehicleRegistration} | {quantity(row.netQuantityKg, 'kg')}</option>)}
           </select>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { deliveryWeightEvents } from './deliveryWeightHistory.js'
+import { deliveryWeightEvents, assertScaleOnlyDeliveryWeights } from './deliveryWeightHistory.js'
 
 test('records initial manual delivery weights separately', () => {
   assert.deepEqual(deliveryWeightEvents(null, {
@@ -52,3 +52,18 @@ test('clearing a delivery weight is recorded as a manual change', () => {
   assert.equal(events[0].weightKg, null)
   assert.equal(events[0].previousSource, 'SCALE')
 })
+
+for (const prefix of ['loaded', 'empty']) {
+  test(`${prefix} delivery weight rejects manual changes but permits scale readings and unchanged legacy data`, () => {
+    const weight = `${prefix}WeightKg`, source = `${prefix}WeightSource`, time = `${prefix}WeighedAt`, capture = `${prefix}ScaleCaptureId`
+    const before = { [weight]: 8000, [source]: 'MANUAL', [time]: null }
+    assert.doesNotThrow(() => assertScaleOnlyDeliveryWeights(before, { ...before, departureComments: 'Checked' }))
+    const manual = { ...before, [weight]: 8100 }
+    assert.throws(() => assertScaleOnlyDeliveryWeights(null, manual), /scale button/)
+    assert.throws(() => assertScaleOnlyDeliveryWeights(before, manual), /scale button/)
+    assert.throws(() => assertScaleOnlyDeliveryWeights(before, { [weight]: null }), /scale button/)
+    const scale = { [weight]: 8100, [source]: 'SCALE', [time]: '2026-10-31T10:00:00' }
+    assert.throws(() => assertScaleOnlyDeliveryWeights(before, scale), /scale button/)
+    assert.doesNotThrow(() => assertScaleOnlyDeliveryWeights(before, scale, { [capture]: 'test-capture' }))
+  })
+}

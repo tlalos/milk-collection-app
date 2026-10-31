@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { BackButton } from './BackButton'
 import { OcrNavigation } from './OcrNavigation'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
@@ -40,6 +41,7 @@ function formatFileSize(bytes: number) {
 }
 
 export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
+  const canOperate = useCanOperate('ocr_documents')
   const { isRo } = useOcrLanguage()
   const [documents, setDocuments] = useState<QueuedDocument[]>([])
   const [notice, setNotice] = useState('')
@@ -60,6 +62,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   }, [])
 
   function addFiles(files: FileList | null) {
+    if (!canOperate) return
     if (!files?.length) return
     if (!documentCategory) {
       setNotice(isRo ? 'Selectarea tipului de document este obligatorie.' : 'Select a document type before adding files.')
@@ -103,6 +106,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
   }
 
   async function uploadDocuments() {
+    if (!canOperate) return
     if (!documents.length || isProcessing) return
     if (!documentCategory) {
       setNotice(isRo ? 'Selectarea tipului de document este obligatorie.' : 'Document type is required.')
@@ -208,7 +212,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             type="file"
             accept="image/*,application/pdf"
             multiple
-            disabled={!documentCategory}
+            disabled={!canOperate || (!documentCategory)}
             onChange={handleInputChange}
           />
           <input
@@ -217,7 +221,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
             type="file"
             accept="image/*"
             capture="environment"
-            disabled={!documentCategory}
+            disabled={!canOperate || (!documentCategory)}
             onChange={handleInputChange}
           />
 
@@ -226,7 +230,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
               className="ocr-action-button secondary"
               type="button"
               onClick={() => documentInputRef.current?.click()}
-              disabled={!documentCategory}
+              disabled={!canOperate || (!documentCategory)}
               title={!documentCategory ? (isRo ? 'Selectați mai întâi tipul documentului' : 'Select a document type first') : undefined}
             >
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h4l2 2h4a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V4z" /></svg>
@@ -236,7 +240,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
               className="ocr-action-button primary"
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              disabled={!documentCategory}
+              disabled={!canOperate || (!documentCategory)}
               title={!documentCategory ? (isRo ? 'Selectați mai întâi tipul documentului' : 'Select a document type first') : undefined}
             >
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 5a2 2 0 00-2 2v7a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.3l-1.4-2H8.7L7.3 5H4zm6 9a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" /></svg>
@@ -283,7 +287,7 @@ export function OcrDocumentScreen({ onBack }: OcrDocumentScreenProps) {
 
         {notice && <p className="ocr-notice" role="status">{notice}</p>}
 
-        <button className="ocr-process-button" type="button" disabled={documents.length === 0 || !documentCategory || isProcessing} onClick={uploadDocuments}>
+        <button className="ocr-process-button" type="button" disabled={!canOperate || (documents.length === 0 || !documentCategory || isProcessing)} onClick={uploadDocuments}>
           {isProcessing ? (isRo ? 'Se încarcă documentele…' : 'Uploading documents…') : (isRo ? 'Încărcați documentele' : 'Upload documents')}
           <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6" /></svg>
         </button>

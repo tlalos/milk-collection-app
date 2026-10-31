@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { BackButton } from './BackButton'
 import { OcrNavigation, OcrNavigationContext } from './OcrNavigation'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -187,6 +188,7 @@ function pricingLabel(status: PricingStatus) {
 }
 
 export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: () => void; bankNotePage?: boolean }) {
+  const canOperate = useCanOperate(bankNotePage ? 'bank_note' : 'month_closure')
   const access = useContext(OcrNavigationContext)?.user
   const canOpenPage = (permission: string) => Boolean(access?.isAdmin || access?.permissions?.includes(permission))
   const [rows, setRows] = useState<MonthClosurePricingRow[]>([])
@@ -310,6 +312,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   async function previewInvoice(row: MonthClosurePricingRow) {
+    if (!canOperate) return
     if (invoiceSendBusyRef.current || invoiceDateSavingRef.current) return
     invoiceSendBusyRef.current = true
     setInvoiceSendBusy(true)
@@ -329,6 +332,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   async function sendInvoice() {
+    if (!canOperate) return
     if (!invoicePreview || invoiceSendBusyRef.current) return
     invoiceSendBusyRef.current = true
     setInvoiceSendBusy(true)
@@ -354,6 +358,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   async function saveInvoiceDates(date: string, rowId?: string) {
+    if (!canOperate) return
     if (invoiceDateSavingRef.current || !date) return
     if (!parseInvoiceDate(displayInvoiceDate(date))) {
       setError('Enter a valid invoice date in dd/mm/yyyy format.')
@@ -446,6 +451,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   function updateBankNoteDraft(rowId: string, field: 'connectedAccount' | 'comment', value: string) {
+    if (!canOperate) return
     try {
       setBankNoteDrafts(saveBankNoteField(localStorage, monthFilter, rowId, field, value))
       setBankDraftError('')
@@ -467,12 +473,13 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   function canEditPricing(row: MonthClosurePricingRow) {
-    return !loading && invoiceStatusesLoaded && !row.producerWarning && !invoicePricingLockReason(invoiceStatuses[row.id])
+    return canOperate && !loading && invoiceStatusesLoaded && !row.producerWarning && !invoicePricingLockReason(invoiceStatuses[row.id])
   }
 
   const changedPricingRows = rows.filter((row) => canEditPricing(row) && Object.keys(pricingDrafts[row.id] || {}).length > 0)
 
   async function savePricingRows() {
+    if (!canOperate) return
     if (!monthFilter || !changedPricingRows.length || pricingSaveStatus === 'saving') return
     const draftSnapshot = pricingDrafts
     const rowsToSave = changedPricingRows
@@ -890,9 +897,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       </div>
       {position === 'top' && view === 'pricing' && <div className="month-closure-save-actions">
         <span className={`month-closure-save-indicator ${pricingSaveStatus === 'saved' && !showPricingSaved ? 'idle' : pricingSaveStatus}`} role="status" title={pricingSaveMessage || undefined}>
-          {pricingSaveStatus === 'saving' ? 'Saving...' : pricingSaveStatus === 'error' ? 'Save failed' : changedPricingRows.length ? 'Waiting...' : showPricingSaved ? 'Saved' : 'Autosave on'}
+          {!canOperate ? 'View only' : pricingSaveStatus === 'saving' ? 'Saving...' : pricingSaveStatus === 'error' ? 'Save failed' : changedPricingRows.length ? 'Waiting...' : showPricingSaved ? 'Saved' : 'Autosave on'}
         </span>
-        <button className="month-closure-save-icon" type="button" aria-label="Save pricing changes" title={`Save pricing changes${changedPricingRows.length ? ` (${changedPricingRows.length})` : ''}`} onClick={() => void savePricingRows()} disabled={!changedPricingRows.length || pricingSaveStatus === 'saving'}><Save size={17} aria-hidden="true" /></button>
+        <button className="month-closure-save-icon" type="button" aria-label="Save pricing changes" title={`Save pricing changes${changedPricingRows.length ? ` (${changedPricingRows.length})` : ''}`} onClick={() => void savePricingRows()} disabled={!canOperate || (!changedPricingRows.length || pricingSaveStatus === 'saving')}><Save size={17} aria-hidden="true" /></button>
       </div>}
     </nav>
   }
@@ -908,6 +915,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   function exportSelectedBankRows() {
+    if (!canOperate) return
     if (!selectedBankRows.length) return
     try {
       bankExportDialogRef.current?.open(monthFilter, prepareBankExport(monthFilter, selectedBankRows, rows))
@@ -923,7 +931,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     setBankHistoryRevision(value => value + 1)
   }
 
-  const addCollectorButton = <button className="month-closure-add-collector" type="button" disabled={loading || !monthFilter || invoiceSendBusy || invoiceDateSaving || pricingSaveStatus === 'saving' || changedPricingRows.length > 0}
+  const addCollectorButton = <button className="month-closure-add-collector" type="button" disabled={!canOperate || (loading || !monthFilter || invoiceSendBusy || invoiceDateSaving || pricingSaveStatus === 'saving' || changedPricingRows.length > 0)}
     onClick={() => collectorDialogRef.current?.open(monthFilter)}><UserRoundPlus size={16} aria-hidden="true" />Add collector</button>
 
   return (
@@ -940,7 +948,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
         </div>
         <div className={`month-closure-actions${bankNotePage ? '' : ' month-closure-actions-compact'}`}>
             {!bankNotePage && <MonthClosureHelp canResolveInvoices={canResolveInvoices} />}
-          {!bankNotePage && <button type="button"
+          {!bankNotePage && canOpenPage('bank_note') && <button type="button"
             disabled={loading || pricingSaveStatus === 'saving' || changedPricingRows.length > 0}
             title={changedPricingRows.length ? 'Save pricing changes before opening Bank note' : undefined}
             onClick={() => { window.location.href = appPath(`/bank-note?month=${encodeURIComponent(monthFilter)}`) }}>Bank note</button>}
@@ -969,7 +977,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
             </>}
             <div className="month-closure-bulk-actions">
               <button type="button" className="month-closure-cancel-bulk" disabled={invoiceSendBusy} onClick={() => invoicePreviewRef.current?.close()}>Cancel</button>
-              <button type="button" className="month-closure-apply-bulk" disabled={invoiceSendBusy || !invoicePreview} onClick={() => void sendInvoice()}>{invoiceSendBusy ? 'Sending...' : 'Confirm send'}</button>
+              <button type="button" className="month-closure-apply-bulk" disabled={!canOperate || (invoiceSendBusy || !invoicePreview)} onClick={() => void sendInvoice()}>{invoiceSendBusy ? 'Sending...' : 'Confirm send'}</button>
             </div>
           </div>
         </dialog>
@@ -1153,7 +1161,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <p>{`${currentPricedInvoiceRows} rows have current prices${previousPricedInvoiceRows ? `; ${previousPricedInvoiceRows} rows have previous-month prices available` : ''}.`}</p>
                   </div>
                 </details>
-                <button type="button" disabled={loading || invoiceSendBusy || invoiceDateSaving || !selectedInvoiceRows.length || selectedInvoiceRows.length > 500}
+                <button type="button" disabled={!canOperate || (loading || invoiceSendBusy || invoiceDateSaving || !selectedInvoiceRows.length || selectedInvoiceRows.length > 500)}
                   onClick={() => invoiceBatchRef.current?.open(selectedInvoiceRows.map(({ row }) => ({
                     month: row.month, producerCode: row.producerCode, milkType: row.milkType, invoiceDate: invoiceDates[row.id] || monthEndDate(row.month),
                   })))}>
@@ -1187,7 +1195,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                         : `${pendingBankRows.length - readyBankRows} pending rows need an IBAN or final amount. Connected account is optional.`}
                   </span>
                 </div>
-                <button type="button" onClick={exportSelectedBankRows} disabled={!selectedBankRows.length}>
+                <button type="button" onClick={exportSelectedBankRows} disabled={!canOperate || (!selectedBankRows.length)}>
                   Export Excel{selectedBankRows.length ? ` (${selectedBankRows.length})` : ''}
                 </button>
               </div>
@@ -1391,7 +1399,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 <tr>
                   <th><div className="month-closure-date-heading">
                     <span>Invoice<br />date</span>
-                    <button type="button" className="month-closure-date-all" disabled={loading || !monthFilter || !rows.length}
+                    <button type="button" className="month-closure-date-all" disabled={!canOperate || (loading || !monthFilter || !rows.length)}
                       aria-label="Apply invoice date to all" title="Apply invoice date to all"
                       onClick={() => {
                         invoiceDateDialogRef.current?.open(bulkInvoiceDates[monthFilter] || monthEndDate(monthFilter))
@@ -1412,7 +1420,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                     <input type="checkbox" aria-label="Select all eligible invoices on this page" title="Select all eligible invoices on this page"
                       checked={allEligibleInvoicesSelected}
                       ref={input => { if (input) input.indeterminate = pageSelectedInvoices.length > 0 && !allEligibleInvoicesSelected }}
-                      disabled={loading || invoiceSendBusy || invoiceDateSaving || !pageEligibleInvoices.length}
+                      disabled={!canOperate || (loading || invoiceSendBusy || invoiceDateSaving || !pageEligibleInvoices.length)}
                       onChange={event => setSelectedInvoiceRowIds(current => selectPage(current, pageEligibleInvoices.map(invoice => invoice.row.id), event.target.checked))} />
                     ERP
                   </label></th>
@@ -1435,7 +1443,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                         </button> : <>
                       <span aria-hidden="true">{(invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)).replace(/^(\d{2})(\d{2})-(\d{2})-(\d{2})$/, '$4/$3/$2')}</span>
                       <input type="date" className="month-closure-invoice-date"
-                      disabled={loading || invoiceDateSaving || !/^p\S+/i.test(invoiceRow.row.producerCode) || Boolean(invoiceStatuses[invoiceRow.row.id] && invoiceStatuses[invoiceRow.row.id] !== 'DRAFT')}
+                      disabled={!canOperate || loading || invoiceDateSaving || !/^p\S+/i.test(invoiceRow.row.producerCode) || Boolean(invoiceStatuses[invoiceRow.row.id] && invoiceStatuses[invoiceRow.row.id] !== 'DRAFT')}
                       aria-label={`Invoice date for ${invoiceRow.row.producer}`}
                       value={invoiceDates[invoiceRow.row.id] || monthEndDate(invoiceRow.row.month)}
                       onChange={event => void saveInvoiceDates(event.target.value, invoiceRow.row.id)} />
@@ -1488,10 +1496,10 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       <div className="month-closure-invoice-actions">
                       <input type="checkbox" aria-label={`Select invoice for ${invoiceRow.row.producer} (${displayMilkType(invoiceRow.row.milkType)})`}
                         title={invoiceRow.sendBlockReason || 'Select invoice'}
-                        disabled={loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason)}
+                        disabled={!canOperate || (loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason))}
                         checked={!invoiceRow.sendBlockReason && selectedInvoiceRowIds.includes(invoiceRow.row.id)}
                         onChange={event => setSelectedInvoiceRowIds(current => event.target.checked ? [...current.filter(id => id !== invoiceRow.row.id), invoiceRow.row.id] : current.filter(id => id !== invoiceRow.row.id))} />
-                      <button type="button" disabled={loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason)}
+                      <button type="button" disabled={!canOperate || (loading || invoiceSendBusy || invoiceDateSaving || Boolean(invoiceRow.sendBlockReason))}
                         title={invoiceRow.sendBlockReason || 'Preview this invoice before sending'}
                         onClick={() => void previewInvoice(invoiceRow.row)}>
                         {invoiceStatuses[invoiceRow.row.id] === 'DRAFT' && invoiceRecords[invoiceRow.row.id]?.attemptCount > 0 ? 'Resend' : 'Send'}
@@ -1500,7 +1508,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                         className={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? '' : 'month-closure-invoice-history'}
                         title={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve ERP status' : 'History'}
                         aria-label={canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve ERP status' : 'History'}
-                        disabled={loading || invoiceSendBusy || invoiceDateSaving}
+                        disabled={!canOperate || (loading || invoiceSendBusy || invoiceDateSaving)}
                         onClick={() => invoiceResolutionRef.current?.open(invoiceRecords[invoiceRow.row.id].invoiceId, invoiceRow.row.producer)}>
                         {canResolveInvoices && invoiceStatuses[invoiceRow.row.id] === 'UNCONFIRMED' ? 'Resolve' : <History size={16} aria-hidden="true" />}
                       </button>}
@@ -1533,7 +1541,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       checked={allEligibleBankRowsSelected}
                       ref={input => { if (input) input.indeterminate = pageSelectedBankRows.length > 0 && !allEligibleBankRowsSelected }}
                       onChange={(event) => toggleAllEligibleBankRows(event.currentTarget.checked)}
-                      disabled={loading || !pageEligibleBankRows.length}
+                      disabled={!canOperate || loading || !pageEligibleBankRows.length}
                       aria-label="Select all eligible bank rows on this page"
                     />
                   </th>
@@ -1554,7 +1562,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 )}
                 {!loading && pagedBankRows.map((bankRow) => {
                   const readyForBank = Boolean(bankRow.paymentProducer?.iban && bankRow.finalAmount !== null)
-                  const canSelect = bankHistoryReady && readyForBank && bankRow.finalAmount! > 0 && bankRow.status !== 'sent'
+                  const canSelect = canOperate && bankHistoryReady && readyForBank && bankRow.finalAmount! > 0 && bankRow.status !== 'sent'
                   return (
                     <tr key={bankRow.id} className={`${readyForBank ? 'ready' : 'blocked'} ${bankRow.status === 'sent' ? 'bank-sent' : ''}`}>
                       <td className="month-closure-bank-check">
@@ -1581,7 +1589,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       <td>
                         <input
                           className="month-closure-bank-input"
-                          disabled={bankRow.status === 'sent'}
+                          disabled={!canOperate || (bankRow.status === 'sent')}
                           value={bankRow.comment}
                           onChange={(event) => updateBankNoteDraft(bankRow.id, 'comment', event.currentTarget.value)}
                           aria-label={`Bank comment for ${bankRow.producerName}`}
@@ -1591,7 +1599,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       <td>
                         <input
                           className="month-closure-bank-account"
-                          disabled={bankRow.status === 'sent'}
+                          disabled={!canOperate || (bankRow.status === 'sent')}
                           list="month-closure-bank-producers"
                           value={bankRow.connectedAccount}
                           onChange={(event) => updateBankNoteDraft(bankRow.id, 'connectedAccount', event.currentTarget.value)}

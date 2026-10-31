@@ -315,7 +315,7 @@ function storedDateTimeInput(value: string) {
 }
 
 export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
-  const { isAdmin, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
+  const { isAdmin, canOperate, today: editableDay, canEditDate, lockedMessage } = useMilkRecordAccess()
   const [records, setRecords] = useState<MilkReceptionRecord[]>([])
   const recordsRef = useRef<MilkReceptionRecord[]>([])
   const tableWrapRef = useRef<HTMLDivElement>(null)
@@ -830,6 +830,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function saveTruckRoutes(vehicleRegistration: string, routesText: string, vehicleCategory: VehicleCategory) {
+    if (!canOperate) return
     const truck = vehicleRegistration.trim()
     const routes = routesTextToArray(routesText)
     const category = normalizeVehicleCategory(vehicleCategory)
@@ -862,6 +863,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function deleteTruckRoutes(vehicleRegistration: string, vehicleCategory: VehicleCategory) {
+    if (!canOperate) return
     const truck = vehicleRegistration.trim()
     if (!truck) return
     const category = normalizeVehicleCategory(vehicleCategory)
@@ -884,6 +886,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function importRouteSettingsFromExcel() {
+    if (!canOperate) return
     setSettingsBusy('importing')
     setError('')
     setNotice('')
@@ -901,6 +904,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function saveDriver() {
+    if (!canOperate) return
     const driverName = normalizeName(newDriverName)
     if (!driverName) {
       setError('Driver name is required.')
@@ -928,6 +932,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function deleteDriver(driver: DriverSetting) {
+    if (!canOperate) return
     if (!driver.driverId) return
     setSettingsBusy(`driver-delete-${driver.driverId}`)
     setError('')
@@ -946,6 +951,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
   }
 
   async function importDriversFromExcel() {
+    if (!canOperate) return
     setSettingsBusy('driver-importing')
     setError('')
     setNotice('')
@@ -1221,14 +1227,28 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
     const label = field === 'fullTruckWeightKg' ? 'Full kg' : 'Empty kg'
     const weighedAt = field === 'fullTruckWeightKg' ? record.fullTruckWeighedAt : record.emptyTruckWeighedAt
     const source = field === 'fullTruckWeightKg' ? record.fullTruckWeightSource : record.emptyTruckWeightSource
+    const timestampField = field === 'fullTruckWeightKg' ? 'fullTruckWeighedAt' : 'emptyTruckWeighedAt'
+    const sourceField = field === 'fullTruckWeightKg' ? 'fullTruckWeightSource' : 'emptyTruckWeightSource'
+    const captureField = field === 'fullTruckWeightKg' ? 'fullTruckScaleCaptureId' : 'emptyTruckScaleCaptureId'
     return (
       <div className="reception-weight-entry">
         <div className="reception-weight-input-stack">
           <input
-            readOnly
+            readOnly={!isAdmin}
+            disabled={!canEditDate(record.receptionDate) || Boolean(scaleReadingTarget)}
+            inputMode="decimal"
             aria-label={label}
-            title="Read from scale"
+            title={isAdmin ? 'Enter weight or read from scale' : 'Read from scale'}
             value={record[field] ?? ''}
+            onChange={event => {
+              if (!isAdmin || !canEditDate(record.receptionDate)) return
+              updateRecord(record.receptionId, {
+                [field]: event.target.value,
+                [timestampField]: '',
+                [sourceField]: event.target.value.trim() ? 'MANUAL' : null,
+                [captureField]: '',
+              } as Partial<MilkReceptionRecord>)
+            }}
           />
           {numberValue(record[field]) !== null && <small title={source === 'SCALE' && weighedAt ? `Scale reading at ${formatWeightTime(weighedAt)}` : undefined}>
             {source === 'SCALE' ? `Scale · ${formatWeightTime(weighedAt)}` : source === 'MANUAL' ? 'Manual' : 'Unknown source'}
@@ -1292,11 +1312,11 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                 </div>
                 <div className="reception-settings-header-actions">
                   {settingsTab === 'TRUCKS' ? (
-                    <button className="secondary" type="button" onClick={() => void importRouteSettingsFromExcel()} disabled={Boolean(settingsBusy)}>
+                    <button className="secondary" type="button" onClick={() => void importRouteSettingsFromExcel()} disabled={!canOperate || (Boolean(settingsBusy))}>
                       {settingsBusy === 'importing' ? 'Importing...' : 'Import from Excel'}
                     </button>
                   ) : (
-                    <button className="secondary" type="button" onClick={() => void importDriversFromExcel()} disabled={Boolean(settingsBusy)}>
+                    <button className="secondary" type="button" onClick={() => void importDriversFromExcel()} disabled={!canOperate || (Boolean(settingsBusy))}>
                       {settingsBusy === 'driver-importing' ? 'Importing...' : 'Import from Excel'}
                     </button>
                   )}
@@ -1333,24 +1353,24 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                   <tbody>
                     <tr className="reception-settings-new-row">
                       <td>
-                        <input list="reception-truck-settings" value={newSettingsTruck} onChange={(event) => setNewSettingsTruck(event.target.value)} placeholder="Add truck ID" />
+                        <input disabled={!canOperate} list="reception-truck-settings" value={newSettingsTruck} onChange={(event) => setNewSettingsTruck(event.target.value)} placeholder="Add truck ID" />
                         <datalist id="reception-truck-settings">
                           {truckOptions.map((truck) => <option key={truck.value} value={truck.value}>{truck.label}</option>)}
                         </datalist>
                       </td>
                       <td>
-                        <select value={newSettingsCategory} onChange={(event) => setNewSettingsCategory(normalizeVehicleCategory(event.target.value))}>
+                        <select disabled={!canOperate} value={newSettingsCategory} onChange={(event) => setNewSettingsCategory(normalizeVehicleCategory(event.target.value))}>
                           {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
                         </select>
                       </td>
                       <td>
-                        <input list="reception-route-settings" value={newSettingsRoutes} onChange={(event) => setNewSettingsRoutes(event.target.value)} placeholder="Optional: R01, R011, R012" />
+                        <input disabled={!canOperate} list="reception-route-settings" value={newSettingsRoutes} onChange={(event) => setNewSettingsRoutes(event.target.value)} placeholder="Optional: R01, R011, R012" />
                         <datalist id="reception-route-settings">
                           {knownRouteValues.map((route) => <option key={route} value={route} />)}
                         </datalist>
                       </td>
                       <td>
-                        <button type="button" onClick={() => void saveTruckRoutes(newSettingsTruck, newSettingsRoutes, newSettingsCategory)} disabled={Boolean(settingsBusy)}>Add truck</button>
+                        <button type="button" onClick={() => void saveTruckRoutes(newSettingsTruck, newSettingsRoutes, newSettingsCategory)} disabled={!canOperate || (Boolean(settingsBusy))}>Add truck</button>
                       </td>
                     </tr>
                     {!visibleVehicleRoutes.length && (
@@ -1368,19 +1388,19 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                       <tr key={groupKey}>
                         <td className="reception-settings-truck">{group.vehicle}</td>
                         <td>
-                          <select value={groupCategory} onChange={(event) => setCategoryDrafts((current) => ({ ...current, [groupKey]: normalizeVehicleCategory(event.target.value) }))}>
+                          <select disabled={!canOperate} value={groupCategory} onChange={(event) => setCategoryDrafts((current) => ({ ...current, [groupKey]: normalizeVehicleCategory(event.target.value) }))}>
                             {options.vehicleCategories.map((category) => <option key={category} value={category}>{vehicleCategoryLabel(category)}</option>)}
                           </select>
                         </td>
                         <td>
-                          <input value={groupRoutes} onChange={(event) => setRouteDrafts((current) => ({ ...current, [groupKey]: event.target.value }))} />
+                          <input disabled={!canOperate} value={groupRoutes} onChange={(event) => setRouteDrafts((current) => ({ ...current, [groupKey]: event.target.value }))} />
                         </td>
                         <td>
                           <div className="reception-settings-row-actions">
-                            <button type="button" onClick={() => void saveTruckRoutes(group.vehicle, groupRoutes, groupCategory)} disabled={Boolean(settingsBusy)}>
+                            <button type="button" onClick={() => void saveTruckRoutes(group.vehicle, groupRoutes, groupCategory)} disabled={!canOperate || (Boolean(settingsBusy))}>
                               {settingsBusy === vehicleRouteSettingKey(group.vehicle, groupCategory) ? 'Saving...' : 'Save'}
                             </button>
-                            <button className="danger" type="button" onClick={() => void deleteTruckRoutes(group.vehicle, normalizeVehicleCategory(group.vehicleCategory))} disabled={Boolean(settingsBusy)}>
+                            <button className="danger" type="button" onClick={() => void deleteTruckRoutes(group.vehicle, normalizeVehicleCategory(group.vehicleCategory))} disabled={!canOperate || (Boolean(settingsBusy))}>
                               {settingsBusy === `delete-${groupKey}` ? 'Deleting...' : 'Delete'}
                             </button>
                           </div>
@@ -1405,8 +1425,8 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                       </thead>
                       <tbody>
                         <tr className="reception-settings-new-row">
-                          <td><input value={newDriverName} onChange={(event) => setNewDriverName(event.target.value)} placeholder="Add driver name" /></td>
-                          <td><button type="button" onClick={() => void saveDriver()} disabled={Boolean(settingsBusy)}>{settingsBusy === 'driver-add' ? 'Saving...' : 'Add driver'}</button></td>
+                          <td><input disabled={!canOperate} value={newDriverName} onChange={(event) => setNewDriverName(event.target.value)} placeholder="Add driver name" /></td>
+                          <td><button type="button" onClick={() => void saveDriver()} disabled={!canOperate || (Boolean(settingsBusy))}>{settingsBusy === 'driver-add' ? 'Saving...' : 'Add driver'}</button></td>
                         </tr>
                         {!options.driverSettings.length && (
                           <tr>
@@ -1417,7 +1437,7 @@ export function MilkReceptionScreen({ onBack }: MilkReceptionScreenProps) {
                           <tr key={driver.driverId}>
                             <td className="reception-settings-truck">{driver.driverName}</td>
                             <td>
-                              <button className="danger" type="button" onClick={() => void deleteDriver(driver)} disabled={Boolean(settingsBusy)}>
+                              <button className="danger" type="button" onClick={() => void deleteDriver(driver)} disabled={!canOperate || (Boolean(settingsBusy))}>
                                 {settingsBusy === `driver-delete-${driver.driverId}` ? 'Deleting...' : 'Delete'}
                               </button>
                             </td>

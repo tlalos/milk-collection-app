@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import sql from 'mssql'
 import { presentAuditActivity } from './auditActivity.js'
 import { receptionHistoryDateSql } from './receptionHistoryFilter.js'
+import { resolveAccess, normalizeRolePermissions } from './accessLevels.js'
 
 const scrypt = promisify(scryptCallback)
 
@@ -23,6 +24,7 @@ export const APP_PERMISSIONS = [
   { key: 'daily_reconciliation', label: 'Daily reconciliation' },
   { key: 'monthly_reconciliation', label: 'Monthly reconciliation' },
   { key: 'month_closure', label: 'Month closure and payments' },
+  { key: 'bank_note', label: 'Bank note' },
   { key: 'exports', label: 'Exports' },
   { key: 'invoice_resolution', label: 'Resolve unconfirmed ERP invoices' },
   { key: 'ocr_settings', label: 'OCR settings' },
@@ -246,7 +248,7 @@ ORDER BY r.roleName;
   if (isAdmin) {
     return {
       roles: rolesResult.recordset.map((role) => ({ key: role.roleKey, name: role.roleName })),
-      permissions: APP_PERMISSIONS.map((permission) => permission.key),
+      ...resolveAccess(APP_PERMISSIONS.map((permission) => permission.key)),
     }
   }
   const permissionsResult = await pool.request()
@@ -260,7 +262,7 @@ ORDER BY rp.permissionKey;
 `)
   return {
     roles: rolesResult.recordset.map((role) => ({ key: role.roleKey, name: role.roleName })),
-    permissions: permissionsResult.recordset.map((row) => row.permissionKey),
+    ...resolveAccess(permissionsResult.recordset.map((row) => row.permissionKey)),
   }
 }
 
@@ -274,6 +276,7 @@ async function publicUser(pool, row) {
     isAdmin,
     roles: access.roles,
     permissions: access.permissions,
+    writePermissions: access.writePermissions,
   }
 }
 
@@ -526,9 +529,7 @@ export async function saveWebRole(input = {}) {
   const roleKey = normalizeRoleKey(input.roleKey)
   const roleName = String(input.roleName || '').trim()
   const description = String(input.description || '').trim()
-  const permissionKeys = Array.isArray(input.permissionKeys)
-    ? input.permissionKeys.map((key) => String(key || '').trim()).filter((key) => APP_PERMISSIONS.some((permission) => permission.key === key))
-    : []
+  const permissionKeys = normalizeRolePermissions(input.permissionKeys, APP_PERMISSIONS)
   if (!roleKey) throw new Error('Role key is required.')
   if (!roleName) throw new Error('Role name is required.')
   if (roleKey === 'admin') throw new Error('The built-in admin role cannot be edited here.')
@@ -575,12 +576,7 @@ VALUES (@roleKey, @permissionKey, @now);
   }
 }
 
-export function userHasPermission(user, permission) {
-  if (!permission) return true
-  if (!user) return false
-  if (user.isAdmin) return true
-  return Array.isArray(user.permissions) && user.permissions.includes(permission)
-}
+export { userHasPermission, userCanOperate } from './accessLevels.js'
 
 function jsonOrNull(value) {
   if (value == null) return null

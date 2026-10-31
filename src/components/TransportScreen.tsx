@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { PageLanguageSwitch } from './OcrLanguage'
 import { BackButton } from './BackButton'
 import { useEffect, useState, type FormEvent } from 'react'
@@ -20,6 +21,7 @@ function formatUpdatedAt(value: string) {
 }
 
 export function TransportScreen({ onBack, initialDriverName = '' }: TransportScreenProps) {
+  const canOperate = useCanOperate('milk_collection')
   const [transporterName, setTransporterName] = useState('')
   const [truckNumber, setTruckNumber] = useState('')
   const [driverName, setDriverName] = useState(initialDriverName)
@@ -61,6 +63,7 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!canOperate) return
     setStatus('saving')
     setMessage('')
 
@@ -99,7 +102,7 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
           <form className="transport-form" onSubmit={handleSubmit}>
             <label className="transport-field" htmlFor="transporter-name">
               <span>Transporter name</span>
-              <input
+              <input disabled={!canOperate}
                 id="transporter-name"
                 value={transporterName}
                 onChange={(event) => setTransporterName(event.target.value)}
@@ -109,7 +112,7 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
 
             <label className="transport-field" htmlFor="truck-number">
               <span>Truck number</span>
-              <select
+              <select disabled={!canOperate}
                 id="truck-number"
                 value={truckNumber}
                 onChange={(event) => setTruckNumber(event.target.value)}
@@ -125,7 +128,7 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
 
             <label className="transport-field" htmlFor="driver-name">
               <span>Driver name</span>
-              <input
+              <input disabled={!canOperate}
                 id="driver-name"
                 value={driverName}
                 onChange={(event) => setDriverName(event.target.value)}
@@ -133,7 +136,7 @@ export function TransportScreen({ onBack, initialDriverName = '' }: TransportScr
               />
             </label>
 
-            <button className="transport-save" type="submit" disabled={!canSave || status === 'saving'}>
+            <button className="transport-save" type="submit" disabled={!canOperate || (!canSave || status === 'saving')}>
               {status === 'saving' ? 'Saving...' : 'Save locally'}
             </button>
           </form>

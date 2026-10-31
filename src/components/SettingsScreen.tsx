@@ -1,3 +1,4 @@
+import { useCanOperate } from './useCanOperate'
 import { PageLanguageSwitch } from './OcrLanguage'
 import { BackButton } from './BackButton'
 import { useState, useEffect } from 'react'
@@ -19,6 +20,7 @@ interface SettingsScreenProps {
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
 
 export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: SettingsScreenProps) {
+  const canOperate = useCanOperate('milk_collection')
   const [settings, setSettings] = useState<AppSettings>(() => settingsStore.get())
   const [saved, setSaved] = useState(false)
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
@@ -38,6 +40,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
   }
 
   function handleSave() {
+    if (!canOperate) return
     settingsStore.set(settings)
     setSaved(true)
   }
@@ -50,6 +53,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
   }
 
   async function handleClearData() {
+    if (!canOperate) return
     if (!confirm('Clear all locally stored data? This cannot be undone.')) return
     await db.collections.clear()
     await db.farmers.clear()
@@ -82,7 +86,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
           <div className="settings-field">
             <label htmlFor="serverUrl">Server URL</label>
             <div className="settings-url-row">
-              <input
+              <input disabled={!canOperate}
                 id="serverUrl"
                 type="url"
                 inputMode="url"
@@ -111,7 +115,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
 
           <div className="settings-field">
             <label htmlFor="apiUsername">API username</label>
-            <input
+            <input disabled={!canOperate}
               id="apiUsername"
               type="text"
               autoCapitalize="none"
@@ -128,7 +132,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
 
           <div className="settings-field">
             <label htmlFor="apiPassword">API password</label>
-            <input
+            <input disabled={!canOperate}
               id="apiPassword"
               type="password"
               autoComplete="new-password"
@@ -140,7 +144,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
 
           <div className="settings-field">
             <label htmlFor="timeout">Request timeout (ms)</label>
-            <input
+            <input disabled={!canOperate}
               id="timeout"
               type="number"
               min={1000}
@@ -158,7 +162,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
 
           <div className="settings-field">
             <label htmlFor="fiscalYear">Default fiscal year</label>
-            <input
+            <input disabled={!canOperate}
               id="fiscalYear"
               type="number"
               min={2000}
@@ -174,7 +178,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
         <section className="settings-section">
           <h2 className="settings-section-title">Local data</h2>
 
-          <button
+          <button disabled={!canOperate}
             className="settings-danger-btn"
             type="button"
             onClick={handleClearData}
@@ -198,7 +202,7 @@ export function SettingsScreen({ onBack, user, onErpSignIn, onErpSignOut }: Sett
 
       {/* Sticky save bar */}
       <div className="settings-save-bar">
-        <button
+        <button disabled={!canOperate}
           className={`settings-save-btn ${saved ? 'saved' : ''}`}
           type="button"
           onClick={handleSave}
