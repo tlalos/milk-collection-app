@@ -239,6 +239,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [milkTypeFilter, setMilkTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [bankStatusFilter, setBankStatusFilter] = useState<'all' | BankTransferStatus>('all')
+  const [bankTermsFilter, setBankTermsFilter] = useState('')
   const [seriesFilter, setSeriesFilter] = useState('')
   const [invoiceSendFilter, setInvoiceSendFilter] = useState<InvoiceSendFilter>('all')
   const [view, setView] = useState<ClosureView>(bankNotePage ? 'bankNote' : 'pricing')
@@ -646,7 +647,10 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     }))
   }
 
-  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || (view === 'bankNote' ? bankStatusFilter !== 'all' : statusFilter !== 'all' || invoiceSendFilter !== 'all') || (view === 'erpInvoices' && seriesFilter))
+  const bankTermsOptions = [...new Set(rows.filter(row => row.month === monthFilter)
+    .map(row => erpProducerByCode.get(row.producerCode.trim().toLocaleLowerCase())?.paymentTerms?.trim() || '').filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+  const hasActiveFilters = Boolean(centerFilter || producerFilter || milkTypeFilter || (view === 'bankNote' ? bankStatusFilter !== 'all' || bankTermsFilter : statusFilter !== 'all' || invoiceSendFilter !== 'all') || (view === 'erpInvoices' && seriesFilter))
 
   const filteredRows = useMemo(() => {
     const centerNeedle = normalizedSearch(centerFilter)
@@ -819,7 +823,11 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       finalAmount: bankRow.hasMissingAmount || legacyPaymentNeedsReview ? null : bankRow.finalAmount,
     }
   })
-  const visibleBankRows = preparedBankRows.filter(row => bankStatusFilter === 'all' || row.status === bankStatusFilter)
+  const visibleBankRows = preparedBankRows.filter(row => {
+    const terms = row.erpProducer?.paymentTerms?.trim() || ''
+    return (bankStatusFilter === 'all' || row.status === bankStatusFilter)
+      && (!bankTermsFilter || (bankTermsFilter === 'missing' ? !terms : terms === bankTermsFilter))
+  })
   const pendingBankRows = visibleBankRows.filter((row) => row.status !== 'sent')
   const sentBankRows = visibleBankRows.filter((row) => row.status === 'sent')
   const eligibleBankRows = pendingBankRows.filter((row) => bankHistoryReady && row.paymentProducer?.iban && row.finalAmount !== null && row.finalAmount > 0)
@@ -845,9 +853,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   useEffect(() => {
     setPage(1)
     if (tableWrapRef.current) tableWrapRef.current.scrollTop = 0
-  }, [view, monthFilter, centerFilter, producerFilter, milkTypeFilter, statusFilter, bankStatusFilter, seriesFilter, invoiceSendFilter, pageSize])
+  }, [view, monthFilter, centerFilter, producerFilter, milkTypeFilter, statusFilter, bankStatusFilter, bankTermsFilter, seriesFilter, invoiceSendFilter, pageSize])
 
-  useEffect(() => { setSelectedBankRowIds([]) }, [bankStatusFilter])
+  useEffect(() => { setSelectedBankRowIds([]) }, [bankStatusFilter, bankTermsFilter])
 
   useEffect(() => {
     if (tableWrapRef.current) tableWrapRef.current.scrollTop = 0
@@ -998,7 +1006,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
           )}
         </section>
 
-        <section className={`month-closure-toolbar${view === 'erpInvoices' ? ' month-closure-toolbar-invoices' : view === 'pricing' ? ' month-closure-toolbar-pricing' : ''}`} aria-label="Month closure filters">
+        <section className={`month-closure-toolbar${view === 'erpInvoices' ? ' month-closure-toolbar-invoices' : view === 'pricing' ? ' month-closure-toolbar-pricing' : ' month-closure-toolbar-bank'}`} aria-label="Month closure filters">
           <label>
             <span>Month</span>
               <input
@@ -1060,6 +1068,14 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               <option value="sending">Sending</option>
             </select>
           </label>}
+          {view === 'bankNote' && <label>
+            <span>Payment terms</span>
+            <select aria-label="Payment terms" value={bankTermsFilter} disabled={erpReferenceLoading} onChange={event => setBankTermsFilter(event.target.value)}>
+              <option value="">All payment terms</option>
+              {bankTermsOptions.map(terms => <option key={terms} value={terms}>{terms}</option>)}
+              <option value="missing">Missing</option>
+            </select>
+          </label>}
           {view === 'erpInvoices' && <label>
             <span>Series</span>
             <select value={seriesFilter} onChange={(event) => setSeriesFilter(event.target.value)}>
@@ -1078,6 +1094,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               setMilkTypeFilter('')
               setStatusFilter('all')
               setBankStatusFilter('all')
+              setBankTermsFilter('')
               setSeriesFilter('')
               setInvoiceSendFilter('all')
             }}
@@ -1582,7 +1599,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                           placeholder="No connected account"
                         />
                       </td>
-                      <td>{['3030', '3080'].includes(bankRow.erpProducer?.paymentTerms || '') ? bankRow.erpProducer?.paymentTerms : '-'}</td>
+                      <td>{bankRow.erpProducer?.paymentTerms?.trim() || '-'}</td>
                       <td>
                         <span
                           className={`month-closure-bank-status ${bankRow.status}`}
