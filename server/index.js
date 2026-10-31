@@ -118,6 +118,8 @@ import { initializeMonthlyCollectors, changeMonthlyCollector, collectorPricingRo
 import { connectInvoiceErp, executeInvoiceSend } from './monthlyInvoiceSend.js'
 import { validateInvoiceBatch, prepareInvoiceFromContext, previewInvoiceBatch } from './monthlyInvoiceBatch.js'
 import { monthlyAvizApprovalContext } from './monthlyAvizPricingService.js'
+import { bankExportStore } from './bankExportStore.js'
+import { buildBankExportSnapshot } from './bankExportSnapshot.js'
 import { getPublicWeighbridgeConfig, getWeighbridgeConfig, readCurrentWeighbridgeWeight } from './weighbridgeService.js'
 
 const app = express()
@@ -2068,6 +2070,42 @@ app.get('/api/month-closure/pricing-rows', requirePermission('month_closure'), a
   } catch (error) {
     next(error)
   }
+})
+
+app.use('/api/bank-exports', requirePermission('month_closure'), (request, response, next) => {
+  response.set('Cache-Control', 'no-store')
+  if (!isSqlOcrStoreEnabled()) return response.status(503).json({ error: 'SQL storage is required for bank export history.' })
+  next()
+})
+app.get('/api/bank-exports', async (request, response, next) => {
+  try { response.json(await bankExportStore.list(String(request.query.month || ''))) }
+  catch (error) { next(error) }
+})
+app.post('/api/bank-exports', async (request, response, next) => {
+  try {
+    const batch = await bankExportStore.create(request.body, request.authUser, async input => {
+      const context = await monthlyAvizApprovalContext(monthlyReconciliationFromJobs)
+      const pricing = await listMonthlyProducerPricingRows([input.month])
+      const rows = monthClosurePricingFromJobs(context.jobs, { month: input.month }, pricing, context.approvals, context.references, context.collectors).rows
+      return buildBankExportSnapshot(input, rows, context.references?.producers || [])
+    })
+    response.status(201).json(batch)
+  } catch (error) { next(error) }
+})
+app.get('/api/bank-exports/:id', async (request, response, next) => {
+  try { response.json(await bankExportStore.get(request.params.id)) }
+  catch (error) { next(error) }
+})
+app.get('/api/bank-exports/:id/file', async (request, response, next) => {
+  try {
+    const batch = await bankExportStore.get(request.params.id, true)
+    response.set('Content-Disposition', `attachment; filename="${batch.filename}"`)
+    response.type(batch.mimeType).send(batch.fileData)
+  } catch (error) { next(error) }
+})
+app.post('/api/bank-exports/:id/cancel', async (request, response, next) => {
+  try { response.json(await bankExportStore.cancel(request.params.id, request.body?.reason, request.authUser)) }
+  catch (error) { next(error) }
 })
 
 app.get('/api/month-closure/collectors', requirePermission('month_closure'), async (request, response, next) => {

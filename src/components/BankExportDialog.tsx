@@ -1,13 +1,17 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { Download } from 'lucide-react'
-import { BANK_PAYER_IBAN, BANK_EXPORT_MAX_PAYMENTS, bankExportIssues, createBankExportDownload, type BankExportRow } from '../bankNoteExport'
+import { BANK_PAYER_IBAN, BANK_EXPORT_MAX_PAYMENTS, bankExportIssues, type BankExportRow } from '../bankNoteExport'
+import { bankExportRequest, downloadSavedBankExport, newBankExportRequestKey, type BankExportBatch } from '../bankExportHistory'
 
 export type BankExportDialogHandle = { open: (month: string, rows: BankExportRow[]) => void }
 export const BankExportDialog = forwardRef<BankExportDialogHandle, {
-  onExported: (month: string, rows: BankExportRow[]) => void
+  onExported: (batch: BankExportBatch) => void
 }>(function BankExportDialog({ onExported }, ref) {
   const dialog = useRef<HTMLDialogElement>(null)
   const busyRef = useRef(false)
+  const requestKey = useRef('')
+  const savedBatch = useRef<BankExportBatch | null>(null)
+  const [submitted, setSubmitted] = useState(false)
   const [month, setMonth] = useState('')
   const [rows, setRows] = useState<BankExportRow[]>([])
   const [busy, setBusy] = useState(false)
@@ -17,6 +21,9 @@ export const BankExportDialog = forwardRef<BankExportDialogHandle, {
     setMonth(selectedMonth)
     setRows(selectedRows)
     setError('')
+    requestKey.current = newBankExportRequestKey()
+    savedBatch.current = null
+    setSubmitted(false)
     dialog.current?.showModal()
   } }), [])
   const invalidCount = rows.filter(row => bankExportIssues(row).length).length
@@ -29,21 +36,21 @@ export const BankExportDialog = forwardRef<BankExportDialogHandle, {
     busyRef.current = true
     setBusy(true)
     setError('')
+    setSubmitted(true)
     try {
-      const download = await createBankExportDownload(month, rows)
-      const blob = new Blob([new Uint8Array(download.data)], { type: download.mimeType })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = download.filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      onExported(month, rows)
+      if (!savedBatch.current) {
+        savedBatch.current = await bankExportRequest<BankExportBatch>('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month, rows, requestKey: requestKey.current }) })
+        if (savedBatch.current.status === 'CANCELLED') {
+          savedBatch.current = null
+          throw new Error('This export was cancelled. Check Export history before creating another export.')
+        }
+        onExported(savedBatch.current)
+      }
+      await downloadSavedBankExport(savedBatch.current)
       dialog.current?.close()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Excel export failed. No payments were marked exported.')
+      setError(cause instanceof Error ? cause.message : 'Could not confirm the export. Retry or check Export history before starting another export.')
     } finally {
       busyRef.current = false
       setBusy(false)
@@ -62,16 +69,16 @@ export const BankExportDialog = forwardRef<BankExportDialogHandle, {
         <tbody>{rows.map((row, index) => {
           const issues = bankExportIssues(row)
           return <tr key={row.id}>
-            <td>{row.producerName}<small>#{index + 1} · {row.milkType}</small></td>
+            <td>{row.producerName}<small>#{index + 1} · {row.milkType}</small><small>{row.centers?.join(', ')}</small></td>
             <td>{row.iban}</td><td>{row.amount?.toFixed(2)}</td>
-            <td><input aria-label={`Recipient name for row ${index + 1}`} value={row.recipientName} disabled={busy} aria-invalid={!row.recipientName.trim() || row.recipientName.trim().length > 40} onChange={event => edit(row.id, 'recipientName', event.target.value)} /><small>{row.recipientName.trim().length}/40</small></td>
-            <td><textarea aria-label={`Comment for row ${index + 1}`} value={row.comment} disabled={busy} rows={2} aria-invalid={!row.comment.trim() || row.comment.trim().length > 70} onChange={event => edit(row.id, 'comment', event.target.value)} /><small>{row.comment.trim().length}/70</small>{issues.length > 0 && <small className="bank-export-issue">{issues.join(' ')}</small>}</td>
+            <td><input aria-label={`Recipient name for row ${index + 1}`} value={row.recipientName} disabled={busy || submitted} aria-invalid={!row.recipientName.trim() || row.recipientName.trim().length > 40} onChange={event => edit(row.id, 'recipientName', event.target.value)} /><small>{row.recipientName.trim().length}/40</small></td>
+            <td><textarea aria-label={`Comment for row ${index + 1}`} value={row.comment} disabled={busy || submitted} rows={2} aria-invalid={!row.comment.trim() || row.comment.trim().length > 70} onChange={event => edit(row.id, 'comment', event.target.value)} /><small>{row.comment.trim().length}/70</small>{issues.length > 0 && <small className="bank-export-issue">{issues.join(' ')}</small>}</td>
           </tr>
         })}</tbody>
       </table></div>
       <div className="month-closure-bulk-actions">
         <button type="button" className="month-closure-cancel-bulk" disabled={busy} onClick={() => dialog.current?.close()}>Cancel</button>
-        <button type="button" className="bank-note-summary-button" disabled={busy || invalidCount > 0 || !rows.length} onClick={() => void download()}><Download size={18} aria-hidden="true" />{busy ? 'Exporting...' : 'Export Excel'}</button>
+        <button type="button" className="bank-note-summary-button" disabled={busy || invalidCount > 0 || !rows.length} onClick={() => void download()}><Download size={18} aria-hidden="true" />{busy ? 'Saving export...' : savedBatch.current ? 'Download saved export' : submitted ? 'Retry export' : 'Export Excel'}</button>
       </div>
     </div>
   </dialog>

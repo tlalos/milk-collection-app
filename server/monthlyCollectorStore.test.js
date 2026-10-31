@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import ts from 'typescript'
+import { build } from 'esbuild'
 import { isCollectorName, collectorReference, collectorPricingRows } from './monthlyCollectorStore.js'
 import { buildInvoicePreview } from './monthlyInvoiceSend.js'
 
@@ -41,8 +40,8 @@ test('invalid collector payments and ordinary zero-liter invoices remain blocked
 })
 
 test('browser collector amounts agree with server including rounding and tax', async () => {
-  const source=await readFile(new URL('../src/monthlyInvoiceAmounts.ts',import.meta.url),'utf8')
-  const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText
+  const compiled=await build({entryPoints:['src/monthlyInvoiceAmounts.ts'],bundle:true,write:false,platform:'node',format:'esm'})
+  const js=compiled.outputFiles[0].text
   const {monthlyInvoiceAmounts}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
   for(const [commission,electricity,extra,regular] of [[300,100,false,false],[15.1234,23.4567,true,false],[1.005,0,false,true]]) {
     const front=monthlyInvoiceAmounts(0,0.1,commission,electricity,extra,regular,true)

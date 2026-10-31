@@ -9,7 +9,10 @@ import { MonthClosureCenterSummary } from './MonthClosureCenterSummary'
 import type { JournalProducer, ReceptionFactor } from '../monthClosureCenterSummary'
 import { MonthClosureHelp } from './MonthClosureHelp'
 import { BankExportDialog, type BankExportDialogHandle } from './BankExportDialog'
-import { prepareBankExport, type BankExportRow } from '../bankNoteExport'
+import { prepareBankExport } from '../bankNoteExport'
+import { bankExportRequest, type BankExportBatch, type BankExportHistory, type BankExportPayment } from '../bankExportHistory'
+import { BankExportHistoryDialog, type BankExportHistoryHandle } from './BankExportHistoryDialog'
+import { loadBankNoteDrafts, saveBankNoteField, resolveBankNoteDraft, isBankNoteStorageKey, type BankNoteDrafts } from '../bankNoteDrafts'
 import { appPath } from '../ocrPaths'
 import { invoicePricingLockReason, matchesInvoiceSendFilter, monthlyInvoiceBlockReason, monthlyInvoiceSeries, type InvoiceSendFilter } from '../monthlyInvoiceEligibility'
 import { monthlyInvoiceAmounts, pricingSubtotal } from '../monthlyInvoiceAmounts'
@@ -91,17 +94,6 @@ interface MonthClosurePayload {
 type PricingDraftField = 'price' | 'commission' | 'electricity'
 type PricingDrafts = Record<string, Partial<Record<PricingDraftField, string>>>
 type PricingSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-interface BankNoteDraft {
-  connectedAccount?: string
-  comment?: string
-  status?: BankTransferStatus
-  exportedAmount?: number
-  exportedLiters?: number
-  exportedAt?: string
-}
-type BankNoteDrafts = Record<string, BankNoteDraft>
-
-const bankNoteStorageKey = 'milk-collection-bank-note-v1'
 
 const emptySummary: MonthClosureSummary = {
   rowCount: 0,
@@ -159,27 +151,6 @@ function bankProducerOption(producer: OcrReferenceProducer) {
   return `${producer.producerName} [${producer.producerCode}]`
 }
 
-function loadStoredBankNoteDrafts(month: string) {
-  if (!month) return {}
-  try {
-    const stored = JSON.parse(localStorage.getItem(bankNoteStorageKey) || '{}') as Record<string, BankNoteDrafts>
-    return stored[month] || {}
-  } catch {
-    return {}
-  }
-}
-
-function saveStoredBankNoteDrafts(month: string, drafts: BankNoteDrafts) {
-  if (!month) return
-  try {
-    const stored = JSON.parse(localStorage.getItem(bankNoteStorageKey) || '{}') as Record<string, BankNoteDrafts>
-    stored[month] = drafts
-    localStorage.setItem(bankNoteStorageKey, JSON.stringify(stored))
-  } catch {
-    // Keep the in-memory state when browser storage is unavailable.
-  }
-}
-
 function normalizedFlag(value: unknown) {
   return String(value ?? '').trim().toLocaleLowerCase()
 }
@@ -227,8 +198,14 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [pricingSaveMessage, setPricingSaveMessage] = useState('')
   const [showPricingSaved, setShowPricingSaved] = useState(false)
   const [bankNoteDrafts, setBankNoteDrafts] = useState<BankNoteDrafts>({})
+  const [bankDraftError, setBankDraftError] = useState('')
   const [selectedBankRowIds, setSelectedBankRowIds] = useState<string[]>([])
   const bankExportDialogRef = useRef<BankExportDialogHandle>(null)
+  const bankHistoryRef = useRef<BankExportHistoryHandle>(null)
+  const [bankPayments, setBankPayments] = useState<BankExportPayment[]>([])
+  const [bankHistoryMonth, setBankHistoryMonth] = useState('')
+  const [bankHistoryError, setBankHistoryError] = useState('')
+  const [bankHistoryRevision, setBankHistoryRevision] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [monthFilter, setMonthFilter] = useState(() => new URLSearchParams(window.location.search).get('month') || '')
@@ -286,6 +263,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const [erpReferenceError, setErpReferenceError] = useState('')
 
   async function loadRows(month = monthFilter) {
+    setBankHistoryRevision(value => value + 1)
     setRetainedPricingRows({ key: pricingFilterKey, ids: [] })
     setLoading(true)
     setInvoiceStatusesLoaded(false)
@@ -467,17 +445,10 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }
 
   function updateBankNoteDraft(rowId: string, field: 'connectedAccount' | 'comment', value: string) {
-    setBankNoteDrafts((current) => {
-      const next = {
-        ...current,
-        [rowId]: {
-          ...current[rowId],
-          [field]: value,
-        },
-      }
-      saveStoredBankNoteDrafts(monthFilter, next)
-      return next
-    })
+    try {
+      setBankNoteDrafts(saveBankNoteField(localStorage, monthFilter, rowId, field, value))
+      setBankDraftError('')
+    } catch { setBankDraftError('Could not save bank-note data in this browser. Export is disabled until the saved data can be checked. Do not clear browser data.') }
   }
 
   function pricingDraftValue(row: MonthClosurePricingRow, field: PricingDraftField) {
@@ -589,9 +560,18 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   }, [])
 
   useEffect(() => {
-    setBankNoteDrafts(loadStoredBankNoteDrafts(monthFilter))
+    const reload = () => {
+      try { setBankNoteDrafts(loadBankNoteDrafts(localStorage, monthFilter)); setBankDraftError('') }
+      catch { setBankDraftError('Could not read saved bank-note data. Do not clear browser data; check the original bank files before exporting again.') }
+    }
+    const sync = (event: StorageEvent) => { if (isBankNoteStorageKey(event.key)) reload() }
+    const focus = () => { reload(); if (bankNotePage) setBankHistoryRevision(value => value + 1) }
+    reload()
     setSelectedBankRowIds([])
-  }, [monthFilter])
+    window.addEventListener('storage', sync)
+    window.addEventListener('focus', focus)
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener('focus', focus) }
+  }, [monthFilter, bankNotePage])
 
   useEffect(() => {
     if (!changedPricingRows.length || pricingSaveStatus === 'saving' || pricingSaveStatus === 'error') return
@@ -803,32 +783,46 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
       totalLiters: invoiceRow.row.liters,
       hasMissingAmount: invoiceRow.finalResult === null,
     }))
+  useEffect(() => {
+    if (!bankNotePage || !monthFilter) return
+    const controller = new AbortController()
+    setBankHistoryMonth(''); setBankHistoryError('')
+    void bankExportRequest<BankExportHistory>(`?month=${encodeURIComponent(monthFilter)}`, { signal: controller.signal }).then(history => {
+      if (controller.signal.aborted) return
+      setBankPayments(history.payments); setBankHistoryMonth(monthFilter)
+    }).catch(cause => { if (!controller.signal.aborted) setBankHistoryError((cause as Error).message) })
+    return () => controller.abort()
+  }, [bankNotePage, monthFilter, bankHistoryRevision])
+  const bankHistoryReady = bankHistoryMonth === monthFilter && !bankHistoryError && !bankDraftError
+  const bankPaymentById = new Map(bankHistoryMonth === monthFilter && !bankHistoryError ? bankPayments.map(payment => [payment.id, payment]) : [])
   const preparedBankRows = bankRows.map((bankRow) => {
     const legacyDraft = bankNoteDrafts[normalizedSearch(bankRow.producerCode)]
     const multipleRows = rows.filter(row => normalizedSearch(row.producerCode) === normalizedSearch(bankRow.producerCode)).length > 1
     const legacyPaymentNeedsReview = multipleRows && legacyDraft?.status === 'sent'
-    const draft = bankNoteDrafts[bankRow.id] || (!multipleRows ? legacyDraft : undefined) || {}
+    const draft = resolveBankNoteDraft(bankNoteDrafts, bankRow.id, bankRow.producerCode, multipleRows)
     const connectedAccount = draft.connectedAccount || ''
     const connectedProducer = bankProducerByOption.get(connectedAccount) || null
     const paymentProducer = connectedProducer || bankRow.erpProducer
+    const savedExport = bankPaymentById.get(bankRow.id)
     return {
       ...bankRow,
       legacyPaymentNeedsReview,
       connectedAccount,
       connectedProducer,
       paymentProducer,
+      savedExport,
       comment: draft.comment || '',
-      status: (draft.status || 'pending') as BankTransferStatus,
-      exportedAmount: typeof draft.exportedAmount === 'number' ? draft.exportedAmount : null,
-      exportedLiters: typeof draft.exportedLiters === 'number' ? draft.exportedLiters : null,
-      exportedAt: draft.exportedAt || '',
+      status: (savedExport ? 'sent' : draft.status || 'pending') as BankTransferStatus,
+      exportedAmount: savedExport?.amount ?? (typeof draft.exportedAmount === 'number' ? draft.exportedAmount : null),
+      exportedLiters: savedExport?.totalLiters ?? (typeof draft.exportedLiters === 'number' ? draft.exportedLiters : null),
+      exportedAt: savedExport?.createdAt || draft.exportedAt || '',
       finalAmount: bankRow.hasMissingAmount || legacyPaymentNeedsReview ? null : bankRow.finalAmount,
     }
   })
   const visibleBankRows = preparedBankRows.filter(row => bankStatusFilter === 'all' || row.status === bankStatusFilter)
   const pendingBankRows = visibleBankRows.filter((row) => row.status !== 'sent')
   const sentBankRows = visibleBankRows.filter((row) => row.status === 'sent')
-  const eligibleBankRows = pendingBankRows.filter((row) => row.paymentProducer?.iban && row.finalAmount !== null)
+  const eligibleBankRows = pendingBankRows.filter((row) => bankHistoryReady && row.paymentProducer?.iban && row.finalAmount !== null && row.finalAmount > 0)
   const selectedBankRows = eligibleBankRows.filter((row) => selectedBankRowIds.includes(row.id))
   const readyBankRows = eligibleBankRows.length
   const bankTotal = visibleBankRows.reduce((total, row) => total + (row.finalAmount ?? 0), 0)
@@ -844,7 +838,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
   const pageEligibleInvoices = pagedInvoiceRows.filter(invoice => !invoice.sendBlockReason)
   const pageSelectedInvoices = pageEligibleInvoices.filter(invoice => selectedInvoiceRowIds.includes(invoice.row.id))
   const allEligibleInvoicesSelected = pageEligibleInvoices.length > 0 && pageSelectedInvoices.length === pageEligibleInvoices.length
-  const pageEligibleBankRows = pagedBankRows.filter(row => row.status !== 'sent' && row.paymentProducer?.iban && row.finalAmount !== null)
+  const pageEligibleBankRows = pagedBankRows.filter(row => eligibleBankRows.some(eligible => eligible.id === row.id))
   const pageSelectedBankRows = pageEligibleBankRows.filter(row => selectedBankRowIds.includes(row.id))
   const allEligibleBankRowsSelected = pageEligibleBankRows.length > 0 && pageSelectedBankRows.length === pageEligibleBankRows.length
 
@@ -914,23 +908,11 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
     }
   }
 
-  function markBankRowsExported(month: string, exportedRows: BankExportRow[]) {
-    const exportedAt = new Date().toISOString()
-    setBankNoteDrafts((current) => {
-      const next = { ...current }
-      for (const row of exportedRows) {
-        next[row.id] = {
-          ...next[row.id],
-          status: 'sent',
-          exportedAmount: row.amount ?? undefined,
-          exportedLiters: row.totalLiters,
-          exportedAt,
-        }
-      }
-      saveStoredBankNoteDrafts(month, next)
-      return next
-    })
+  function markBankRowsExported(batch: BankExportBatch) {
+    if (batch.month === monthFilter) setBankPayments(current => [...current.filter(payment => !(batch.lines || []).some(row => row.id === payment.id)),
+      ...(batch.lines || []).map(row => ({ id: row.id, batchId: batch.batchId, exportNumber: batch.exportNumber, createdAt: batch.createdAt, amount: row.amount || 0, totalLiters: row.totalLiters }))])
     setSelectedBankRowIds([])
+    setBankHistoryRevision(value => value + 1)
   }
 
   const addCollectorButton = <button className="month-closure-add-collector" type="button" disabled={loading || !monthFilter || invoiceSendBusy || invoiceDateSaving || pricingSaveStatus === 'saving' || changedPricingRows.length > 0}
@@ -1122,6 +1104,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
               </p>
             </div>
             {view === 'bankNote' && <BankNoteSummary month={monthFilter} volumes={rows} payments={visibleBankRows} filtered={hasActiveFilters} loading={loading} />}
+            {view === 'bankNote' && <button type="button" className="bank-note-summary-button" disabled={!monthFilter} onClick={() => bankHistoryRef.current?.open(monthFilter)}><History size={18} />Export history</button>}
             {view !== 'bankNote' && <MonthClosureCenterSummary month={monthFilter} rows={view === 'erpInvoices' ? invoiceRows.map(item => item.row) : filteredRows} journalProducers={journalProducers} factors={receptionFactors} filtered={hasActiveFilters} loading={loading || !invoiceStatusesLoaded} />}
             {view === 'erpInvoices' && (
               <div className="month-closure-invoice-tools">
@@ -1173,6 +1156,9 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
           {view === 'bankNote' && (
             <>
               <BankExportDialog ref={bankExportDialogRef} onExported={markBankRowsExported} />
+              <BankExportHistoryDialog ref={bankHistoryRef} isAdmin={access?.isAdmin === true} onChanged={() => { setSelectedBankRowIds([]); setBankHistoryRevision(value => value + 1) }} />
+              {bankHistoryError && <p role="alert" className="bank-history-error">Export history unavailable: {bankHistoryError} Export is disabled until history can be checked.</p>}
+              {bankDraftError && <p role="alert" className="bank-history-error">{bankDraftError}</p>}
               <div className="month-closure-bank-tools">
                 <div>
                   <strong>{readyBankRows} ready for bank</strong>
@@ -1551,7 +1537,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                 )}
                 {!loading && pagedBankRows.map((bankRow) => {
                   const readyForBank = Boolean(bankRow.paymentProducer?.iban && bankRow.finalAmount !== null)
-                  const canSelect = readyForBank && bankRow.status !== 'sent'
+                  const canSelect = bankHistoryReady && readyForBank && bankRow.finalAmount! > 0 && bankRow.status !== 'sent'
                   return (
                     <tr key={bankRow.id} className={`${readyForBank ? 'ready' : 'blocked'} ${bankRow.status === 'sent' ? 'bank-sent' : ''}`}>
                       <td className="month-closure-bank-check">
@@ -1578,6 +1564,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       <td>
                         <input
                           className="month-closure-bank-input"
+                          disabled={bankRow.status === 'sent'}
                           value={bankRow.comment}
                           onChange={(event) => updateBankNoteDraft(bankRow.id, 'comment', event.currentTarget.value)}
                           aria-label={`Bank comment for ${bankRow.producerName}`}
@@ -1587,6 +1574,7 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                       <td>
                         <input
                           className="month-closure-bank-account"
+                          disabled={bankRow.status === 'sent'}
                           list="month-closure-bank-producers"
                           value={bankRow.connectedAccount}
                           onChange={(event) => updateBankNoteDraft(bankRow.id, 'connectedAccount', event.currentTarget.value)}
@@ -1601,6 +1589,8 @@ export function MonthClosureScreen({ onBack, bankNotePage = false }: { onBack: (
                         >
                           {bankRow.status === 'sent' ? 'Exported' : 'Pending'}
                         </span>
+                        {bankRow.savedExport ? <button type="button" onClick={() => bankHistoryRef.current?.open(monthFilter,bankRow.savedExport!.batchId)}>Export {bankRow.savedExport.exportNumber}</button>
+                          : bankRow.status === 'sent' && <small className="month-closure-source">Legacy export (this browser)</small>}
                       </td>
                     </tr>
                   )

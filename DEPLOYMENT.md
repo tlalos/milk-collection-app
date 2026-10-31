@@ -322,6 +322,36 @@ Local production clones still block saves by default. After explicit approval,
 when SQL_SERVER is loopback. All other business writes and outbound HTTP remain
 blocked. The UI shows a read-only notice when this exception is not enabled.
 
+## Bank export history
+
+Bank-note exports now require SQL storage. The first history request creates
+`dbo.BankExportBatches` and `dbo.BankExportLines` if missing, using the application's
+existing SQL account. Deploy backend and frontend together; do not keep an older
+bank-export browser tab open during the upgrade.
+
+Each new export saves its original XLSX or ZIP bytes, SHA-256 checksum, month and
+export number, creator, timestamp, totals, and immutable payment snapshots.
+Snapshots include the original producer's collection center and connected-account
+recipient. The file format and 99-payment limit per XLSX are unchanged. Include
+these tables in normal database backups; no separate export-file folder is needed.
+
+An active export prevents the same source payment being exported again. A retry
+of the same request retrieves the saved batch. Re-downloads do not create exports.
+Only administrators can cancel a batch with a reason; cancellation preserves the
+file and snapshots but releases its payments for another export. It does not
+cancel a transfer already submitted to the bank. Exported does not mean paid.
+
+Existing browser-local export markers remain labelled as legacy. They are not
+backfilled into history because the original files and exact snapshots are not
+available. New exports are shared across users and browsers.
+
+Bank-note comment/account edits now use separate per-field browser keys and never
+rewrite the legacy export-status blob. Open tabs synchronize these drafts through
+storage events and recheck SQL history on focus. Unreadable legacy storage disables
+new exports instead of silently treating missing statuses as pending. This cannot
+recover markers already overwritten in an older version: reconcile those payments
+against the original exported bank files before re-exporting or restoring status.
+
 ## URLs and health check
 
 - `/ocr/upload`
